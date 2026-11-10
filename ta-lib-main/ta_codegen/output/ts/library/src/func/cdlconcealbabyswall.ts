@@ -331,6 +331,9 @@ export function cdlconcealbabyswallDisplayShift(outputIdx: number, options?: Cdl
  *   finding rests on just 4 occurrences out of 4.7 million candle lines, and it
  *   ranks 101st of 103 patterns overall.
  *   ([thepatternsite.com](https://thepatternsite.com/ConcealBaby.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it
+ *   last of 103 patterns by how often it occurs ([Concealing Baby
+ *   Swallow](https://thepatternsite.com/ConcealBaby.html)).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -603,6 +606,7 @@ export class CdlconcealbabyswallStream {
 function cdlconcealbabyswallStepImpl(sp: CdlconcealbabyswallStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
   let ShadowVeryShortPeriodTotalRange1 = 0;
   let ShadowVeryShortPeriodTotalTrailRange1 = 0;
+  let ringPosL_ShadowVeryShortTrailingIdx = 0;
   const ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
   const ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
   const ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -649,10 +653,10 @@ function cdlconcealbabyswallStepImpl(sp: CdlconcealbabyswallStream, inOpen: numb
   sp.lag3_inClose = sp.lag2_inClose;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-  if (sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx) {
-    sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-  }
+  ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+  sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
 }
 
 function cdlconcealbabyswallOpenImpl(

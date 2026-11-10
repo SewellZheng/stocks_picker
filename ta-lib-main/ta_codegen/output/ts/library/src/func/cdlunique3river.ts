@@ -320,6 +320,11 @@ export function cdlunique3riverDisplayShift(outputIdx: number, options?: Cdluniq
  *   Bulkowski's testing found the opposite: it acts as a bearish continuation 60%
  *   of the time, ranking 60th of 103 patterns overall.
  *   ([thepatternsite.com](https://thepatternsite.com/Unique3RiverBottom.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it
+ *   89th of 103 patterns by how often it occurs ([Unique Three River
+ *   Bottom](https://thepatternsite.com/Unique3RiverBottom.html)), and it fires 5
+ *   times in [about 16,000 daily crypto
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -583,6 +588,8 @@ export class Cdlunique3riverStream {
 }
 
 function cdlunique3riverStepImpl(sp: Cdlunique3riverStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
+  let ringPosL_BodyLongTrailingIdx = 0;
+  let ringPosL_BodyShortTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -622,16 +629,16 @@ function cdlunique3riverStepImpl(sp: Cdlunique3riverStream, inOpen: number, inHi
   sp.lag1_inLow = inLow;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
-  sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType === 1) ? (inHigh - inLow) : ((BodyShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-  if (sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx) {
-    sp.ringPos_BodyShortTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+  ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+  sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType === 1) ? (inHigh - inLow) : ((BodyShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+  ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+  sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
 }
 
 function cdlunique3riverOpenImpl(

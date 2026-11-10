@@ -301,11 +301,16 @@ export function cdltristarDisplayShift(outputIdx: number, options?: CdltristarOp
  * **Notes**
  * - This reversal pattern does not verify the prior trend it classically assumes.
  * - Bulkowski's testing found both Tristar variants reverse only marginally better
- *   than chance — bullish 60% of the time (rank 28/103 overall, but rare:
- *   frequency rank 79/103) and bearish just 52% of the time (rank 76/103) —
- *   despite the "exhaustion signal" framing, one of the weaker reversal signals in
- *   his candlestick set.
+ *   than chance: bullish 60% of the time (rank 28/103 overall) and bearish just
+ *   52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is
+ *   one of the weaker reversal signals in his candlestick set.
  *   ([thepatternsite.com](https://thepatternsite.com/TriStarBull.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks
+ *   the bullish form 79th and the bearish 77th of 103 patterns by how often they
+ *   occur ([bullish](https://thepatternsite.com/TriStarBull.html),
+ *   [bearish](https://thepatternsite.com/TriStarBear.html)), and it fires 5 times
+ *   in [about 16,000 daily crypto
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -547,6 +552,7 @@ export class CdltristarStream {
 }
 
 function cdltristarStepImpl(sp: CdltristarStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
+  let ringPosL_BodyTrailingIdx = 0;
   const BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
   const BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
   const BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -583,11 +589,11 @@ function cdltristarStepImpl(sp: CdltristarStream, inOpen: number, inHigh: number
   sp.lag1_inLow = inLow;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyDoji_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType === 1) ? (inHigh - inLow) : ((BodyDoji_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-  if (sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx) {
-    sp.ringPos_BodyTrailingIdx = 0;
-  }
+  ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+  sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyDoji_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType === 1) ? (inHigh - inLow) : ((BodyDoji_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+  ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+  sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
 }
 
 function cdltristarOpenImpl(

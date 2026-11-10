@@ -211,7 +211,8 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>This reversal pattern does not verify the prior trend it classically assumes.</li>
-    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/TriStarBull.html">bullish</a>, <a href="https://thepatternsite.com/TriStarBear.html">bearish</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -281,7 +282,8 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>This reversal pattern does not verify the prior trend it classically assumes.</li>
-    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/TriStarBull.html">bullish</a>, <a href="https://thepatternsite.com/TriStarBear.html">bearish</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -533,6 +535,7 @@
    }
    private void cdltristarStepImpl( CdltristarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -569,11 +572,11 @@
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
    }
    private RetCode cdltristarOpenImpl( CdltristarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

@@ -82,11 +82,9 @@ body .vp-toc-placeholder {
   }
 }
 
-// The `## Properties` checkbox table (wrapped in `.flag-table` by
-// `backends/docs_site.rs`) has no column header: no one label covers the set
-// (`Identity at Period 1` is not a display hint). Markdown cannot express a table
-// without a header row, so the generator emits an empty header cell and the row it
-// renders as is dropped here.
+// The `## Properties` checkbox tables have no column header. Markdown cannot
+// express a table without a header row, so the generator emits an empty header
+// cell and the row it renders as is dropped here.
 .flag-table thead {
   display: none;
 }
@@ -353,4 +351,19 @@ html[data-theme="dark"] {
     width: 100%;
     height: auto;
   }
+}
+
+// The CSV/SVG links under a function-page chart: small and centred on it.
+.ta-chart-links {
+  margin-top: -0.6rem;
+  text-align: center;
+  font-size: 0.85em;
+}
+
+// The `## Properties` checkboxes as two side-by-side tables; the second wraps
+// below the first on a narrow screen.
+.flag-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 3rem;
 }

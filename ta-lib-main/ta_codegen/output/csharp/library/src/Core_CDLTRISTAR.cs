@@ -268,7 +268,8 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>This reversal pattern does not verify the prior trend it classically assumes.</description></item>
-   /// <item><description>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<see href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<see href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/TriStarBull.html">bullish</see>, <see href="https://thepatternsite.com/TriStarBear.html">bearish</see>), and it fires 5 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -354,7 +355,8 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>This reversal pattern does not verify the prior trend it classically assumes.</description></item>
-   /// <item><description>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<see href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<see href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/TriStarBull.html">bullish</see>, <see href="https://thepatternsite.com/TriStarBear.html">bearish</see>), and it fires 5 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -629,6 +631,7 @@ public partial class Core
 
    private void CdltristarStepImpl( CdltristarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -665,11 +668,13 @@ public partial class Core
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      if( ringPosL_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
+         ringPosL_BodyTrailingIdx = 0;
       }
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
    }
 
    private RetCode CdltristarOpenImpl( CdltristarStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

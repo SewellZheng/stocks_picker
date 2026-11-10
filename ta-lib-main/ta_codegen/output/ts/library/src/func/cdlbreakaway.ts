@@ -318,6 +318,10 @@ export function cdlbreakawayDisplayShift(outputIdx: number, options?: Cdlbreakaw
  *   doesn't capture: bullish Breakaway reverses only 59% of the time ("near
  *   random"), while bearish Breakaway reverses 63% of the time overall.
  *   ([thepatternsite.com](https://thepatternsite.com/BullBreakaway.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks
+ *   the bullish form 97th and the bearish 98th of 103 patterns by how often they
+ *   occur ([bullish](https://thepatternsite.com/BullBreakaway.html),
+ *   [bearish](https://thepatternsite.com/BearBreakaway.html)).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -592,6 +596,7 @@ export class CdlbreakawayStream {
 }
 
 function cdlbreakawayStepImpl(sp: CdlbreakawayStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
+  let ringPosL_BodyLongTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -641,10 +646,10 @@ function cdlbreakawayStepImpl(sp: CdlbreakawayStream, inOpen: number, inHigh: nu
   sp.lag3_inClose = sp.lag2_inClose;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
 }
 
 function cdlbreakawayOpenImpl(

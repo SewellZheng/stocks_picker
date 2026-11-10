@@ -297,6 +297,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the surrounding trend the pattern classically assumes for significance.</description></item>
    /// <item><description>TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical study of the pattern (<i>Encyclopedia of Candlestick Charts</i>) found the opposite in practice — it acted as a reversal far more often than a continuation — so traders who follow his research read this pattern's signal in the opposite direction from what its sign here suggests.</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks the bullish form 95th and the bearish 94th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/ThreeLineStrikeBull.html">bullish</see>, <see href="https://thepatternsite.com/ThreeLineStrikeBear.html">bearish</see>). It fires more often in crypto: 67 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -385,6 +386,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the surrounding trend the pattern classically assumes for significance.</description></item>
    /// <item><description>TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical study of the pattern (<i>Encyclopedia of Candlestick Charts</i>) found the opposite in practice — it acted as a reversal far more often than a continuation — so traders who follow his research read this pattern's signal in the opposite direction from what its sign here suggests.</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks the bullish form 95th and the bearish 94th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/ThreeLineStrikeBull.html">bullish</see>, <see href="https://thepatternsite.com/ThreeLineStrikeBear.html">bearish</see>). It fires more often in crypto: 67 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -679,6 +681,7 @@ public partial class Core
    {
       double NearPeriodTotalRange2 = 0.0;
       double NearPeriodTotalTrailRange2 = 0.0;
+      int ringPosL_NearTrailingIdx = 0;
       int Near_rangeType = sp.cs_Near_rangeType;
       int Near_avgPeriod = sp.cs_Near_avgPeriod;
       double Near_factor = sp.cs_Near_factor;
@@ -726,10 +729,12 @@ public partial class Core
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      if( ringPosL_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
+         ringPosL_NearTrailingIdx = 0;
       }
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
 
    private RetCode Cdl3linestrikeOpenImpl( Cdl3linestrikeStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

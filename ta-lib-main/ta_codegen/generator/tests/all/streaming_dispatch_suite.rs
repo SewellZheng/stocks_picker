@@ -287,7 +287,7 @@ fn test_frames_index_outputs_by_declaration_position() {
 
     // The stream table reuses that same vector rather than emitting a second one.
     func.streaming = true;
-    let streamed = backends::stream_frame::render(std::slice::from_ref(&func));
+    let streamed = backends::stream_frame::render(std::slice::from_ref(&func), make_registry());
     assert!(
         streamed.contains("TA_VOutIsInt_MINMAXINDEX"),
         "the stream row must point at ta_variant_frame.h's vector"
@@ -296,6 +296,17 @@ fn test_frames_index_outputs_by_declaration_position() {
         streamed.contains(&format!("outReal[1] /* {b} */")),
         "the stream thunks must use the same declaration-position subscript"
     );
+}
+
+/// The flag picks the functions ta_regtest adds range-minimum vectors for and
+/// floors, so a 0 in every row disarms both with nothing failing. A GATOR tap is 0 bars
+/// deep at some shifts; ADXR's one tap is at least 1 deep at every period.
+#[test]
+fn stream_rows_flag_only_a_tap_that_may_be_zero_deep() {
+    let funcs: Vec<ir::FuncDef> = ["gator", "adxr"].iter().map(|n| load_indicator(n).0).collect();
+    let streamed = backends::stream_frame::render(&funcs, make_registry());
+    assert!(streamed.contains("TA_VOutIsInt_GATOR, 1 },"), "GATOR's row must carry nonGe1Tap 1");
+    assert!(streamed.contains("TA_VOutIsInt_ADXR, 0 },"), "ADXR's row must carry nonGe1Tap 0");
 }
 
 /// A cross-typed output pair is compared wherever it can actually alias, and
@@ -1646,8 +1657,11 @@ fn ring_slot_stores(step: &str) -> Vec<(usize, String)> {
     let mut next_id = 0usize;
     for line in step.lines() {
         let l = line.trim();
+        // The push writes through the step local it loads the position into,
+        // before advancing it: the same slot as `[sp->ringPos_..]`.
+        let l = l.replace("[ringPosL_", "[sp->ringPos_");
         if l.starts_with("sp->ring_") && l.contains("[sp->ringPos_") && l.ends_with(';') {
-            out.push((*stack.last().expect("block stack"), l.to_string()));
+            out.push((*stack.last().expect("block stack"), l.clone()));
         }
         for ch in l.chars() {
             match ch {
@@ -1689,9 +1703,9 @@ fn test_c_back_offset_ring_writes_the_current_bar_once() {
     // anything at all -- the assertion failed with a count of 0, not of 2. A
     // rename must not be able to turn this into a test of nothing, so the store
     // count is read off whatever the generator emits.
-    let stores: Vec<&str> = step
+    let stores: Vec<String> = step
         .lines()
-        .map(str::trim)
+        .map(|l| l.trim().replace("[ringPosL_", "[sp->ringPos_"))
         .filter(|l| l.contains("[sp->ringPos_EqualTrailingIdx] ="))
         .collect();
     assert!(
@@ -1700,7 +1714,7 @@ fn test_c_back_offset_ring_writes_the_current_bar_once() {
     );
     let mut seen = std::collections::BTreeSet::new();
     for s in &stores {
-        let ring = s.split('[').next().unwrap_or(s);
+        let ring = s.split('[').next().unwrap_or(s.as_str());
         assert!(
             seen.insert(ring),
             "stored twice per bar, with ringPos unmoved between: {s}"
@@ -1862,34 +1876,75 @@ fn test_c_stoch_composed_stream_section() {
     assert!(stream.contains("TA_STOCH_ReleaseImpl( stream );"));
 }
 
-/// Pin the ADXR composed Open's allocation-failure cleanup. The intermediate
-/// `adx` buffer's free is WITHHELD from the transcribed tail (the lag ring
-/// seeds from its tail first), so it stays live through the capture epilogue —
-/// every allocation-failure return there MUST free it, or an OOM leaks the
-/// buffer. The adversarial review caught exactly this leak; this guards the
-/// fix (each malloc-failure path frees everything allocated so far — no goto,
-/// no fault-injection harness, just correct per-return cleanup).
+/// Every failure return a composed C Open inserts after a delay line's buffer
+/// exists must free it, and the series the batch frees later: the
+/// allocation-failure block and the handle-allocation failure free every line,
+/// and Close frees every line too. Swept over every function with a line.
 #[test]
-fn test_c_adxr_open_frees_withheld_buffer_on_oom_paths() {
-    let (mut func, enums) = load_indicator("adxr");
-    func.streaming = true;
+fn test_c_composed_open_frees_every_delay_line_on_oom_paths() {
     let registry = make_registry();
     let helpers = common::make_helpers();
-    let c = backends::c::generate(&func, &enums, registry, helpers);
-    let open = &c[c.find("TA_RetCode TA_ADXR_Open").expect("ADXR Open")..];
-    for guard in [
-        "if( dummyNBElement < 1 ) { *outBegIdx = 0; *outNBElement = 0; free( adx );",
-        "if( !sp ) { free( adx );",
-        "if( !sp->lagRing_adx ) { TA_Free( sp ); free( adx );",
-    ] {
-        assert!(
-            open.contains(guard),
-            "capture-epilogue OOM path must free the withheld adx buffer: `{guard}`"
-        );
+    let mut lined = Vec::new();
+    for name in common::discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        if !func.streaming {
+            continue;
+        }
+        let resolved = func.resolved_for(ir::Lang::C);
+        let Ok(streaming::StreamPlan::Composed(cp)) = streaming::validate_streamable(&resolved, registry)
+        else {
+            continue;
+        };
+        if cp.lines.is_empty() {
+            continue;
+        }
+        lined.push(name.clone());
+        let n = name.to_uppercase();
+        let c = backends::c::generate(&func, &enums, registry, helpers);
+        let open = &c[c.find(&format!("TA_RetCode TA_{n}_OpenBody")).expect("Open body")..];
+        let open = &open[..open.find(&format!("TA_{n}_OpenFillFrame")).expect("Open body end")];
+        let frees_all = |text: &str| (0..cp.lines.len()).all(|k| text.contains(&format!("TA_Free( lagBuf{k} );")));
+        for k in 0..cp.lines.len() {
+            let at = open
+                .find(&format!("if( TA_UNLIKELY(!lagBuf{k}) )"))
+                .unwrap_or_else(|| panic!("{name}: line {k} allocation has no failure check"));
+            let block = &open[at..at + open[at..].find("return TA_ALLOC_ERR;").expect("failure return")];
+            assert!(frees_all(block), "{name}: line {k}'s allocation failure leaks a line:\n{block}");
+            for (at, action) in &cp.open_actions {
+                let streaming::OpenAction::Seed { line } = action else { continue };
+                let streaming::OpenAt::BeforeStmt(seed_at) = at else { continue };
+                if *line != k {
+                    continue;
+                }
+                for sf in cp.series_frees.iter().filter(|sf| sf.tail_idx >= *seed_at) {
+                    let series = cp.intermediates.iter().find(|s| {
+                        let mut found = false;
+                        streaming::walk_stmt_exprs(&sf.stmt, &mut |e| {
+                            if let ir::Expr::FuncCall(f, args) = e {
+                                found |= f == "free" && matches!(args.first(), Some(ir::Expr::Var(v)) if v == *s);
+                            }
+                        });
+                        found
+                    });
+                    if let Some(series) = series {
+                        assert!(
+                            block.contains(&format!("free({series})")) || block.contains(&format!("free( {series} )")),
+                            "{name}: line {k}'s allocation failure leaks `{series}`:\n{block}"
+                        );
+                    }
+                }
+            }
+        }
+        let sp_fail = &open[open.find("if( !sp )").expect("handle allocation check")..];
+        let sp_fail = &sp_fail[..sp_fail.find('}').expect("one-line failure block")];
+        assert!(frees_all(sp_fail), "{name}: the handle allocation failure leaks a line: {sp_fail}");
+        let close = &c[c.find(&format!("TA_RetCode TA_{n}_Close")).expect("Close")..];
+        let close = &close[..close.find("\n}").expect("Close end")];
+        for k in 0..cp.lines.len() {
+            assert!(close.contains(&format!("TA_Free( stream->lagBuf{k} );")), "{name}: Close leaks line {k}");
+        }
     }
-    // Close releases the ring buffers (the other half of leak-freedom).
-    let close = &c[c.find("TA_RetCode TA_ADXR_Close").expect("ADXR Close")..];
-    assert!(close.contains("TA_Free( stream->lagRing_adx );"));
+    assert!(!lined.is_empty(), "no function has a delay line: the sweep checked nothing");
 }
 
 /// A composed Open must emit ONE null-check block per allocated intermediate,

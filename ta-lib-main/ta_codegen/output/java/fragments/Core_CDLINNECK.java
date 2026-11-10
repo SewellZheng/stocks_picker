@@ -229,6 +229,7 @@
     * <ul>
     * <li>Does not verify the preceding downtrend that this bearish continuation pattern assumes.</li>
     * <li>Bulkowski's testing found the bearish continuation holds only 53% of the time — "near random" — though its overall post-breakout performance still ranks a strong 17th of 103. (<a href="https://www.thepatternsite.com/InNeck.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 62nd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/InNeck.html">In Neck</a>), and it fires 9 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -300,6 +301,7 @@
     * <ul>
     * <li>Does not verify the preceding downtrend that this bearish continuation pattern assumes.</li>
     * <li>Bulkowski's testing found the bearish continuation holds only 53% of the time — "near random" — though its overall post-breakout performance still ranks a strong 17th of 103. (<a href="https://www.thepatternsite.com/InNeck.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 62nd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/InNeck.html">In Neck</a>), and it fires 9 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -557,6 +559,8 @@
    }
    private void cdlinneckStepImpl( CdlinneckStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -585,14 +589,14 @@
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlinneckOpenImpl( CdlinneckStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

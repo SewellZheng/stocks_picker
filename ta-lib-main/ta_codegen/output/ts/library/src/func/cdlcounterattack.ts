@@ -327,6 +327,11 @@ export function cdlcounterattackDisplayShift(outputIdx: number, options?: Cdlcou
  *   and the bullish version reverses only 56% of the time, both "near random" by
  *   his classification.
  *   ([thepatternsite.com](https://thepatternsite.com/MeetingLinesBear.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks
+ *   the bullish form 72nd and the bearish 63rd of 103 patterns by how often they
+ *   occur ([bullish Meeting
+ *   Lines](https://thepatternsite.com/MeetingLinesBull.html), [bearish Meeting
+ *   Lines](https://thepatternsite.com/MeetingLinesBear.html)).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -585,6 +590,8 @@ export class CdlcounterattackStream {
 function cdlcounterattackStepImpl(sp: CdlcounterattackStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
   let BodyLongPeriodTotalRange0 = 0;
   let BodyLongPeriodTotalTrailRange0 = 0;
+  let ringPosL_BodyLongTrailingIdx = 0;
+  let ringPosL_EqualTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -619,15 +626,15 @@ function cdlcounterattackStepImpl(sp: CdlcounterattackStream, inOpen: number, in
   sp.lag1_inHigh = inHigh;
   sp.lag1_inLow = inLow;
   sp.lag1_inClose = inClose;
-  sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
-  sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-  if (sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx) {
-    sp.ringPos_EqualTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+  ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+  sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
 }
 
 function cdlcounterattackOpenImpl(

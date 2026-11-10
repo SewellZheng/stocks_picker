@@ -331,6 +331,12 @@ export function cdl3linestrikeDisplayShift(outputIdx: number, options?: Cdl3line
  *   the opposite in practice — it acted as a reversal far more often than a
  *   continuation — so traders who follow his research read this pattern's signal
  *   in the opposite direction from what its sign here suggests.
+ * - Rare in Bulkowski's tests: he ranks the bullish form 95th and the bearish 94th
+ *   of 103 patterns by how often they occur
+ *   ([bullish](https://thepatternsite.com/ThreeLineStrikeBull.html),
+ *   [bearish](https://thepatternsite.com/ThreeLineStrikeBear.html)). It fires more
+ *   often in crypto: 67 times in [about 16,000 daily
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -598,6 +604,7 @@ export class Cdl3linestrikeStream {
 function cdl3linestrikeStepImpl(sp: Cdl3linestrikeStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
   let NearPeriodTotalRange2 = 0;
   let NearPeriodTotalTrailRange2 = 0;
+  let ringPosL_NearTrailingIdx = 0;
   const Near_rangeType = sp.cs_Near_rangeType;
   const Near_avgPeriod = sp.cs_Near_avgPeriod;
   const Near_factor = sp.cs_Near_factor;
@@ -645,10 +652,10 @@ function cdl3linestrikeStepImpl(sp: Cdl3linestrikeStream, inOpen: number, inHigh
   sp.lag3_inClose = sp.lag2_inClose;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-  if (sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx) {
-    sp.ringPos_NearTrailingIdx = 0;
-  }
+  ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+  ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+  ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+  sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
 }
 
 function cdl3linestrikeOpenImpl(

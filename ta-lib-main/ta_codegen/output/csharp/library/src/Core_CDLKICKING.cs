@@ -342,7 +342,8 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/cdlkicking">ta-lib.org/functions/cdlkicking</see>.
    /// </para>
    /// <list type="bullet">
-   /// <item><description>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time — both "near random" — and it's also one of the rarest patterns he tracked (frequency rank 100/103 bullish, 102/103 bearish). (<see href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time, both "near random". (<see href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 100th and the bearish 102nd of 103 patterns by how often they occur (<see href="https://thepatternsite.com/KickingBull.html">bullish</see>, <see href="https://thepatternsite.com/KickingBear.html">bearish</see>).</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -426,7 +427,8 @@ public partial class Core
    /// <see href="https://ta-lib.org/functions/cdlkicking">ta-lib.org/functions/cdlkicking</see>.
    /// </para>
    /// <list type="bullet">
-   /// <item><description>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time — both "near random" — and it's also one of the rarest patterns he tracked (frequency rank 100/103 bullish, 102/103 bearish). (<see href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time, both "near random". (<see href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 100th and the bearish 102nd of 103 patterns by how often they occur (<see href="https://thepatternsite.com/KickingBull.html">bullish</see>, <see href="https://thepatternsite.com/KickingBear.html">bearish</see>).</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -722,6 +724,8 @@ public partial class Core
       double BodyLongPeriodTotalTrailRange0 = 0.0;
       double ShadowVeryShortPeriodTotalRange0 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -769,16 +773,20 @@ public partial class Core
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      if( ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
+         ringPosL_BodyLongTrailingIdx = 0;
       }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      if( ringPosL_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
+         ringPosL_ShadowVeryShortTrailingIdx = 0;
       }
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
 
    private RetCode CdlkickingOpenImpl( CdlkickingStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

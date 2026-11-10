@@ -358,6 +358,11 @@ export function cdlidentical3crowsDisplayShift(outputIdx: number, options?: Cdli
  *   assumes.
  * - Does not require the three bodies to be equal in size; 'identical' refers only
  *   to each candle opening at or near the previous candle's close.
+ * - Rare in Bulkowski's tests: he ranks it 83rd of 103 patterns by how often it
+ *   occurs ([Identical Three
+ *   Crows](https://thepatternsite.com/Identical3Crows.html)). It fires more often
+ *   in crypto: 180 times in [about 16,000 daily
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -648,6 +653,8 @@ function cdlidentical3crowsStepImpl(sp: Cdlidentical3crowsStream, inOpen: number
   let ShadowVeryShortPeriodTotalTrailRange0 = 0;
   let EqualPeriodTotalRange1 = 0;
   let EqualPeriodTotalTrailRange1 = 0;
+  let ringPosL_EqualTrailingIdx = 0;
+  let ringPosL_ShadowVeryShortTrailingIdx = 0;
   const Equal_rangeType = sp.cs_Equal_rangeType;
   const Equal_avgPeriod = sp.cs_Equal_avgPeriod;
   const Equal_factor = sp.cs_Equal_factor;
@@ -701,15 +708,15 @@ function cdlidentical3crowsStepImpl(sp: Cdlidentical3crowsStream, inOpen: number
   sp.lag1_inLow = inLow;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-  if (sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx) {
-    sp.ringPos_EqualTrailingIdx = 0;
-  }
-  sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType === 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-  if (sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx) {
-    sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-  }
+  ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+  sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+  ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+  sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType === 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+  sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
 }
 
 function cdlidentical3crowsOpenImpl(

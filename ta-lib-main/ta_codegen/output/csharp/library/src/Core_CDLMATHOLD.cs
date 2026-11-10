@@ -377,6 +377,7 @@ public partial class Core
    /// <item><description>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</description></item>
    /// <item><description>The continuation reading assumes a prior uptrend, which is not verified.</description></item>
    /// <item><description>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<see href="https://thepatternsite.com/MatHold.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/MatHold.html">Mat Hold</see>), and it fires once in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -467,6 +468,7 @@ public partial class Core
    /// <item><description>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</description></item>
    /// <item><description>The continuation reading assumes a prior uptrend, which is not verified.</description></item>
    /// <item><description>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<see href="https://thepatternsite.com/MatHold.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/MatHold.html">Mat Hold</see>), and it fires once in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -794,6 +796,8 @@ public partial class Core
    {
       double BodyPeriodTotalRange1 = 0.0;
       double BodyPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -852,14 +856,18 @@ public partial class Core
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      if( ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
+         ringPosL_BodyLongTrailingIdx = 0;
       }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      if( ringPosL_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
+         ringPosL_BodyShortTrailingIdx = 0;
       }
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
 
    private RetCode CdlmatholdOpenImpl( CdlmatholdStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, double optInPenetration, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

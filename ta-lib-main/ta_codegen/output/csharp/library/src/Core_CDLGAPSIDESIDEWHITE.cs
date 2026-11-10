@@ -293,7 +293,8 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend the continuation signal classically assumes.</description></item>
-   /// <item><description>Bulkowski's data shows the bullish form is rare (984 occurrences out of 4.7 million candle lines, frequency rank 73/103) but continues as labeled 66% of the time; the bearish form is rarer still (frequency rank 86/103) and its 56% continuation rate is "near random" — Bulkowski cautions the bearish sample is too thin to trust. (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's data shows the bullish form continues as labeled 66% of the time; the bearish form's 56% continuation rate is "near random", and Bulkowski cautions the bearish sample is too thin to trust. (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks the bullish form 73rd and the bearish 86th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">bullish</see>, <see href="https://thepatternsite.com/SidebySideWhiteLinesBear.html">bearish</see>). It fires more often in crypto: 18 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -380,7 +381,8 @@ public partial class Core
    /// </para>
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend the continuation signal classically assumes.</description></item>
-   /// <item><description>Bulkowski's data shows the bullish form is rare (984 occurrences out of 4.7 million candle lines, frequency rank 73/103) but continues as labeled 66% of the time; the bearish form is rarer still (frequency rank 86/103) and its 56% continuation rate is "near random" — Bulkowski cautions the bearish sample is too thin to trust. (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's data shows the bullish form continues as labeled 66% of the time; the bearish form's 56% continuation rate is "near random", and Bulkowski cautions the bearish sample is too thin to trust. (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks the bullish form 73rd and the bearish 86th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">bullish</see>, <see href="https://thepatternsite.com/SidebySideWhiteLinesBear.html">bearish</see>). It fires more often in crypto: 18 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -669,6 +671,8 @@ public partial class Core
 
    private void CdlgapsidesidewhiteStepImpl( CdlgapsidesidewhiteStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_EqualTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -703,14 +707,18 @@ public partial class Core
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      if( ringPosL_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
+         ringPosL_EqualTrailingIdx = 0;
       }
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      if( ringPosL_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
+         ringPosL_NearTrailingIdx = 0;
       }
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
 
    private RetCode CdlgapsidesidewhiteOpenImpl( CdlgapsidesidewhiteStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

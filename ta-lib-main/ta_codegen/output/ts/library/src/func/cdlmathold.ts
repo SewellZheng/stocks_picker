@@ -387,6 +387,11 @@ export function cdlmatholdDisplayShift(outputIdx: number, options?: CdlmatholdOp
  *   measured "will likely be wrong or at least subject to large change as
  *   additional samples become available."
  *   ([thepatternsite.com](https://thepatternsite.com/MatHold.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it
+ *   93rd of 103 patterns by how often it occurs ([Mat
+ *   Hold](https://thepatternsite.com/MatHold.html)), and it fires once in [about
+ *   16,000 daily crypto
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -701,6 +706,8 @@ export class CdlmatholdStream {
 function cdlmatholdStepImpl(sp: CdlmatholdStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
   let BodyPeriodTotalRange1 = 0;
   let BodyPeriodTotalTrailRange1 = 0;
+  let ringPosL_BodyLongTrailingIdx = 0;
+  let ringPosL_BodyShortTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -759,14 +766,14 @@ function cdlmatholdStepImpl(sp: CdlmatholdStream, inOpen: number, inHigh: number
   sp.lag3_inClose = sp.lag2_inClose;
   sp.lag2_inClose = sp.lag1_inClose;
   sp.lag1_inClose = inClose;
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
-  sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-  if (sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx) {
-    sp.ringPos_BodyShortTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+  ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+  ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+  ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+  sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
 }
 
 function cdlmatholdOpenImpl(

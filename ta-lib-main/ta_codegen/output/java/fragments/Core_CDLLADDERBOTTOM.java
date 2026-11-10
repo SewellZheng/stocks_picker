@@ -205,7 +205,8 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding downtrend that this bullish reversal classically assumes.</li>
-    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time — "near random" — and it is extremely rare (451 occurrences out of 4.7 million candle lines), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time ("near random"), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 80th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/LadderBottom.html">Ladder Bottom</a>), and it fires 3 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -276,7 +277,8 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding downtrend that this bullish reversal classically assumes.</li>
-    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time — "near random" — and it is extremely rare (451 occurrences out of 4.7 million candle lines), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time ("near random"), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 80th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/LadderBottom.html">Ladder Bottom</a>), and it fires 3 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -532,6 +534,7 @@
    }
    private void cdlladderbottomStepImpl( CdlladderbottomStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -567,10 +570,10 @@
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlladderbottomOpenImpl( CdlladderbottomStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

@@ -354,7 +354,8 @@ public partial class Core
    /// <item><description>Only the three-small-candle variant is detected; the classic pattern allowing two or more small candles is not supported.</description></item>
    /// <item><description>The middle candles need only partially overlap the first candle's range, not be fully contained within it.</description></item>
    /// <item><description>The prior trend the continuation reading assumes is not verified.</description></item>
-   /// <item><description>Bulkowski's testing found Rising Three Methods continues 74% of the time (102 examples out of 4.7M candle lines) and Falling Three Methods continues 71% of the time (just 64 examples) — both act as classically labeled, but Bulkowski flags the samples as too thin to trust: Falling Three Methods is so rare he omitted its statistics from his book entirely. (<see href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found Rising Three Methods continues 74% of the time and Falling Three Methods 71%, both as classically labeled, but he flags both samples as too thin to trust and left Falling Three Methods out of his book. (<see href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks Rising Three Methods 88th and Falling Three Methods 91st of 103 patterns by how often they occur (<see href="https://thepatternsite.com/Rising3Methods.html">rising</see>, <see href="https://thepatternsite.com/Falling3Methods.html">falling</see>), and it fires 12 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -443,7 +444,8 @@ public partial class Core
    /// <item><description>Only the three-small-candle variant is detected; the classic pattern allowing two or more small candles is not supported.</description></item>
    /// <item><description>The middle candles need only partially overlap the first candle's range, not be fully contained within it.</description></item>
    /// <item><description>The prior trend the continuation reading assumes is not verified.</description></item>
-   /// <item><description>Bulkowski's testing found Rising Three Methods continues 74% of the time (102 examples out of 4.7M candle lines) and Falling Three Methods continues 71% of the time (just 64 examples) — both act as classically labeled, but Bulkowski flags the samples as too thin to trust: Falling Three Methods is so rare he omitted its statistics from his book entirely. (<see href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Bulkowski's testing found Rising Three Methods continues 74% of the time and Falling Three Methods 71%, both as classically labeled, but he flags both samples as too thin to trust and left Falling Three Methods out of his book. (<see href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks Rising Three Methods 88th and Falling Three Methods 91st of 103 patterns by how often they occur (<see href="https://thepatternsite.com/Rising3Methods.html">rising</see>, <see href="https://thepatternsite.com/Falling3Methods.html">falling</see>), and it fires 12 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -771,6 +773,8 @@ public partial class Core
    {
       double BodyPeriodTotalRange1 = 0.0;
       double BodyPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -833,14 +837,18 @@ public partial class Core
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      if( ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
+         ringPosL_BodyLongTrailingIdx = 0;
       }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      if( ringPosL_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
+         ringPosL_BodyShortTrailingIdx = 0;
       }
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
 
    private RetCode Cdlrisefall3methodsOpenImpl( Cdlrisefall3methodsStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

@@ -367,6 +367,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the preceding uptrend that the bearish reversal classically assumes.</description></item>
    /// <item><description>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks it 83rd of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/Identical3Crows.html">Identical Three Crows</see>). It fires more often in crypto: 180 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -452,6 +453,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the preceding uptrend that the bearish reversal classically assumes.</description></item>
    /// <item><description>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</description></item>
+   /// <item><description>Rare in Bulkowski's tests: he ranks it 83rd of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/Identical3Crows.html">Identical Three Crows</see>). It fires more often in crypto: 180 times in <see href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</see>.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -761,6 +763,8 @@ public partial class Core
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
       double EqualPeriodTotalRange1 = 0.0;
       double EqualPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_EqualTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -814,15 +818,19 @@ public partial class Core
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      if( ringPosL_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
+         ringPosL_EqualTrailingIdx = 0;
       }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.Abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      if( ringPosL_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
+         ringPosL_ShadowVeryShortTrailingIdx = 0;
       }
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
 
    private RetCode Cdlidentical3crowsOpenImpl( Cdlidentical3crowsStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

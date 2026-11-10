@@ -340,9 +340,12 @@ export function cdlkickingDisplayShift(outputIdx: number, options?: CdlkickingOp
  *
  * **Notes**
  * - Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish)
- *   of the time — both "near random" — and it's also one of the rarest patterns he
- *   tracked (frequency rank 100/103 bullish, 102/103 bearish).
+ *   of the time, both "near random".
  *   ([thepatternsite.com](https://thepatternsite.com/KickingBull.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks
+ *   the bullish form 100th and the bearish 102nd of 103 patterns by how often they
+ *   occur ([bullish](https://thepatternsite.com/KickingBull.html),
+ *   [bearish](https://thepatternsite.com/KickingBear.html)).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -611,6 +614,8 @@ function cdlkickingStepImpl(sp: CdlkickingStream, inOpen: number, inHigh: number
   let BodyLongPeriodTotalTrailRange0 = 0;
   let ShadowVeryShortPeriodTotalRange0 = 0;
   let ShadowVeryShortPeriodTotalTrailRange0 = 0;
+  let ringPosL_BodyLongTrailingIdx = 0;
+  let ringPosL_ShadowVeryShortTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -658,16 +663,16 @@ function cdlkickingStepImpl(sp: CdlkickingStream, inOpen: number, inHigh: number
   sp.lag1_inHigh = inHigh;
   sp.lag1_inLow = inLow;
   sp.lag1_inClose = inClose;
-  sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
-  sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType === 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-  sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-  if (sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx) {
-    sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType === 1) ? (inHigh - inLow) : ((BodyLong_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+  ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+  sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType === 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType === 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType === 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+  ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+  sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
 }
 
 function cdlkickingOpenImpl(

@@ -197,8 +197,9 @@ TOTAL_CAPTURE = re.compile(r"sp->(\w*PeriodTotal\d?)\s*=\s*\1\s*;")
 # average must still name its own setting through `_avgPeriod`, and is mapped
 # only when the block pins that setting to the literal. A literal the block
 # does not pin stays as it is, and fails every setting comparison below.
+_PIN_TERM = r"\w+_rangeType\s*==\s*TA_RangeType_\w+"
 _PIN_IF = re.compile(
-    r"\bif\(\s*((?:\w+_rangeType\s*==\s*TA_RangeType_\w+\s*(?:&&\s*)?)+)\)\s*\{")
+    rf"\bif\(\s*({_PIN_TERM}(?:\s*&&\s*{_PIN_TERM})*)\s*\)\s*\{{")
 _PIN = re.compile(r"(\w+)_rangeType\s*==\s*(TA_RangeType_\w+)")
 _LITERAL = re.compile(r"(TA_CANDLE(?:RANGE|AVERAGE)_OF\(\s*)(TA_RangeType_\w+)"
                       r"(\s*,\s*(?:(\w+?)_avgPeriod\b)?)")
@@ -238,6 +239,30 @@ def unfold_range_types(src):
         pos = end
     out.append(src[pos:])
     return "".join(out)
+
+
+def fold_ring_locals(src):
+    """A step may advance a ring cursor in a local: load it, use it, wrap it,
+    store it last. Spell that local as the field it mirrors, so the rules below
+    see one form. Folded only when the field is untouched between the load and
+    the store; any other shape is left as written and fails the cursor rule."""
+    for name in sorted(set(re.findall(r"\bint\s+ringPosL_(\w+)\s*;", src))):
+        local, field = r"\bringPosL_%s\b" % name, "sp->ringPos_%s" % name
+        load = re.compile(r"(?<![\w>.])ringPosL_%s\s*=\s*sp->ringPos_%s\s*;" % (name, name))
+        store = re.compile(r"sp->ringPos_%s\s*=\s*ringPosL_%s\s*;" % (name, name))
+        out, pos = [], 0
+        for ld in load.finditer(src):
+            st = store.search(src, ld.end())
+            if (ld.start() < pos or st is None
+                    or re.search(r"sp->ringPos_%s\b" % name, src[ld.end():st.start()])
+                    or load.search(src, ld.end(), st.start())):
+                continue
+            out.append(src[pos:ld.start()])
+            out.append(re.sub(local, field, src[ld.end():st.start()]))
+            pos = st.end()
+        out.append(src[pos:])
+        src = re.sub(r"\bint\s+ringPosL_%s\s*;" % name, "", "".join(out))
+    return src
 
 
 def _blank_comments(src):
@@ -953,7 +978,8 @@ def main():
 
     for path in files:
         name = os.path.basename(path)
-        src = unfold_range_types(_blank_comments(open(path, encoding="utf-8").read()))
+        src = unfold_range_types(fold_ring_locals(_blank_comments(
+            open(path, encoding="utf-8").read())))
         reads, problems, read_sets, read_offs = scan(src)
         if not reads:
             continue

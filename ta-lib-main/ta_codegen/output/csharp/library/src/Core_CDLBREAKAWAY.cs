@@ -273,6 +273,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</description></item>
    /// <item><description>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<see href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/BullBreakaway.html">bullish</see>, <see href="https://thepatternsite.com/BearBreakaway.html">bearish</see>).</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -360,6 +361,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</description></item>
    /// <item><description>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<see href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<see href="https://thepatternsite.com/BullBreakaway.html">bullish</see>, <see href="https://thepatternsite.com/BearBreakaway.html">bearish</see>).</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -658,6 +660,7 @@ public partial class Core
 
    private void CdlbreakawayStepImpl( CdlbreakawayStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -707,10 +710,12 @@ public partial class Core
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      if( ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
+         ringPosL_BodyLongTrailingIdx = 0;
       }
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
 
    private RetCode CdlbreakawayOpenImpl( CdlbreakawayStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

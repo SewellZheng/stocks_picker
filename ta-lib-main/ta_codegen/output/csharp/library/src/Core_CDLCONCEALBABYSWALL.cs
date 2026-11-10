@@ -308,6 +308,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the preceding downtrend the pattern classically assumes.</description></item>
    /// <item><description>Despite the bullish-reversal label, Bulkowski's testing found this pattern actually behaves as a bearish continuation 75% of the time — though the finding rests on just 4 occurrences out of 4.7 million candle lines, and it ranks 101st of 103 patterns overall. (<see href="https://thepatternsite.com/ConcealBaby.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it last of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/ConcealBaby.html">Concealing Baby Swallow</see>).</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -392,6 +393,7 @@ public partial class Core
    /// <list type="bullet">
    /// <item><description>Does not verify the preceding downtrend the pattern classically assumes.</description></item>
    /// <item><description>Despite the bullish-reversal label, Bulkowski's testing found this pattern actually behaves as a bearish continuation 75% of the time — though the finding rests on just 4 occurrences out of 4.7 million candle lines, and it ranks 101st of 103 patterns overall. (<see href="https://thepatternsite.com/ConcealBaby.html">thepatternsite.com</see>)</description></item>
+   /// <item><description>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it last of 103 patterns by how often it occurs (<see href="https://thepatternsite.com/ConcealBaby.html">Concealing Baby Swallow</see>).</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -685,6 +687,7 @@ public partial class Core
    {
       double ShadowVeryShortPeriodTotalRange1 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -731,10 +734,12 @@ public partial class Core
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      if( ringPosL_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
+         ringPosL_ShadowVeryShortTrailingIdx = 0;
       }
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
 
    private RetCode CdlconcealbabyswallOpenImpl( CdlconcealbabyswallStream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<int> outInteger, int outStride )

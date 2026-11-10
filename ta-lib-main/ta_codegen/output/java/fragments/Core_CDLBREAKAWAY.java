@@ -216,6 +216,7 @@
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
     * <li>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<a href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/BullBreakaway.html">bullish</a>, <a href="https://thepatternsite.com/BearBreakaway.html">bearish</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -287,6 +288,7 @@
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
     * <li>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<a href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/BullBreakaway.html">bullish</a>, <a href="https://thepatternsite.com/BearBreakaway.html">bearish</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -562,6 +564,7 @@
    }
    private void cdlbreakawayStepImpl( CdlbreakawayStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -611,10 +614,10 @@
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdlbreakawayOpenImpl( CdlbreakawayStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

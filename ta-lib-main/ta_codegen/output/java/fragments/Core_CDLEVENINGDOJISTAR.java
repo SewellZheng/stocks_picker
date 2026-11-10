@@ -290,6 +290,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 81st of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/EveningDojiStar.html">Evening Doji Star</a>). It fires more often in crypto: 25 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -364,6 +365,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 81st of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/EveningDojiStar.html">Evening Doji Star</a>). It fires more often in crypto: 25 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -649,6 +651,9 @@
    }
    private void cdleveningdojistarStepImpl( CdleveningdojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -693,21 +698,21 @@
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdleveningdojistarOpenImpl( CdleveningdojistarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

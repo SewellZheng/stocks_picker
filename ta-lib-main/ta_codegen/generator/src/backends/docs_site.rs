@@ -122,31 +122,40 @@ fn load_chart(func: &FuncDef, public_dir: &Path) -> Option<Chart> {
     Some(docs_chart::render(func, &data))
 }
 
-/// The `## Chart` section: the component tag the site inlines the SVG through, then the
-/// sentence and the links, which is all an agent or a no-JS reader sees.
-/// The drawing description and the flags behind it are detail most readers skip, so the
-/// site folds them; the tag, the links and the fold's text are all an agent's twin shows.
+/// The `## Chart` section: the component tag the site inlines the SVG through (its
+/// `alt` carries the drawing sentence), the CSV and SVG links, then a fold listing each
+/// output's flags and levels.
 fn chart_section(func: &FuncDef, chart: &Chart) -> String {
-    const TIP: &str = "The chart is drawn from the function's metadata: the flags and attributes \
-                       the abstract API reports for it and for each output, and the input series its \
-                       reference run declares.";
+    const TIP: &str = "The chart is drawn automatically from metadata TA-Lib provides. Your app can \
+                       get the same through the Abstract API.";
     let dir = func.name.to_lowercase();
     let attr = |s: &str| s.replace('&', "&amp;").replace('"', "&quot;");
     let (label, alt) = (attr(&chart.label), attr(&chart.sentence));
     format!(
         "## Chart\n\n<ta-chart src=\"/functions/{dir}.svg\" ratio=\"{}:{}\" label=\"{label}\" alt=\"{alt}\"></ta-chart>\n\n\
+         <div class=\"ta-chart-links\">\n\n\
+         [Reference data (CSV)](/functions/{dir}.csv) · [Chart (SVG)](/functions/{dir}.svg)\n\n\
+         </div>\n\n\
          ::: details Chart metadata <span class=\"flag-tip\" tabindex=\"0\" role=\"note\" aria-label=\"{TIP}\" data-tip=\"{TIP}\">i</span>\n\n\
-         {}\n\nMetadata flags used: {}\n\n:::\n\n\
-         [Reference data (CSV)](/functions/{dir}.csv) · [Chart (SVG)](/functions/{dir}.svg)\n",
-        chart.width, chart.height, chart.sentence, flags_used_text(chart)
+         **Outputs**\n\n{}\n\n:::\n",
+        chart.width, chart.height, output_metadata(func)
     )
 }
 
-fn flags_used_text(chart: &Chart) -> String {
-    if chart.flags_used.is_empty() {
-        return "none".to_string();
-    }
-    chart.flags_used.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(" · ")
+/// One bullet per output: its flags as declared, then its levels.
+fn output_metadata(func: &FuncDef) -> String {
+    func.outputs
+        .iter()
+        .map(|o| {
+            let mut items: Vec<String> = o.flags.iter().map(|f| format!("`{f}`")).collect();
+            if !o.levels.is_empty() {
+                let levels: Vec<String> = o.levels.iter().map(|v| format!("{v}")).collect();
+                items.push(format!("`levels: {}`", levels.join(", ")));
+            }
+            if items.is_empty() { format!("- `{}`", o.name) } else { format!("- `{}`: {}", o.name, items.join(" · ")) }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Insert the Chart section right after `## Summary` (or at the top when there is none).
@@ -602,8 +611,8 @@ fn flag_cell(label: &str, on: bool, tip: &str) -> String {
 }
 
 /// Inject the per-function `## Properties` section before `## Implementation` (present
-/// on every page), computed from the raw YAML flags — a stability line followed by a
-/// headerless list of checkboxes, checked cells bold and the rest dimmed:
+/// on every page), computed from the raw YAML flags — a stability line followed by two
+/// side-by-side headerless columns of checkboxes, checked cells bold and the rest dimmed:
 ///
 /// * The **numerical-stability** line — how much the value at a bar depends on the
 ///   past, folded from two disjoint flags into three mutually-exclusive states
@@ -612,17 +621,6 @@ fn flag_cell(label: &str, on: bool, tip: &str) -> String {
 ///   warm-up), `Path-Dependent` (`path_dependent`; a running accumulation or
 ///   path-dependent state machine that may never converge — the behavior behind
 ///   ta-lib-python issues like #513).
-/// * The **checkbox list** — `Overlap Input` (output shares the input price
-///   scale, drawn over price) and its complement `Independent Y-Axis` (own pane) —
-///   one of the two is always checked — plus `Candlestick` (integer pattern signal),
-///   `Can Output NaN or ±Inf` (`nan_inf_output`; a value the chart has no
-///   point to plot, so the caller has to decide what to draw there — the page's
-///   `## Notes` say which inputs cause it), `Identity at Period 1`
-///   (`period1_identity`), `Display Shift` (`display_shift`, derived from
-///   the output flags), `Uses Transcendental` (`uses_transcendental`) and `Input Must Be Positive`
-///   (`positive_input`). Not all of them are display hints, which is why the
-///   list carries no header: they are per-function properties of one shape — a
-///   checkbox a caller reads off the page.
 ///
 /// `stream` (internal codegen concern) and `volume` (in the ABI but set by no
 /// function) are not surfaced.
@@ -635,11 +633,10 @@ fn inject_flags(
     let has = |w: &str| func.flags.iter().any(|f| f == w);
     let overlap = has("overlap");
 
-    // These stay a table: they are a two-way pick plus markers, and nothing about
-    // them is stated by negation. Tooltips are emitted for checked cells only -- an
-    // unchecked cell carrying its definition puts a sentence describing a property the
-    // function does NOT have into the page text, where a crawler or a language model reads
-    // it as a claim about this function.
+    // Tooltips are emitted for checked cells only -- an unchecked cell carrying its
+    // definition puts a sentence describing a property the function does NOT have into
+    // the page text, where a crawler or a language model reads it as a claim about this
+    // function.
     let display = [
         (
             "Overlap Input",
@@ -657,6 +654,14 @@ fn inject_flags(
             "A candlestick pattern; its values are listed under Output Values.",
         ),
         (
+            "Display Shift",
+            has("display_shift"),
+            "A chart draws at least one output ahead of or behind the bar that computed it. \
+             The display-shift query gives the number of bars; the values are not shifted.",
+        ),
+    ];
+    let numerical = [
+        (
             "Can Output NaN or ±Inf",
             has("nan_inf_output"),
             "Some inputs have no finite result, so a successful call can return NaN or ±Inf — \
@@ -667,12 +672,6 @@ fn inject_flags(
             has("period1_identity"),
             "A period of 1 performs no smoothing: every output value is a bit-exact copy of \
              its input value.",
-        ),
-        (
-            "Display Shift",
-            has("display_shift"),
-            "A chart draws at least one output ahead of or behind the bar that computed it. \
-             The display-shift query gives the number of bars; the values are not shifted.",
         ),
         (
             "Uses Transcendental",
@@ -693,18 +692,20 @@ fn inject_flags(
 
     let mut block = String::from("## Properties\n\n");
     block.push_str(&stability_line(func, enums, all));
-    // Headerless: no one label covers the set (`Identity at Period 1` is not a display
-    // hint), and a wrong header is worse than none. Markdown cannot express a table
-    // without a header row, so the cell is emitted empty and the row it renders as is
-    // hidden via the `.flag-table` wrapper, which also releases the theme's
-    // `overflow-x: auto` on tables so the first row's tooltip is not clipped away
-    // (`.vuepress/styles/index.scss`). The blank lines around the table are what keep
-    // markdown-it parsing markdown inside the raw HTML block.
-    block.push_str("\n\n<div class=\"flag-table\">\n\n|  |\n| :-- |\n");
-    for (label, on, tip) in display {
-        block.push_str(&format!("| {} |\n", flag_cell(label, on, tip)));
+    // Markdown cannot express a table without a header row, so the cell is emitted empty
+    // and the row it renders as is hidden via the `.flag-table` wrapper, which also
+    // releases the theme's `overflow-x: auto` on tables so the first row's tooltip is not
+    // clipped away (`.vuepress/styles/index.scss`). The blank lines around each table are
+    // what keep markdown-it parsing markdown inside the raw HTML block.
+    block.push_str("\n\n<div class=\"flag-cols\">\n\n");
+    for column in [&display[..], &numerical[..]] {
+        block.push_str("<div class=\"flag-table\">\n\n|  |\n| :-- |\n");
+        for &(label, on, tip) in column {
+            block.push_str(&format!("| {} |\n", flag_cell(label, on, tip)));
+        }
+        block.push_str("\n</div>\n\n");
     }
-    block.push_str("\n</div>\n\n");
+    block.push_str("</div>\n\n");
 
     match body.find("\n## Implementation") {
         Some(pos) => {

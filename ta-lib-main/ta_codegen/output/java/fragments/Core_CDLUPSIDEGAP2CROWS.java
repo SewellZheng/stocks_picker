@@ -237,6 +237,7 @@
     * <ul>
     * <li>The pattern classically assumes a prior uptrend, but this function does not verify any trend.</li>
     * <li>Although classically a bearish reversal, Bulkowski's testing found this actually acts as a bullish continuation 60% of the time, and even when it does work "the price move is often lousy." (<a href="https://www.thepatternsite.com/UpGapTwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 75th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/UpGapTwoCrows.html">Upside Gap Two Crows</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -307,6 +308,7 @@
     * <ul>
     * <li>The pattern classically assumes a prior uptrend, but this function does not verify any trend.</li>
     * <li>Although classically a bearish reversal, Bulkowski's testing found this actually acts as a bullish continuation 60% of the time, and even when it does work "the price move is often lousy." (<a href="https://www.thepatternsite.com/UpGapTwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 75th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/UpGapTwoCrows.html">Upside Gap Two Crows</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -569,6 +571,8 @@
    }
    private void cdlupsidegap2crowsStepImpl( Cdlupsidegap2crowsStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -608,16 +612,16 @@
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlupsidegap2crowsOpenImpl( Cdlupsidegap2crowsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

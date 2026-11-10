@@ -320,6 +320,7 @@
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
     * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MatHold.html">Mat Hold</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -395,6 +396,7 @@
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
     * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MatHold.html">Mat Hold</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -698,6 +700,8 @@
    {
       double BodyPeriodTotalRange1 = 0.0;
       double BodyPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -756,14 +760,14 @@
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlmatholdOpenImpl( CdlmatholdStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {

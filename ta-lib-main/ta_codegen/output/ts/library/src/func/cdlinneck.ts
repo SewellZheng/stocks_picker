@@ -314,6 +314,11 @@ export function cdlinneckDisplayShift(outputIdx: number, options?: CdlinneckOpti
  *   — "near random" — though its overall post-breakout performance still ranks a
  *   strong 17th of 103.
  *   ([thepatternsite.com](https://www.thepatternsite.com/InNeck.html))
+ * - Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it
+ *   62nd of 103 patterns by how often it occurs ([In
+ *   Neck](https://thepatternsite.com/InNeck.html)), and it fires 9 times in [about
+ *   16,000 daily crypto
+ *   bars](https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire).
  *
  * `values[k]` is the value at input bar `begIdx + k`; every output is exactly as
  * long as the number of values written, and nothing is padded. A range that ends
@@ -565,6 +570,8 @@ export class CdlinneckStream {
 }
 
 function cdlinneckStepImpl(sp: CdlinneckStream, inOpen: number, inHigh: number, inLow: number, inClose: number): void {
+  let ringPosL_BodyLongTrailingIdx = 0;
+  let ringPosL_EqualTrailingIdx = 0;
   const BodyLong_rangeType = sp.cs_BodyLong_rangeType;
   const BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
   const BodyLong_factor = sp.cs_BodyLong_factor;
@@ -593,14 +600,14 @@ function cdlinneckStepImpl(sp: CdlinneckStream, inOpen: number, inHigh: number, 
   sp.lag1_inHigh = inHigh;
   sp.lag1_inLow = inLow;
   sp.lag1_inClose = inClose;
-  sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-  if (sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx) {
-    sp.ringPos_BodyLongTrailingIdx = 0;
-  }
-  sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-  if (sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx) {
-    sp.ringPos_EqualTrailingIdx = 0;
-  }
+  ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+  ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+  sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+  ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+  ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+  sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
 }
 
 function cdlinneckOpenImpl(

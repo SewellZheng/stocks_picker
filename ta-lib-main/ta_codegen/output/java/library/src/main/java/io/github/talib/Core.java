@@ -1383,6 +1383,8 @@ public final class Core {
       double medianPrice = 0.0;
       double osc = 0.0;
       double tempReal = 0.0;
+      int ringPosL_trailingFastIdx = 0;
+      int ringPosL_trailingSlowIdx = 0;
       int ringCapL_trailingFastIdx = 0;
       int ringCapL_trailingSlowIdx = 0;
       medianPrice = (inHigh + inLow) / 2.0;
@@ -1417,17 +1419,17 @@ public final class Core {
        */
       sp.cur_outReal = tempReal;
       ringCapL_trailingFastIdx = sp.ringCap_trailingFastIdx;
-      sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
-      sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
-      if( sp.ringPos_trailingFastIdx >= ringCapL_trailingFastIdx ) {
-         sp.ringPos_trailingFastIdx = 0;
-      }
+      ringPosL_trailingFastIdx = sp.ringPos_trailingFastIdx;
+      sp.ring_trailingFastIdx_derived[ringPosL_trailingFastIdx] = (inHigh + inLow) / 2.0;
+      ringPosL_trailingFastIdx = ringPosL_trailingFastIdx + 1;
+      ringPosL_trailingFastIdx = ringPosL_trailingFastIdx & (ringPosL_trailingFastIdx - ringCapL_trailingFastIdx >> 31);
+      sp.ringPos_trailingFastIdx = ringPosL_trailingFastIdx;
       ringCapL_trailingSlowIdx = sp.ringCap_trailingSlowIdx;
-      sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx] = (inHigh + inLow) / 2.0;
-      sp.ringPos_trailingSlowIdx = sp.ringPos_trailingSlowIdx + 1;
-      if( sp.ringPos_trailingSlowIdx >= ringCapL_trailingSlowIdx ) {
-         sp.ringPos_trailingSlowIdx = 0;
-      }
+      ringPosL_trailingSlowIdx = sp.ringPos_trailingSlowIdx;
+      sp.ring_trailingSlowIdx_derived[ringPosL_trailingSlowIdx] = (inHigh + inLow) / 2.0;
+      ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx + 1;
+      ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx & (ringPosL_trailingSlowIdx - ringCapL_trailingSlowIdx >> 31);
+      sp.ringPos_trailingSlowIdx = ringPosL_trailingSlowIdx;
    }
    private RetCode acOpenImpl( AcStream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -2423,6 +2425,7 @@ public final class Core {
       double tempMiddle = 0.0;
       double tempLower = 0.0;
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       /* Add the incoming bar to each running sum. */
       tempReal = inHigh + inLow;
@@ -2455,13 +2458,13 @@ public final class Core {
       sp.cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
       sp.cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
-      sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
-      sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inHigh[ringPosL_trailingIdx] = inHigh;
+      sp.ring_trailingIdx_inLow[ringPosL_trailingIdx] = inLow;
+      sp.ring_trailingIdx_inClose[ringPosL_trailingIdx] = inClose;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode accbandsOpenImpl( AccbandsStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
    {
@@ -5601,6 +5604,7 @@ public final class Core {
    private void adrStepImpl( AdrStream sp, double inHigh, double inLow )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       if( sp.ringCap_trailingIdx == 0 ) {
          sp.ring_trailingIdx_derived[0] = (double)(inHigh - inLow);
       }
@@ -5608,11 +5612,11 @@ public final class Core {
       tempReal = sp.periodTotal;
       sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx];
       sp.cur_outReal = tempReal / (double)sp.optInTimePeriod;
-      sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx] = (double)(inHigh - inLow);
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = (double)(inHigh - inLow);
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode adrOpenImpl( AdrStream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -7732,9 +7736,9 @@ public final class Core {
       private Core core;
       private int optInTimePeriod;
       private double cur_outReal;
-      private int lagRingPos_adx;
-      private int lagRingCap_adx;
-      private double[] lagRing_adx;
+      private int lagPos0;
+      private int lagCap0;
+      private double[] lagBuf0;
       private AdxStream sub0;
       private int outRangeBegIdx;
       private int outRangeCount;
@@ -7779,9 +7783,9 @@ public final class Core {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.cur_outReal = other.cur_outReal;
-         this.lagRingPos_adx = other.lagRingPos_adx;
-         this.lagRingCap_adx = other.lagRingCap_adx;
-         this.lagRing_adx = other.lagRing_adx.clone();
+         this.lagPos0 = other.lagPos0;
+         this.lagCap0 = other.lagCap0;
+         this.lagBuf0 = other.lagBuf0.clone();
          this.sub0 = new AdxStream(other.sub0);
          this.outRangeBegIdx = other.outRangeBegIdx;
          this.outRangeCount = other.outRangeCount;
@@ -7829,10 +7833,12 @@ public final class Core {
          AdxrStream sp = this;
          double cur_adx = 0.0;
          double cur_outReal = 0.0;
+         double lagTap0_0 = 0.0;
          /* Pipeline the new bar through the sub-streams (batch tail order). */
          cur_adx = sp.sub0.peek(inHigh, inLow, inClose);
          /* Combine map (batch tail, per bar). */
-         cur_outReal = ((cur_adx + sp.lagRing_adx[sp.lagRingPos_adx]) / 2.0);
+         lagTap0_0 = sp.lagBuf0[sp.lagPos0];
+         cur_outReal = ((cur_adx + lagTap0_0) / 2.0);
          return cur_outReal;
       }
 
@@ -7866,12 +7872,22 @@ public final class Core {
    {
       double cur_adx = 0.0;
       double cur_outReal = 0.0;
+      double lagIn0 = 0.0;
+      double lagTap0_0 = 0.0;
+      int lagCapL0 = 0;
+      int lagPosL0 = 0;
       /* Pipeline the new bar through the sub-streams (batch tail order). */
       cur_adx = sp.sub0.update(inHigh, inLow, inClose);
+      lagIn0 = cur_adx;
       /* Combine map (batch tail, per bar). */
-      cur_outReal = ((cur_adx + sp.lagRing_adx[sp.lagRingPos_adx]) / 2.0);
-      sp.lagRing_adx[sp.lagRingPos_adx] = cur_adx;
-      sp.lagRingPos_adx = (sp.lagRingPos_adx + 1) % sp.lagRingCap_adx;
+      lagTap0_0 = sp.lagBuf0[sp.lagPos0];
+      cur_outReal = ((cur_adx + lagTap0_0) / 2.0);
+      lagCapL0 = sp.lagCap0;
+      lagPosL0 = sp.lagPos0;
+      sp.lagBuf0[lagPosL0] = lagIn0;
+      lagPosL0 = lagPosL0 + 1;
+      lagPosL0 = lagPosL0 & (lagPosL0 - lagCapL0 >> 31);
+      sp.lagPos0 = lagPosL0;
       sp.cur_outReal = cur_outReal;
    }
    private RetCode adxrOpenImpl( AdxrStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
@@ -7903,6 +7919,11 @@ public final class Core {
          return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
+      int lagPos0 = 0;
+      int lagCap0 = 0;
+      double[] lagBuf0 = null;
+      int lagD0_0 = 0;
+      int lagNb0 = 0;
       /* Original implementation from Wilder's book was doing some integer
        * rounding in its calculations.
        *
@@ -7937,11 +7958,23 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       AdxStream sub0 = adxOpenAndFillInternal(inHigh, inLow, inClose, startIdx - (optInTimePeriod - 1), optInTimePeriod, outBegIdx, outNBElement, adx);
       retCode = RetCode.SUCCESS;
+      lagNb0 = outNBElement.value;
       /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
        * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
        * is adx[k]; the ADX range holds (period-1) more elements than the output.
        */
       nbElement = outNBElement.value - (optInTimePeriod - 1);
+      if( nbElement < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      lagD0_0 = lagNb0 - nbElement;
+      if( lagD0_0 < 1 || lagD0_0 > lagNb0 - 1 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      lagCap0 = lagD0_0;
+      lagBuf0 = new double[Math.max(lagCap0, 1)];
+      System.arraycopy(adx, lagNb0 - lagCap0, lagBuf0, 0, lagCap0);
+      lagPos0 = 0;
       for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
          sc_outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
       }
@@ -7951,16 +7984,11 @@ public final class Core {
       if( outNBElement.value < 1 ) {
          return RetCode.INSUFFICIENT_HISTORY;
       }
-      int lagCap_adx = (int)(optInTimePeriod - 1);
-      double[] lagRing_adx = new double[lagCap_adx];
-      for( int lagI = 0; lagI < lagCap_adx; lagI++ ) {
-         lagRing_adx[lagI] = adx[outNBElement.value + lagI];
-      }
       sp.optInTimePeriod = optInTimePeriod;
       sp.sub0 = sub0;
-      sp.lagRingPos_adx = 0;
-      sp.lagRingCap_adx = lagCap_adx;
-      sp.lagRing_adx = lagRing_adx;
+      sp.lagPos0 = lagPos0;
+      sp.lagCap0 = lagCap0;
+      sp.lagBuf0 = lagBuf0;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
       return RetCode.SUCCESS;
    }
@@ -8922,6 +8950,8 @@ public final class Core {
       double[] sc_outJaw = outStride == 1 ? outJaw : new double[historyLen];
       double[] sc_outTeeth = outStride == 1 ? outTeeth : new double[historyLen];
       double[] sc_outLips = outStride == 1 ? outLips : new double[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
       lookbackTotal = alligatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
       /* Return before touching anything, so that an input which stops short of
        * endIdx is never read past its end.
@@ -8957,6 +8987,7 @@ public final class Core {
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY ;
       }
+      lagNb0 = tempNbElement.value;
       /* Sub-stream 2: rma over `tempMP`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       RmaStream sub2 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (endIdx - mpStartIdx) + 1), lookbackTotal, optInTeethPeriod, tempBegIdx, tempNbElement, sc_outTeeth);
@@ -8966,6 +8997,7 @@ public final class Core {
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY ;
       }
+      lagNb1 = tempNbElement.value;
       /* Sub-stream 3: rma over `tempMP`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       RmaStream sub3 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (endIdx - mpStartIdx) + 1), lookbackTotal, optInLipsPeriod, tempBegIdx, tempNbElement, sc_outLips);
@@ -8980,6 +9012,12 @@ public final class Core {
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
          return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb1 - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInJawPeriod = optInJawPeriod;
       sp.optInJawShift = optInJawShift;
@@ -10651,6 +10689,8 @@ public final class Core {
    {
       double medianPrice = 0.0;
       double tempReal = 0.0;
+      int ringPosL_trailingFastIdx = 0;
+      int ringPosL_trailingSlowIdx = 0;
       int ringCapL_trailingFastIdx = 0;
       int ringCapL_trailingSlowIdx = 0;
       medianPrice = (inHigh + inLow) / 2.0;
@@ -10670,17 +10710,17 @@ public final class Core {
       sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx];
       sp.cur_outReal = tempReal;
       ringCapL_trailingFastIdx = sp.ringCap_trailingFastIdx;
-      sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
-      sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
-      if( sp.ringPos_trailingFastIdx >= ringCapL_trailingFastIdx ) {
-         sp.ringPos_trailingFastIdx = 0;
-      }
+      ringPosL_trailingFastIdx = sp.ringPos_trailingFastIdx;
+      sp.ring_trailingFastIdx_derived[ringPosL_trailingFastIdx] = (inHigh + inLow) / 2.0;
+      ringPosL_trailingFastIdx = ringPosL_trailingFastIdx + 1;
+      ringPosL_trailingFastIdx = ringPosL_trailingFastIdx & (ringPosL_trailingFastIdx - ringCapL_trailingFastIdx >> 31);
+      sp.ringPos_trailingFastIdx = ringPosL_trailingFastIdx;
       ringCapL_trailingSlowIdx = sp.ringCap_trailingSlowIdx;
-      sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx] = (inHigh + inLow) / 2.0;
-      sp.ringPos_trailingSlowIdx = sp.ringPos_trailingSlowIdx + 1;
-      if( sp.ringPos_trailingSlowIdx >= ringCapL_trailingSlowIdx ) {
-         sp.ringPos_trailingSlowIdx = 0;
-      }
+      ringPosL_trailingSlowIdx = sp.ringPos_trailingSlowIdx;
+      sp.ring_trailingSlowIdx_derived[ringPosL_trailingSlowIdx] = (inHigh + inLow) / 2.0;
+      ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx + 1;
+      ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx & (ringPosL_trailingSlowIdx - ringCapL_trailingSlowIdx >> 31);
+      sp.ringPos_trailingSlowIdx = ringPosL_trailingSlowIdx;
    }
    private RetCode aoOpenImpl( AoStream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -18498,6 +18538,7 @@ public final class Core {
       double[] sc_outRealUpperBand = outStride == 1 ? outRealUpperBand : new double[historyLen];
       double[] sc_outRealMiddleBand = outStride == 1 ? outRealMiddleBand : new double[historyLen];
       double[] sc_outRealLowerBand = outStride == 1 ? outRealLowerBand : new double[historyLen];
+      int lagNb0 = 0;
       /* General path (every MA type other than SMA): the middle band is the moving
        * average and the deviation is the standard deviation of the input, combined
        * at the same bar. Two intermediate buffers are allocated so the input may
@@ -18534,6 +18575,7 @@ public final class Core {
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY ;
       }
+      lagNb0 = outNBElement.value;
       /* Remember where the moving average begins, to realign it below. */
       maBegIdx = (int)outBegIdx.value;
       /* Calculate the Standard Deviation into tempBuffer2. */
@@ -18554,6 +18596,12 @@ public final class Core {
          shiftIdx = (int)outBegIdx.value - maBegIdx;
       } else {
          shiftIdx = 0;
+      }
+      if( outNBElement.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - shiftIdx - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
       }
       System.arraycopy(tempBuffer1, shiftIdx, sc_outRealMiddleBand, 0, outNBElement.value * 1);
       /* Now do a tight loop to calculate the upper/lower band at the same time. */
@@ -23455,6 +23503,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior uptrend the pattern classically assumes for significance.</li>
     * <li>Bulkowski's testing found this reverses bearishly only 54% of the time — "near random" — despite the pattern's classic always-bearish label; the breakout direction cannot be predicted with any real accuracy. (<a href="https://thepatternsite.com/TwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 64th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/TwoCrows.html">Two Crows</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -23525,6 +23574,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior uptrend the pattern classically assumes for significance.</li>
     * <li>Bulkowski's testing found this reverses bearishly only 54% of the time — "near random" — despite the pattern's classic always-bearish label; the breakout direction cannot be predicted with any real accuracy. (<a href="https://thepatternsite.com/TwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 64th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/TwoCrows.html">Two Crows</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -23770,6 +23820,7 @@ public final class Core {
    }
    private void cdl2crowsStepImpl( Cdl2crowsStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -23802,11 +23853,11 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdl2crowsOpenImpl( Cdl2crowsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -24258,6 +24309,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior mature uptrend the pattern classically assumes for significance.</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 60th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ThreeBlackCrows.html">Three Black Crows</a>), and it fires 13 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -24327,6 +24379,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior mature uptrend the pattern classically assumes for significance.</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 60th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ThreeBlackCrows.html">Three Black Crows</a>), and it fires 13 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -24594,6 +24647,7 @@ public final class Core {
    {
       double range0 = 0.0;
       double trailRange0 = 0.0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -24643,11 +24697,11 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdl3blackcrowsOpenImpl( Cdl3blackcrowsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -25453,6 +25507,8 @@ public final class Core {
    }
    private void cdl3insideStepImpl( Cdl3insideStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -25493,16 +25549,16 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdl3insideOpenImpl( Cdl3insideStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -25971,6 +26027,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the surrounding trend the pattern classically assumes for significance.</li>
     * <li>TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical study of the pattern (<i>Encyclopedia of Candlestick Charts</i>) found the opposite in practice — it acted as a reversal far more often than a continuation — so traders who follow his research read this pattern's signal in the opposite direction from what its sign here suggests.</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 95th and the bearish 94th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/ThreeLineStrikeBull.html">bullish</a>, <a href="https://thepatternsite.com/ThreeLineStrikeBear.html">bearish</a>). It fires more often in crypto: 67 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -26043,6 +26100,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the surrounding trend the pattern classically assumes for significance.</li>
     * <li>TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical study of the pattern (<i>Encyclopedia of Candlestick Charts</i>) found the opposite in practice — it acted as a reversal far more often than a continuation — so traders who follow his research read this pattern's signal in the opposite direction from what its sign here suggests.</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 95th and the bearish 94th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/ThreeLineStrikeBull.html">bullish</a>, <a href="https://thepatternsite.com/ThreeLineStrikeBear.html">bearish</a>). It fires more often in crypto: 67 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -26313,6 +26371,7 @@ public final class Core {
    {
       double NearPeriodTotalRange2 = 0.0;
       double NearPeriodTotalTrailRange2 = 0.0;
+      int ringPosL_NearTrailingIdx = 0;
       int Near_rangeType = sp.cs_Near_rangeType;
       int Near_avgPeriod = sp.cs_Near_avgPeriod;
       double Near_factor = sp.cs_Near_factor;
@@ -26360,10 +26419,10 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
    private RetCode cdl3linestrikeOpenImpl( Cdl3linestrikeStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -27563,6 +27622,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
     * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. (<a href="https://thepatternsite.com/ThreeStarsSouth.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 99th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ThreeStarsSouth.html">Three Stars in the South</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -27635,6 +27695,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
     * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. (<a href="https://thepatternsite.com/ThreeStarsSouth.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 99th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ThreeStarsSouth.html">Three Stars in the South</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -27949,6 +28010,10 @@ public final class Core {
    {
       double ShadowVeryShortPeriodTotalRange0 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -28010,24 +28075,24 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdl3starsinsouthOpenImpl( Cdl3starsinsouthStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -29146,6 +29211,10 @@ public final class Core {
       double FarPeriodTotalTrailRange1 = 0.0;
       double NearPeriodTotalRange1 = 0.0;
       double NearPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyShortTrailingIdx = 0;
+      int ringPosL_FarTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -29219,24 +29288,24 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
-      sp.ringPos_FarTrailingIdx = sp.ringPos_FarTrailingIdx + 1;
-      if( sp.ringPos_FarTrailingIdx >= sp.ringCap_FarTrailingIdx ) {
-         sp.ringPos_FarTrailingIdx = 0;
-      }
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
+      ringPosL_FarTrailingIdx = sp.ringPos_FarTrailingIdx;
+      ringPosL_FarTrailingIdx = ringPosL_FarTrailingIdx + 1;
+      ringPosL_FarTrailingIdx = ringPosL_FarTrailingIdx & (ringPosL_FarTrailingIdx - sp.ringCap_FarTrailingIdx >> 31);
+      sp.ringPos_FarTrailingIdx = ringPosL_FarTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdl3whitesoldiersOpenImpl( Cdl3whitesoldiersStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -29891,7 +29960,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes for significance.</li>
-    * <li>Bulkowski found the Abandoned Baby both very rare (293 occurrences out of 4.7 million candle lines, frequency rank 92 of 103) and unusually reliable when it does occur (70% success as a reversal, overall performance rank 9 of 103). (<a href="https://thepatternsite.com/AbandonBabyBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski found the Abandoned Baby unusually reliable when it does occur: 70% success as a reversal, overall performance rank 9 of 103. (<a href="https://thepatternsite.com/AbandonBabyBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 92nd and the bearish 96th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/AbandonBabyBull.html">bullish</a>, <a href="https://thepatternsite.com/AbandonBaby.html">bearish</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -29966,7 +30036,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes for significance.</li>
-    * <li>Bulkowski found the Abandoned Baby both very rare (293 occurrences out of 4.7 million candle lines, frequency rank 92 of 103) and unusually reliable when it does occur (70% success as a reversal, overall performance rank 9 of 103). (<a href="https://thepatternsite.com/AbandonBabyBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski found the Abandoned Baby unusually reliable when it does occur: 70% success as a reversal, overall performance rank 9 of 103. (<a href="https://thepatternsite.com/AbandonBabyBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 92nd and the bearish 96th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/AbandonBabyBull.html">bullish</a>, <a href="https://thepatternsite.com/AbandonBaby.html">bearish</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -30259,6 +30330,9 @@ public final class Core {
    }
    private void cdlabandonedbabyStepImpl( CdlabandonedbabyStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -30309,21 +30383,21 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlabandonedbabyOpenImpl( CdlabandonedbabyStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -31493,6 +31567,11 @@ public final class Core {
       double FarPeriodTotalTrailRange1 = 0.0;
       double NearPeriodTotalRange1 = 0.0;
       double NearPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_FarTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -31581,28 +31660,28 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_FarTrailingIdx = sp.ringPos_FarTrailingIdx + 1;
-      if( sp.ringPos_FarTrailingIdx >= sp.ringCap_FarTrailingIdx ) {
-         sp.ringPos_FarTrailingIdx = 0;
-      }
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowShortTrailingIdx_derived[sp.ringPos_ShadowShortTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowShortTrailingIdx = sp.ringPos_ShadowShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowShortTrailingIdx >= sp.ringCap_ShadowShortTrailingIdx ) {
-         sp.ringPos_ShadowShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_FarTrailingIdx = sp.ringPos_FarTrailingIdx;
+      ringPosL_FarTrailingIdx = ringPosL_FarTrailingIdx + 1;
+      ringPosL_FarTrailingIdx = ringPosL_FarTrailingIdx & (ringPosL_FarTrailingIdx - sp.ringCap_FarTrailingIdx >> 31);
+      sp.ringPos_FarTrailingIdx = ringPosL_FarTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowShortTrailingIdx = sp.ringPos_ShadowShortTrailingIdx;
+      sp.ring_ShadowShortTrailingIdx_derived[ringPosL_ShadowShortTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowShortTrailingIdx = ringPosL_ShadowShortTrailingIdx + 1;
+      ringPosL_ShadowShortTrailingIdx = ringPosL_ShadowShortTrailingIdx & (ringPosL_ShadowShortTrailingIdx - sp.ringCap_ShadowShortTrailingIdx >> 31);
+      sp.ringPos_ShadowShortTrailingIdx = ringPosL_ShadowShortTrailingIdx;
    }
    private RetCode cdladvanceblockOpenImpl( CdladvanceblockStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -32552,6 +32631,8 @@ public final class Core {
    }
    private void cdlbeltholdStepImpl( CdlbeltholdStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -32579,16 +32660,16 @@ public final class Core {
        */
       sp.BodyLongPeriodTotal += ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlbeltholdOpenImpl( CdlbeltholdStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -33018,6 +33099,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
     * <li>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<a href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/BullBreakaway.html">bullish</a>, <a href="https://thepatternsite.com/BearBreakaway.html">bearish</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -33089,6 +33171,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (a breakaway matters most against a preceding move).</li>
     * <li>Bulkowski's data shows a directional asymmetry TA-Lib's symmetric output doesn't capture: bullish Breakaway reverses only 59% of the time ("near random"), while bearish Breakaway reverses 63% of the time overall. (<a href="https://thepatternsite.com/BullBreakaway.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 97th and the bearish 98th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/BullBreakaway.html">bullish</a>, <a href="https://thepatternsite.com/BearBreakaway.html">bearish</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -33364,6 +33447,7 @@ public final class Core {
    }
    private void cdlbreakawayStepImpl( CdlbreakawayStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -33413,10 +33497,10 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdlbreakawayOpenImpl( CdlbreakawayStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -34173,6 +34257,8 @@ public final class Core {
    }
    private void cdlclosingmarubozuStepImpl( CdlclosingmarubozuStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -34200,16 +34286,16 @@ public final class Core {
        */
       sp.BodyLongPeriodTotal += ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlclosingmarubozuOpenImpl( CdlclosingmarubozuStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -34674,6 +34760,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding downtrend the pattern classically assumes.</li>
     * <li>Despite the bullish-reversal label, Bulkowski's testing found this pattern actually behaves as a bearish continuation 75% of the time — though the finding rests on just 4 occurrences out of 4.7 million candle lines, and it ranks 101st of 103 patterns overall. (<a href="https://thepatternsite.com/ConcealBaby.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it last of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ConcealBaby.html">Concealing Baby Swallow</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -34742,6 +34829,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding downtrend the pattern classically assumes.</li>
     * <li>Despite the bullish-reversal label, Bulkowski's testing found this pattern actually behaves as a bearish continuation 75% of the time — though the finding rests on just 4 occurrences out of 4.7 million candle lines, and it ranks 101st of 103 patterns overall. (<a href="https://thepatternsite.com/ConcealBaby.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it last of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/ConcealBaby.html">Concealing Baby Swallow</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -35011,6 +35099,7 @@ public final class Core {
    {
       double ShadowVeryShortPeriodTotalRange1 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -35057,10 +35146,10 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlconcealbabyswallOpenImpl( CdlconcealbabyswallStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -35549,6 +35638,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior trend the reversal signal classically assumes.</li>
     * <li>Bulkowski's testing found the bearish Counterattack/Meeting Lines does not reliably reverse at all — it acts as a bullish CONTINUATION 51% of the time — and the bullish version reverses only 56% of the time, both "near random" by his classification. (<a href="https://thepatternsite.com/MeetingLinesBear.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 72nd and the bearish 63rd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/MeetingLinesBull.html">bullish Meeting Lines</a>, <a href="https://thepatternsite.com/MeetingLinesBear.html">bearish Meeting Lines</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -35619,6 +35709,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the prior trend the reversal signal classically assumes.</li>
     * <li>Bulkowski's testing found the bearish Counterattack/Meeting Lines does not reliably reverse at all — it acts as a bullish CONTINUATION 51% of the time — and the bullish version reverses only 56% of the time, both "near random" by his classification. (<a href="https://thepatternsite.com/MeetingLinesBear.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 72nd and the bearish 63rd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/MeetingLinesBull.html">bullish Meeting Lines</a>, <a href="https://thepatternsite.com/MeetingLinesBear.html">bearish Meeting Lines</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -35878,6 +35969,8 @@ public final class Core {
    {
       double BodyLongPeriodTotalRange0 = 0.0;
       double BodyLongPeriodTotalTrailRange0 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -35912,15 +36005,15 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlcounterattackOpenImpl( CdlcounterattackStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -36701,6 +36794,7 @@ public final class Core {
    }
    private void cdldarkcloudcoverStepImpl( CdldarkcloudcoverStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -36724,10 +36818,10 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdldarkcloudcoverOpenImpl( CdldarkcloudcoverStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -37397,6 +37491,7 @@ public final class Core {
    }
    private void cdldojiStepImpl( CdldojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -37412,11 +37507,11 @@ public final class Core {
        * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
        */
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
    }
    private RetCode cdldojiOpenImpl( CdldojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -38153,6 +38248,8 @@ public final class Core {
    }
    private void cdldojistarStepImpl( CdldojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -38185,16 +38282,16 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdldojistarOpenImpl( CdldojistarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -38952,6 +39049,8 @@ public final class Core {
    }
    private void cdldragonflydojiStepImpl( CdldragonflydojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -38974,16 +39073,16 @@ public final class Core {
        */
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdldragonflydojiOpenImpl( CdldragonflydojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -40146,6 +40245,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 81st of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/EveningDojiStar.html">Evening Doji Star</a>). It fires more often in crypto: 25 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -40220,6 +40320,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend the bearish reversal classically assumes.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 81st of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/EveningDojiStar.html">Evening Doji Star</a>). It fires more often in crypto: 25 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -40505,6 +40606,9 @@ public final class Core {
    }
    private void cdleveningdojistarStepImpl( CdleveningdojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -40549,21 +40653,21 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdleveningdojistarOpenImpl( CdleveningdojistarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -41447,6 +41551,8 @@ public final class Core {
    }
    private void cdleveningstarStepImpl( CdleveningstarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -41483,15 +41589,15 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdleveningstarOpenImpl( CdleveningstarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -41971,7 +42077,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the continuation signal classically assumes.</li>
-    * <li>Bulkowski's data shows the bullish form is rare (984 occurrences out of 4.7 million candle lines, frequency rank 73/103) but continues as labeled 66% of the time; the bearish form is rarer still (frequency rank 86/103) and its 56% continuation rate is "near random" — Bulkowski cautions the bearish sample is too thin to trust. (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's data shows the bullish form continues as labeled 66% of the time; the bearish form's 56% continuation rate is "near random", and Bulkowski cautions the bearish sample is too thin to trust. (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 73rd and the bearish 86th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">bullish</a>, <a href="https://thepatternsite.com/SidebySideWhiteLinesBear.html">bearish</a>). It fires more often in crypto: 18 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -42042,7 +42149,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the continuation signal classically assumes.</li>
-    * <li>Bulkowski's data shows the bullish form is rare (984 occurrences out of 4.7 million candle lines, frequency rank 73/103) but continues as labeled 66% of the time; the bearish form is rarer still (frequency rank 86/103) and its 56% continuation rate is "near random" — Bulkowski cautions the bearish sample is too thin to trust. (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's data shows the bullish form continues as labeled 66% of the time; the bearish form's 56% continuation rate is "near random", and Bulkowski cautions the bearish sample is too thin to trust. (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 73rd and the bearish 86th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/SidebySideWhiteLinesBull.html">bullish</a>, <a href="https://thepatternsite.com/SidebySideWhiteLinesBear.html">bearish</a>). It fires more often in crypto: 18 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -42307,6 +42415,8 @@ public final class Core {
    }
    private void cdlgapsidesidewhiteStepImpl( CdlgapsidesidewhiteStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_EqualTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -42341,14 +42451,14 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
    private RetCode cdlgapsidesidewhiteOpenImpl( CdlgapsidesidewhiteStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -43120,6 +43230,8 @@ public final class Core {
    }
    private void cdlgravestonedojiStepImpl( CdlgravestonedojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -43142,16 +43254,16 @@ public final class Core {
        */
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlgravestonedojiOpenImpl( CdlgravestonedojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -44004,6 +44116,10 @@ public final class Core {
    }
    private void cdlhammerStepImpl( CdlhammerStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -44048,26 +44164,26 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      sp.ring_NearTrailingIdx_derived[ringPosL_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlhammerOpenImpl( CdlhammerStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -44993,6 +45109,10 @@ public final class Core {
    }
    private void cdlhangingmanStepImpl( CdlhangingmanStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -45037,26 +45157,26 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      sp.ring_NearTrailingIdx_derived[ringPosL_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlhangingmanOpenImpl( CdlhangingmanStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -45921,6 +46041,8 @@ public final class Core {
    }
    private void cdlharamiStepImpl( CdlharamiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -45964,16 +46086,16 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlharamiOpenImpl( CdlharamiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -46789,6 +46911,8 @@ public final class Core {
    }
    private void cdlharamicrossStepImpl( CdlharamicrossStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -46831,16 +46955,16 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdlharamicrossOpenImpl( CdlharamicrossStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -47602,6 +47726,8 @@ public final class Core {
    }
    private void cdlhighwaveStepImpl( CdlhighwaveStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_ShadowTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -47624,16 +47750,16 @@ public final class Core {
        */
       sp.BodyPeriodTotal += ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx];
       sp.ShadowPeriodTotal += ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx];
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx] = ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx + 1;
-      if( sp.ringPos_ShadowTrailingIdx >= sp.ringCap_ShadowTrailingIdx ) {
-         sp.ringPos_ShadowTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx;
+      sp.ring_ShadowTrailingIdx_derived[ringPosL_ShadowTrailingIdx] = ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx + 1;
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx & (ringPosL_ShadowTrailingIdx - sp.ringCap_ShadowTrailingIdx >> 31);
+      sp.ringPos_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx;
    }
    private RetCode cdlhighwaveOpenImpl( CdlhighwaveStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -49297,6 +49423,7 @@ public final class Core {
    }
    private void cdlhikkakemodStepImpl( CdlhikkakemodStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_NearTrailingIdx = 0;
       int Near_rangeType = sp.cs_Near_rangeType;
       int Near_avgPeriod = sp.cs_Near_avgPeriod;
       double Near_factor = sp.cs_Near_factor;
@@ -49342,10 +49469,10 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
    private RetCode cdlhikkakemodOpenImpl( CdlhikkakemodStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -50160,6 +50287,8 @@ public final class Core {
    }
    private void cdlhomingpigeonStepImpl( CdlhomingpigeonStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -50190,15 +50319,15 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlhomingpigeonOpenImpl( CdlhomingpigeonStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -50730,6 +50859,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
     * <li>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 83rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/Identical3Crows.html">Identical Three Crows</a>). It fires more often in crypto: 180 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -50799,6 +50929,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
     * <li>Does not require the three bodies to be equal in size; 'identical' refers only to each candle opening at or near the previous candle's close.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 83rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/Identical3Crows.html">Identical Three Crows</a>). It fires more often in crypto: 180 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -51082,6 +51213,8 @@ public final class Core {
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
       double EqualPeriodTotalRange1 = 0.0;
       double EqualPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_EqualTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -51135,15 +51268,15 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlidentical3crowsOpenImpl( Cdlidentical3crowsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -51648,6 +51781,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding downtrend that this bearish continuation pattern assumes.</li>
     * <li>Bulkowski's testing found the bearish continuation holds only 53% of the time — "near random" — though its overall post-breakout performance still ranks a strong 17th of 103. (<a href="https://www.thepatternsite.com/InNeck.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 62nd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/InNeck.html">In Neck</a>), and it fires 9 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -51719,6 +51853,7 @@ public final class Core {
     * <ul>
     * <li>Does not verify the preceding downtrend that this bearish continuation pattern assumes.</li>
     * <li>Bulkowski's testing found the bearish continuation holds only 53% of the time — "near random" — though its overall post-breakout performance still ranks a strong 17th of 103. (<a href="https://www.thepatternsite.com/InNeck.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 62nd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/InNeck.html">In Neck</a>), and it fires 9 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -51976,6 +52111,8 @@ public final class Core {
    }
    private void cdlinneckStepImpl( CdlinneckStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -52004,14 +52141,14 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlinneckOpenImpl( CdlinneckStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -52824,6 +52961,9 @@ public final class Core {
    }
    private void cdlinvertedhammerStepImpl( CdlinvertedhammerStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -52859,21 +52999,21 @@ public final class Core {
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
       sp.lag1_inOpen = inOpen;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlinvertedhammerOpenImpl( CdlinvertedhammerStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -53405,7 +53545,8 @@ public final class Core {
     * href="https://ta-lib.org/functions/cdlkicking">ta-lib.org/functions/cdlkicking</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time — both "near random" — and it's also one of the rarest patterns he tracked (frequency rank 100/103 bullish, 102/103 bearish). (<a href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time, both "near random". (<a href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 100th and the bearish 102nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/KickingBull.html">bullish</a>, <a href="https://thepatternsite.com/KickingBear.html">bearish</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -53473,7 +53614,8 @@ public final class Core {
     * href="https://ta-lib.org/functions/cdlkicking">ta-lib.org/functions/cdlkicking</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time — both "near random" — and it's also one of the rarest patterns he tracked (frequency rank 100/103 bullish, 102/103 bearish). (<a href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found Kicking reverses only 53% (bullish) / 54% (bearish) of the time, both "near random". (<a href="https://thepatternsite.com/KickingBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 100th and the bearish 102nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/KickingBull.html">bullish</a>, <a href="https://thepatternsite.com/KickingBear.html">bearish</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -53743,6 +53885,8 @@ public final class Core {
       double BodyLongPeriodTotalTrailRange0 = 0.0;
       double ShadowVeryShortPeriodTotalRange0 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -53790,16 +53934,16 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlkickingOpenImpl( CdlkickingStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -54338,6 +54482,10 @@ public final class Core {
     * signal whose bull/bear bias is set by the longer of the two marubozu.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/cdlkickingbylength">ta-lib.org/functions/cdlkickingbylength</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Rare: it fires on the same bars as <a href="https://ta-lib.org/functions/cdlkicking">{@code CDLKICKING}</a>, so a few years of one symbol's daily bars may show none. Bulkowski ranks Kicking's bullish form 100th and bearish 102nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/KickingBull.html">bullish</a>, <a href="https://thepatternsite.com/KickingBear.html">bearish</a>).</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
     * library never pads with NaN. A valid range that ends before
@@ -54404,6 +54552,10 @@ public final class Core {
     * signal whose bull/bear bias is set by the longer of the two marubozu.
     * <p>Formula and more info at <a
     * href="https://ta-lib.org/functions/cdlkickingbylength">ta-lib.org/functions/cdlkickingbylength</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Rare: it fires on the same bars as <a href="https://ta-lib.org/functions/cdlkicking">{@code CDLKICKING}</a>, so a few years of one symbol's daily bars may show none. Bulkowski ranks Kicking's bullish form 100th and bearish 102nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/KickingBull.html">bullish</a>, <a href="https://thepatternsite.com/KickingBear.html">bearish</a>).</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -54674,6 +54826,8 @@ public final class Core {
       double BodyLongPeriodTotalTrailRange0 = 0.0;
       double ShadowVeryShortPeriodTotalRange0 = 0.0;
       double ShadowVeryShortPeriodTotalTrailRange0 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -54721,16 +54875,16 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlkickingbylengthOpenImpl( CdlkickingbylengthStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -55191,7 +55345,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding downtrend that this bullish reversal classically assumes.</li>
-    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time — "near random" — and it is extremely rare (451 occurrences out of 4.7 million candle lines), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time ("near random"), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 80th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/LadderBottom.html">Ladder Bottom</a>), and it fires 3 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -55262,7 +55417,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding downtrend that this bullish reversal classically assumes.</li>
-    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time — "near random" — and it is extremely rare (451 occurrences out of 4.7 million candle lines), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found this reverses a downtrend only 56% of the time ("near random"), ranking 41st of 103 patterns for overall performance. (<a href="https://thepatternsite.com/LadderBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 80th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/LadderBottom.html">Ladder Bottom</a>), and it fires 3 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -55518,6 +55674,7 @@ public final class Core {
    }
    private void cdlladderbottomStepImpl( CdlladderbottomStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
       int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
       double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
@@ -55553,10 +55710,10 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlladderbottomOpenImpl( CdlladderbottomStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -56293,6 +56450,8 @@ public final class Core {
    }
    private void cdllongleggeddojiStepImpl( CdllongleggeddojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -56315,16 +56474,16 @@ public final class Core {
        */
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
       sp.ShadowLongPeriodTotal += ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
    }
    private RetCode cdllongleggeddojiOpenImpl( CdllongleggeddojiStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -57054,6 +57213,8 @@ public final class Core {
    }
    private void cdllonglineStepImpl( CdllonglineStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_ShadowTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -57076,16 +57237,16 @@ public final class Core {
        */
       sp.BodyPeriodTotal += ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx];
       sp.ShadowPeriodTotal += ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx];
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx + 1;
-      if( sp.ringPos_ShadowTrailingIdx >= sp.ringCap_ShadowTrailingIdx ) {
-         sp.ringPos_ShadowTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx;
+      sp.ring_ShadowTrailingIdx_derived[ringPosL_ShadowTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx + 1;
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx & (ringPosL_ShadowTrailingIdx - sp.ringCap_ShadowTrailingIdx >> 31);
+      sp.ringPos_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx;
    }
    private RetCode cdllonglineOpenImpl( CdllonglineStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -57818,6 +57979,8 @@ public final class Core {
    }
    private void cdlmarubozuStepImpl( CdlmarubozuStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -57840,16 +58003,16 @@ public final class Core {
        */
       sp.BodyLongPeriodTotal += ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlmarubozuOpenImpl( CdlmarubozuStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -58554,6 +58717,7 @@ public final class Core {
    }
    private void cdlmatchinglowStepImpl( CdlmatchinglowStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_EqualTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -58575,10 +58739,10 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlmatchinglowOpenImpl( CdlmatchinglowStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -59088,6 +59252,7 @@ public final class Core {
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
     * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MatHold.html">Mat Hold</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -59163,6 +59328,7 @@ public final class Core {
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
     * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 93rd of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MatHold.html">Mat Hold</a>), and it fires once in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -59466,6 +59632,8 @@ public final class Core {
    {
       double BodyPeriodTotalRange1 = 0.0;
       double BodyPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -59524,14 +59692,14 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlmatholdOpenImpl( CdlmatholdStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -60112,6 +60280,7 @@ public final class Core {
     * <ul>
     * <li>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</li>
     * <li>A prior downtrend is not verified.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 78th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MorningDojiStar.html">Morning Doji Star</a>). It fires more often in crypto: 19 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -60189,6 +60358,7 @@ public final class Core {
     * <ul>
     * <li>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</li>
     * <li>A prior downtrend is not verified.</li>
+    * <li>Rare in Bulkowski's tests: he ranks it 78th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/MorningDojiStar.html">Morning Doji Star</a>). It fires more often in crypto: 19 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -60475,6 +60645,9 @@ public final class Core {
    }
    private void cdlmorningdojistarStepImpl( CdlmorningdojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -60519,21 +60692,21 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlmorningdojistarOpenImpl( CdlmorningdojistarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -61419,6 +61592,8 @@ public final class Core {
    }
    private void cdlmorningstarStepImpl( CdlmorningstarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -61455,15 +61630,15 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlmorningstarOpenImpl( CdlmorningstarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, double optInPenetration, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -62260,6 +62435,8 @@ public final class Core {
    }
    private void cdlonneckStepImpl( CdlonneckStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -62288,14 +62465,14 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlonneckOpenImpl( CdlonneckStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -63036,6 +63213,7 @@ public final class Core {
    private void cdlpiercingStepImpl( CdlpiercingStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int totIdx = 0;
+      int ringPosL_BodyLongTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -63062,10 +63240,10 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
    }
    private RetCode cdlpiercingOpenImpl( CdlpiercingStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -63853,6 +64031,9 @@ public final class Core {
    }
    private void cdlrickshawmanStepImpl( CdlrickshawmanStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -63887,21 +64068,21 @@ public final class Core {
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
       sp.ShadowLongPeriodTotal += ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx];
       sp.NearPeriodTotal += ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      sp.ring_NearTrailingIdx_derived[ringPosL_NearTrailingIdx] = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
    }
    private RetCode cdlrickshawmanOpenImpl( CdlrickshawmanStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -64444,7 +64625,8 @@ public final class Core {
     * <li>Only the three-small-candle variant is detected; the classic pattern allowing two or more small candles is not supported.</li>
     * <li>The middle candles need only partially overlap the first candle's range, not be fully contained within it.</li>
     * <li>The prior trend the continuation reading assumes is not verified.</li>
-    * <li>Bulkowski's testing found Rising Three Methods continues 74% of the time (102 examples out of 4.7M candle lines) and Falling Three Methods continues 71% of the time (just 64 examples) — both act as classically labeled, but Bulkowski flags the samples as too thin to trust: Falling Three Methods is so rare he omitted its statistics from his book entirely. (<a href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found Rising Three Methods continues 74% of the time and Falling Three Methods 71%, both as classically labeled, but he flags both samples as too thin to trust and left Falling Three Methods out of his book. (<a href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks Rising Three Methods 88th and Falling Three Methods 91st of 103 patterns by how often they occur (<a href="https://thepatternsite.com/Rising3Methods.html">rising</a>, <a href="https://thepatternsite.com/Falling3Methods.html">falling</a>), and it fires 12 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -64517,7 +64699,8 @@ public final class Core {
     * <li>Only the three-small-candle variant is detected; the classic pattern allowing two or more small candles is not supported.</li>
     * <li>The middle candles need only partially overlap the first candle's range, not be fully contained within it.</li>
     * <li>The prior trend the continuation reading assumes is not verified.</li>
-    * <li>Bulkowski's testing found Rising Three Methods continues 74% of the time (102 examples out of 4.7M candle lines) and Falling Three Methods continues 71% of the time (just 64 examples) — both act as classically labeled, but Bulkowski flags the samples as too thin to trust: Falling Three Methods is so rare he omitted its statistics from his book entirely. (<a href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found Rising Three Methods continues 74% of the time and Falling Three Methods 71%, both as classically labeled, but he flags both samples as too thin to trust and left Falling Three Methods out of his book. (<a href="https://thepatternsite.com/Rising3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks Rising Three Methods 88th and Falling Three Methods 91st of 103 patterns by how often they occur (<a href="https://thepatternsite.com/Rising3Methods.html">rising</a>, <a href="https://thepatternsite.com/Falling3Methods.html">falling</a>), and it fires 12 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -64820,6 +65003,8 @@ public final class Core {
    {
       double BodyPeriodTotalRange1 = 0.0;
       double BodyPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -64882,14 +65067,14 @@ public final class Core {
       sp.lag3_inClose = sp.lag2_inClose;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlrisefall3methodsOpenImpl( Cdlrisefall3methodsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -65430,6 +65615,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>A prior trend is not verified, nor that the pattern aligns with it.</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 76th and the bearish 82nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/SeparateLinesBull.html">bullish</a>, <a href="https://thepatternsite.com/SeparateLinesBear.html">bearish</a>). It fires more often in crypto: 120 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -65497,6 +65683,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>A prior trend is not verified, nor that the pattern aligns with it.</li>
+    * <li>Rare in Bulkowski's tests: he ranks the bullish form 76th and the bearish 82nd of 103 patterns by how often they occur (<a href="https://thepatternsite.com/SeparateLinesBull.html">bullish</a>, <a href="https://thepatternsite.com/SeparateLinesBear.html">bearish</a>). It fires more often in crypto: 120 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -65768,6 +65955,9 @@ public final class Core {
    }
    private void cdlseparatinglinesStepImpl( CdlseparatinglinesStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -65807,20 +65997,20 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlseparatinglinesOpenImpl( CdlseparatinglinesStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -66667,6 +66857,9 @@ public final class Core {
    }
    private void cdlshootingstarStepImpl( CdlshootingstarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_ShadowLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -66702,21 +66895,21 @@ public final class Core {
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
       sp.lag1_inOpen = inOpen;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx ) {
-         sp.ringPos_ShadowLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+      sp.ring_ShadowLongTrailingIdx_derived[ringPosL_ShadowLongTrailingIdx] = ((ShadowLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx + 1;
+      ringPosL_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx & (ringPosL_ShadowLongTrailingIdx - sp.ringCap_ShadowLongTrailingIdx >> 31);
+      sp.ringPos_ShadowLongTrailingIdx = ringPosL_ShadowLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlshootingstarOpenImpl( CdlshootingstarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -67481,6 +67674,8 @@ public final class Core {
    }
    private void cdlshortlineStepImpl( CdlshortlineStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
+      int ringPosL_ShadowTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -67503,16 +67698,16 @@ public final class Core {
        */
       sp.BodyPeriodTotal += ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx];
       sp.ShadowPeriodTotal += ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx];
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
-      sp.ring_ShadowTrailingIdx_derived[sp.ringPos_ShadowTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx + 1;
-      if( sp.ringPos_ShadowTrailingIdx >= sp.ringCap_ShadowTrailingIdx ) {
-         sp.ringPos_ShadowTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
+      ringPosL_ShadowTrailingIdx = sp.ringPos_ShadowTrailingIdx;
+      sp.ring_ShadowTrailingIdx_derived[ringPosL_ShadowTrailingIdx] = ((ShadowShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx + 1;
+      ringPosL_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx & (ringPosL_ShadowTrailingIdx - sp.ringCap_ShadowTrailingIdx >> 31);
+      sp.ringPos_ShadowTrailingIdx = ringPosL_ShadowTrailingIdx;
    }
    private RetCode cdlshortlineOpenImpl( CdlshortlineStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -68191,6 +68386,7 @@ public final class Core {
    }
    private void cdlspinningtopStepImpl( CdlspinningtopStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
       int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
       int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
       double BodyShort_factor = sp.cs_BodyShort_factor;
@@ -68206,11 +68402,11 @@ public final class Core {
        * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
        */
       sp.BodyPeriodTotal += ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx];
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
    }
    private RetCode cdlspinningtopOpenImpl( CdlspinningtopStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -69135,6 +69331,10 @@ public final class Core {
       double BodyLongPeriodTotalTrailRange1 = 0.0;
       double NearPeriodTotalRange1 = 0.0;
       double NearPeriodTotalTrailRange1 = 0.0;
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
+      int ringPosL_NearTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -69195,23 +69395,23 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdlstalledpatternOpenImpl( CdlstalledpatternStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -70053,6 +70253,7 @@ public final class Core {
    }
    private void cdlsticksandwichStepImpl( CdlsticksandwichStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_EqualTrailingIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
       double Equal_factor = sp.cs_Equal_factor;
@@ -70080,10 +70281,10 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlsticksandwichOpenImpl( CdlsticksandwichStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -70861,6 +71062,9 @@ public final class Core {
    }
    private void cdltakuriStepImpl( CdltakuriStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyDojiTrailingIdx = 0;
+      int ringPosL_ShadowVeryLongTrailingIdx = 0;
+      int ringPosL_ShadowVeryShortTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -70890,21 +71094,21 @@ public final class Core {
       sp.BodyDojiPeriodTotal += ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx];
       sp.ShadowVeryShortPeriodTotal += ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx];
       sp.ShadowVeryLongPeriodTotal += ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - sp.ring_ShadowVeryLongTrailingIdx_derived[sp.ringPos_ShadowVeryLongTrailingIdx];
-      sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx + 1;
-      if( sp.ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx ) {
-         sp.ringPos_BodyDojiTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryLongTrailingIdx_derived[sp.ringPos_ShadowVeryLongTrailingIdx] = ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryLongTrailingIdx = sp.ringPos_ShadowVeryLongTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryLongTrailingIdx >= sp.ringCap_ShadowVeryLongTrailingIdx ) {
-         sp.ringPos_ShadowVeryLongTrailingIdx = 0;
-      }
-      sp.ring_ShadowVeryShortTrailingIdx_derived[sp.ringPos_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx + 1;
-      if( sp.ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
-         sp.ringPos_ShadowVeryShortTrailingIdx = 0;
-      }
+      ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+      sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1;
+      ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx & (ringPosL_BodyDojiTrailingIdx - sp.ringCap_BodyDojiTrailingIdx >> 31);
+      sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx;
+      ringPosL_ShadowVeryLongTrailingIdx = sp.ringPos_ShadowVeryLongTrailingIdx;
+      sp.ring_ShadowVeryLongTrailingIdx_derived[ringPosL_ShadowVeryLongTrailingIdx] = ((ShadowVeryLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryLong_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryLongTrailingIdx = ringPosL_ShadowVeryLongTrailingIdx + 1;
+      ringPosL_ShadowVeryLongTrailingIdx = ringPosL_ShadowVeryLongTrailingIdx & (ringPosL_ShadowVeryLongTrailingIdx - sp.ringCap_ShadowVeryLongTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryLongTrailingIdx = ringPosL_ShadowVeryLongTrailingIdx;
+      ringPosL_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+      sp.ring_ShadowVeryShortTrailingIdx_derived[ringPosL_ShadowVeryShortTrailingIdx] = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx + 1;
+      ringPosL_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx & (ringPosL_ShadowVeryShortTrailingIdx - sp.ringCap_ShadowVeryShortTrailingIdx >> 31);
+      sp.ringPos_ShadowVeryShortTrailingIdx = ringPosL_ShadowVeryShortTrailingIdx;
    }
    private RetCode cdltakuriOpenImpl( CdltakuriStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -71707,6 +71911,7 @@ public final class Core {
    }
    private void cdltasukigapStepImpl( CdltasukigapStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_NearTrailingIdx = 0;
       int Near_rangeType = sp.cs_Near_rangeType;
       int Near_avgPeriod = sp.cs_Near_avgPeriod;
       double Near_factor = sp.cs_Near_factor;
@@ -71752,10 +71957,10 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
-      if( sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
-         sp.ringPos_NearTrailingIdx = 0;
-      }
+      ringPosL_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx + 1;
+      ringPosL_NearTrailingIdx = ringPosL_NearTrailingIdx & (ringPosL_NearTrailingIdx - sp.ringCap_NearTrailingIdx >> 31);
+      sp.ringPos_NearTrailingIdx = ringPosL_NearTrailingIdx;
    }
    private RetCode cdltasukigapOpenImpl( CdltasukigapStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -72532,6 +72737,8 @@ public final class Core {
    }
    private void cdlthrustingStepImpl( CdlthrustingStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_EqualTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -72560,14 +72767,14 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx + 1;
-      if( sp.ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx ) {
-         sp.ringPos_EqualTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx + 1;
+      ringPosL_EqualTrailingIdx = ringPosL_EqualTrailingIdx & (ringPosL_EqualTrailingIdx - sp.ringCap_EqualTrailingIdx >> 31);
+      sp.ringPos_EqualTrailingIdx = ringPosL_EqualTrailingIdx;
    }
    private RetCode cdlthrustingOpenImpl( CdlthrustingStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -73003,7 +73210,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>This reversal pattern does not verify the prior trend it classically assumes.</li>
-    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/TriStarBull.html">bullish</a>, <a href="https://thepatternsite.com/TriStarBear.html">bearish</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -73073,7 +73281,8 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>This reversal pattern does not verify the prior trend it classically assumes.</li>
-    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance — bullish 60% of the time (rank 28/103 overall, but rare: frequency rank 79/103) and bearish just 52% of the time (rank 76/103) — despite the "exhaustion signal" framing, one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Bulkowski's testing found both Tristar variants reverse only marginally better than chance: bullish 60% of the time (rank 28/103 overall) and bearish just 52% of the time (rank 76/103). Despite the "exhaustion signal" framing, it is one of the weaker reversal signals in his candlestick set. (<a href="https://thepatternsite.com/TriStarBull.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks the bullish form 79th and the bearish 77th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/TriStarBull.html">bullish</a>, <a href="https://thepatternsite.com/TriStarBear.html">bearish</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -73325,6 +73534,7 @@ public final class Core {
    }
    private void cdltristarStepImpl( CdltristarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyTrailingIdx = 0;
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
       double BodyDoji_factor = sp.cs_BodyDoji_factor;
@@ -73361,11 +73571,11 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyTrailingIdx_derived[sp.ringPos_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx + 1;
-      if( sp.ringPos_BodyTrailingIdx >= sp.ringCap_BodyTrailingIdx ) {
-         sp.ringPos_BodyTrailingIdx = 0;
-      }
+      ringPosL_BodyTrailingIdx = sp.ringPos_BodyTrailingIdx;
+      sp.ring_BodyTrailingIdx_derived[ringPosL_BodyTrailingIdx] = ((BodyDoji_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyDoji_rangeType == 1) ? (inHigh - inLow) : ((BodyDoji_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx + 1;
+      ringPosL_BodyTrailingIdx = ringPosL_BodyTrailingIdx & (ringPosL_BodyTrailingIdx - sp.ringCap_BodyTrailingIdx >> 31);
+      sp.ringPos_BodyTrailingIdx = ringPosL_BodyTrailingIdx;
    }
    private RetCode cdltristarOpenImpl( CdltristarStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -73802,6 +74012,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Although classically a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found the opposite: it acts as a bearish continuation 60% of the time, ranking 60th of 103 patterns overall. (<a href="https://thepatternsite.com/Unique3RiverBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 89th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/Unique3RiverBottom.html">Unique Three River Bottom</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -73872,6 +74083,7 @@ public final class Core {
     * <p><b>Notes</b>
     * <ul>
     * <li>Although classically a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found the opposite: it acts as a bearish continuation 60% of the time, ranking 60th of 103 patterns overall. (<a href="https://thepatternsite.com/Unique3RiverBottom.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 89th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/Unique3RiverBottom.html">Unique Three River Bottom</a>), and it fires 5 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily crypto bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -74135,6 +74347,8 @@ public final class Core {
    }
    private void cdlunique3riverStepImpl( Cdlunique3riverStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -74174,16 +74388,16 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlunique3riverOpenImpl( Cdlunique3riverStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -74649,6 +74863,7 @@ public final class Core {
     * <ul>
     * <li>The pattern classically assumes a prior uptrend, but this function does not verify any trend.</li>
     * <li>Although classically a bearish reversal, Bulkowski's testing found this actually acts as a bullish continuation 60% of the time, and even when it does work "the price move is often lousy." (<a href="https://www.thepatternsite.com/UpGapTwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 75th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/UpGapTwoCrows.html">Upside Gap Two Crows</a>).</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -74719,6 +74934,7 @@ public final class Core {
     * <ul>
     * <li>The pattern classically assumes a prior uptrend, but this function does not verify any trend.</li>
     * <li>Although classically a bearish reversal, Bulkowski's testing found this actually acts as a bullish continuation 60% of the time, and even when it does work "the price move is often lousy." (<a href="https://www.thepatternsite.com/UpGapTwoCrows.html">thepatternsite.com</a>)</li>
+    * <li>Rare: a few years of one symbol's daily bars may show none. Bulkowski ranks it 75th of 103 patterns by how often it occurs (<a href="https://thepatternsite.com/UpGapTwoCrows.html">Upside Gap Two Crows</a>).</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -74981,6 +75197,8 @@ public final class Core {
    }
    private void cdlupsidegap2crowsStepImpl( Cdlupsidegap2crowsStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
+      int ringPosL_BodyLongTrailingIdx = 0;
+      int ringPosL_BodyShortTrailingIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
       double BodyLong_factor = sp.cs_BodyLong_factor;
@@ -75020,16 +75238,16 @@ public final class Core {
       sp.lag1_inLow = inLow;
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
-      sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
-      if( sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx ) {
-         sp.ringPos_BodyLongTrailingIdx = 0;
-      }
-      sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
-      sp.ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx + 1;
-      if( sp.ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
-         sp.ringPos_BodyShortTrailingIdx = 0;
-      }
+      ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+      sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = ((BodyLong_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyLong_rangeType == 1) ? (inHigh - inLow) : ((BodyLong_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1;
+      ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx & (ringPosL_BodyLongTrailingIdx - sp.ringCap_BodyLongTrailingIdx >> 31);
+      sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx;
+      ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+      sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1;
+      ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx & (ringPosL_BodyShortTrailingIdx - sp.ringCap_BodyShortTrailingIdx >> 31);
+      sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx;
    }
    private RetCode cdlupsidegap2crowsOpenImpl( Cdlupsidegap2crowsStream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
@@ -75430,6 +75648,7 @@ public final class Core {
     * <ul>
     * <li>This continuation pattern does not verify the prior trend it classically assumes; the caller must confirm the trend.</li>
     * <li>Bulkowski's testing found BOTH directions of this pattern actually act as reversals more often than not, opposite the classic continuation label: the upside variant reverses bearish 59% of the time, the downside variant reverses bullish 62% of the time. (<a href="https://thepatternsite.com/UpGap3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Rare in Bulkowski's tests: he ranks the upside form 85th and the downside 84th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/UpGap3Methods.html">upside</a>, <a href="https://thepatternsite.com/DownGap3Methods.html">downside</a>). It fires more often in crypto: 204 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are, and the
@@ -75502,6 +75721,7 @@ public final class Core {
     * <ul>
     * <li>This continuation pattern does not verify the prior trend it classically assumes; the caller must confirm the trend.</li>
     * <li>Bulkowski's testing found BOTH directions of this pattern actually act as reversals more often than not, opposite the classic continuation label: the upside variant reverses bearish 59% of the time, the downside variant reverses bullish 62% of the time. (<a href="https://thepatternsite.com/UpGap3Methods.html">thepatternsite.com</a>)</li>
+    * <li>Rare in Bulkowski's tests: he ranks the upside form 85th and the downside 84th of 103 patterns by how often they occur (<a href="https://thepatternsite.com/UpGap3Methods.html">upside</a>, <a href="https://thepatternsite.com/DownGap3Methods.html">downside</a>). It fires more often in crypto: 204 times in <a href="https://ta-lib.org/api/candlestick-outputs/#how-often-patterns-fire">about 16,000 daily bars</a>.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -79349,6 +79569,7 @@ public final class Core {
       double c = 0.0;
       double q = 0.0;
       double t = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       sp.win_j_inReal[sp.winPos_j] = inReal;
       /* Between bars the sums hold the window less its oldest value. */
@@ -79634,11 +79855,11 @@ public final class Core {
       /* After the trailing value is read: outReal may be inReal. */
       sp.cur_outReal = value;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
       sp.winPos_j = sp.winPos_j + 1;
       if( sp.winPos_j >= sp.winCap_j ) {
          sp.winPos_j = 0;
@@ -86509,6 +86730,7 @@ public final class Core {
       double diff = 0.0;
       double up = 0.0;
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       /* Add the newest change: inReal[today] - inReal[today-1]. */
       tempReal = inReal;
@@ -86543,11 +86765,11 @@ public final class Core {
       sp.upSum -= up;
       sp.downSum -= up - diff;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode cmouOpenImpl( CmouStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -87630,6 +87852,8 @@ public final class Core {
       double base2 = 0.0;
       double roc1 = 0.0;
       double roc2 = 0.0;
+      int ringPosL_roc1Idx = 0;
+      int ringPosL_roc2Idx = 0;
       int ringCapL_roc1Idx = 0;
       int ringCapL_roc2Idx = 0;
       base1 = sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx];
@@ -87689,17 +87913,17 @@ public final class Core {
       }
       sp.periodSum -= sp.periodSub;
       ringCapL_roc1Idx = sp.ringCap_roc1Idx;
-      sp.ring_roc1Idx_inReal[sp.ringPos_roc1Idx] = inReal;
-      sp.ringPos_roc1Idx = sp.ringPos_roc1Idx + 1;
-      if( sp.ringPos_roc1Idx >= ringCapL_roc1Idx ) {
-         sp.ringPos_roc1Idx = 0;
-      }
+      ringPosL_roc1Idx = sp.ringPos_roc1Idx;
+      sp.ring_roc1Idx_inReal[ringPosL_roc1Idx] = inReal;
+      ringPosL_roc1Idx = ringPosL_roc1Idx + 1;
+      ringPosL_roc1Idx = ringPosL_roc1Idx & (ringPosL_roc1Idx - ringCapL_roc1Idx >> 31);
+      sp.ringPos_roc1Idx = ringPosL_roc1Idx;
       ringCapL_roc2Idx = sp.ringCap_roc2Idx;
-      sp.ring_roc2Idx_inReal[sp.ringPos_roc2Idx] = inReal;
-      sp.ringPos_roc2Idx = sp.ringPos_roc2Idx + 1;
-      if( sp.ringPos_roc2Idx >= ringCapL_roc2Idx ) {
-         sp.ringPos_roc2Idx = 0;
-      }
+      ringPosL_roc2Idx = sp.ringPos_roc2Idx;
+      sp.ring_roc2Idx_inReal[ringPosL_roc2Idx] = inReal;
+      ringPosL_roc2Idx = ringPosL_roc2Idx + 1;
+      ringPosL_roc2Idx = ringPosL_roc2Idx & (ringPosL_roc2Idx - ringCapL_roc2Idx >> 31);
+      sp.ringPos_roc2Idx = ringPosL_roc2Idx;
    }
    private RetCode coppockOpenImpl( CoppockStream sp, double inReal[], int startIdx, int optInWMAPeriod, int optInROC1Period, int optInROC2Period, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -98010,6 +98234,8 @@ public final class Core {
    {
       double tempReal = 0.0;
       double dispVal = 0.0;
+      int ringPosL_dispIdx = 0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_dispIdx = 0;
       int ringCapL_trailingIdx = 0;
       sp.periodTotal += inReal;
@@ -98024,17 +98250,17 @@ public final class Core {
       dispVal = sp.ring_dispIdx_inReal[sp.ringPos_dispIdx];
       sp.cur_outReal = dispVal - tempReal / (double)sp.optInTimePeriod;
       ringCapL_dispIdx = sp.ringCap_dispIdx;
-      sp.ring_dispIdx_inReal[sp.ringPos_dispIdx] = inReal;
-      sp.ringPos_dispIdx = sp.ringPos_dispIdx + 1;
-      if( sp.ringPos_dispIdx >= ringCapL_dispIdx ) {
-         sp.ringPos_dispIdx = 0;
-      }
+      ringPosL_dispIdx = sp.ringPos_dispIdx;
+      sp.ring_dispIdx_inReal[ringPosL_dispIdx] = inReal;
+      ringPosL_dispIdx = ringPosL_dispIdx + 1;
+      ringPosL_dispIdx = ringPosL_dispIdx & (ringPosL_dispIdx - ringCapL_dispIdx >> 31);
+      sp.ringPos_dispIdx = ringPosL_dispIdx;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode dpoOpenImpl( DpoStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -102741,6 +102967,7 @@ public final class Core {
       double periodROC = 0.0;
       double tempReal = 0.0;
       double tempReal2 = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       tempReal = inReal;
       tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
@@ -102774,11 +103001,11 @@ public final class Core {
       sp.trailingValue = tempReal2;
       sp.lag1_inReal = inReal;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode erOpenImpl( ErStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -109062,6 +109289,1313 @@ public final class Core {
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
+ *  110726 MF,CC  First version (issue #583).
+ */
+
+   /**
+    * Number of leading input bars {@link Core#gator} consumes before it can
+    * produce its first value.
+    * <p>Equivalently, the index of the first bar with a value when the whole
+    * series is requested. Feed at least {@code lookback + 1} bars to get any
+    * output.
+    *
+    * @param optInJawPeriod Number of bars in the jaw's smoothed moving average
+    *        (default 13; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInJawShift Bars ahead of the computing bar at which a chart
+    *        draws the jaw (default 8; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInTeethPeriod Number of bars in the teeth's smoothed moving
+    *        average (default 8; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInTeethShift Bars ahead of the computing bar at which a chart
+    *        draws the teeth (default 5; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInLipsPeriod Number of bars in the lips' smoothed moving average
+    *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInLipsShift Bars ahead of the computing bar at which a chart
+    *        draws the lips (default 3; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @return The lookback, or {@code -1} if a parameter is out of range.
+    */
+   public int gatorLookback( int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift )
+   {
+      if( optInJawPeriod == Integer.MIN_VALUE ) {
+         optInJawPeriod = 13;
+      } else if( optInJawPeriod < 1 || optInJawPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInJawShift == Integer.MIN_VALUE ) {
+         optInJawShift = 8;
+      } else if( optInJawShift < 0 || optInJawShift > 100000 ) {
+         return -1;
+      }
+      if( optInTeethPeriod == Integer.MIN_VALUE ) {
+         optInTeethPeriod = 8;
+      } else if( optInTeethPeriod < 1 || optInTeethPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInTeethShift == Integer.MIN_VALUE ) {
+         optInTeethShift = 5;
+      } else if( optInTeethShift < 0 || optInTeethShift > 100000 ) {
+         return -1;
+      }
+      if( optInLipsPeriod == Integer.MIN_VALUE ) {
+         optInLipsPeriod = 5;
+      } else if( optInLipsPeriod < 1 || optInLipsPeriod > 100000 ) {
+         return -1;
+      }
+      if( optInLipsShift == Integer.MIN_VALUE ) {
+         optInLipsShift = 3;
+      } else if( optInLipsShift < 0 || optInLipsShift > 100000 ) {
+         return -1;
+      }
+      int backJaw;
+      int backTeethUpper;
+      int backTeethLower;
+      int backLips;
+      int lookback;
+      int legLookback;
+      /* Each histogram pairs its two lines as a chart draws them: the line drawn
+       * further ahead is read back by the difference of the two shifts. Each term
+       * is that leg's rma_lookback plus its read-back, so every leg inherits
+       * TA_FUNC_UNST_RMA.
+       */
+      backJaw = 0;
+      backTeethUpper = 0;
+      if( optInJawShift > optInTeethShift ) {
+         backJaw = optInJawShift - optInTeethShift;
+      } else {
+         backTeethUpper = optInTeethShift - optInJawShift;
+      }
+      backTeethLower = 0;
+      backLips = 0;
+      if( optInTeethShift > optInLipsShift ) {
+         backTeethLower = optInTeethShift - optInLipsShift;
+      } else {
+         backLips = optInLipsShift - optInTeethShift;
+      }
+      lookback = rmaLookback(optInJawPeriod) + backJaw;
+      legLookback = rmaLookback(optInTeethPeriod) + backTeethUpper;
+      if( legLookback > lookback ) {
+         lookback = legLookback;
+      }
+      legLookback = rmaLookback(optInTeethPeriod) + backTeethLower;
+      if( legLookback > lookback ) {
+         lookback = legLookback;
+      }
+      legLookback = rmaLookback(optInLipsPeriod) + backLips;
+      if( legLookback > lookback ) {
+         lookback = legLookback;
+      }
+      return lookback ;
+
+   }
+   /**
+    * How many bars ahead (positive) or behind (negative) of the bar that
+    * computed it a chart draws one output of {@link Core#gator}.
+    * <p>The values are never shifted: this describes the drawing only.
+    *
+    * @param optInJawPeriod Number of bars in the jaw's smoothed moving average
+    *        (default 13; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInJawShift Bars ahead of the computing bar at which a chart
+    *        draws the jaw (default 8; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInTeethPeriod Number of bars in the teeth's smoothed moving
+    *        average (default 8; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInTeethShift Bars ahead of the computing bar at which a chart
+    *        draws the teeth (default 5; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInLipsPeriod Number of bars in the lips' smoothed moving average
+    *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInLipsShift Bars ahead of the computing bar at which a chart
+    *        draws the lips (default 3; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outputIdx Position of the output in the batch signature, from 0.
+    * @return The display shift, or {@code Integer.MIN_VALUE} if a parameter is
+    *        out of range or the index names no output.
+    */
+   public int gatorDisplayShift( int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift, int outputIdx )
+   {
+      if( gatorLookback( optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift ) < 0 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInJawPeriod == Integer.MIN_VALUE ) {
+         optInJawPeriod = 13;
+      } else if( optInJawPeriod < 1 || optInJawPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInJawShift == Integer.MIN_VALUE ) {
+         optInJawShift = 8;
+      } else if( optInJawShift < 0 || optInJawShift > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInTeethPeriod == Integer.MIN_VALUE ) {
+         optInTeethPeriod = 8;
+      } else if( optInTeethPeriod < 1 || optInTeethPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInTeethShift == Integer.MIN_VALUE ) {
+         optInTeethShift = 5;
+      } else if( optInTeethShift < 0 || optInTeethShift > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInLipsPeriod == Integer.MIN_VALUE ) {
+         optInLipsPeriod = 5;
+      } else if( optInLipsPeriod < 1 || optInLipsPeriod > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( optInLipsShift == Integer.MIN_VALUE ) {
+         optInLipsShift = 3;
+      } else if( optInLipsShift < 0 || optInLipsShift > 100000 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx < 0 || outputIdx >= 2 ) {
+         return Integer.MIN_VALUE;
+      }
+      if( outputIdx == 0 ) {
+         return (optInJawShift < optInTeethShift) ? optInJawShift : optInTeethShift ;
+      }
+      return (optInTeethShift < optInLipsShift) ? optInTeethShift : optInLipsShift ;
+
+   }
+   RetCode gatorImpl( int startIdx,
+                      int endIdx,
+                      double inHigh[],
+                      double inLow[],
+                      int optInJawPeriod,
+                      int optInJawShift,
+                      int optInTeethPeriod,
+                      int optInTeethShift,
+                      int optInLipsPeriod,
+                      int optInLipsShift,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outUpper[],
+                      double outLower[] )
+   {
+      RetCode retCode;
+      int i = 0;
+      int nbElement = 0;
+      int maxBack = 0;
+      int lookbackTotal = 0;
+      int mpStartIdx = 0;
+      int localStart = 0;
+      int localEnd = 0;
+      int backJaw = 0;
+      int backTeethUpper = 0;
+      int backTeethLower = 0;
+      int backLips = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempMP;
+      double[] tempA;
+      double[] tempB;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInJawPeriod == Integer.MIN_VALUE ) {
+         optInJawPeriod = 13;
+      } else if( optInJawPeriod < 1 || optInJawPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInJawShift == Integer.MIN_VALUE ) {
+         optInJawShift = 8;
+      } else if( optInJawShift < 0 || optInJawShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethPeriod == Integer.MIN_VALUE ) {
+         optInTeethPeriod = 8;
+      } else if( optInTeethPeriod < 1 || optInTeethPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethShift == Integer.MIN_VALUE ) {
+         optInTeethShift = 5;
+      } else if( optInTeethShift < 0 || optInTeethShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsPeriod == Integer.MIN_VALUE ) {
+         optInLipsPeriod = 5;
+      } else if( optInLipsPeriod < 1 || optInLipsPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsShift == Integer.MIN_VALUE ) {
+         optInLipsShift = 3;
+      } else if( optInLipsShift < 0 || optInLipsShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outUpper == outLower ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+      /* Return before touching anything, so that an input which stops short of
+       * endIdx is never read past its end.
+       */
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      backJaw = 0;
+      backTeethUpper = 0;
+      if( optInJawShift > optInTeethShift ) {
+         backJaw = optInJawShift - optInTeethShift;
+      } else {
+         backTeethUpper = optInTeethShift - optInJawShift;
+      }
+      backTeethLower = 0;
+      backLips = 0;
+      if( optInTeethShift > optInLipsShift ) {
+         backTeethLower = optInTeethShift - optInLipsShift;
+      } else {
+         backLips = optInLipsShift - optInTeethShift;
+      }
+      maxBack = backJaw + backTeethUpper;
+      if( backTeethLower + backLips > maxBack ) {
+         maxBack = backTeethLower + backLips;
+      }
+      mpStartIdx = startIdx - lookbackTotal;
+      localStart = lookbackTotal;
+      localEnd = endIdx - mpStartIdx;
+      nbElement = endIdx - startIdx + 1;
+      tempMP = new double[(int)((endIdx - mpStartIdx + 1) * 1)];
+      tempA = new double[(int)((nbElement + maxBack) * 1)];
+      tempB = new double[(int)((nbElement + maxBack) * 1)];
+      /* Every price is consumed here, before any output is written: an output
+       * may be aliased onto inHigh or inLow.
+       */
+      OutRange _xr0 = medprice(mpStartIdx, endIdx, inHigh, inLow, tempMP);
+      tempBegIdx.value = _xr0.begIdx();
+      tempNbElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      /* Each leg is its own rma call starting at its read-back bar and seeded at
+       * its own lookback before that, so from a given first output bar neither
+       * histogram depends on the line it does not read; the teeth is therefore
+       * computed once per histogram. A leg read back by `back` bars starts that
+       * many bars early, so element i of its buffer is the bar the output's
+       * element i pairs it with.
+       */
+      OutRange _xr1 = rma(localStart - backJaw, localEnd, tempMP, optInJawPeriod, tempA);
+      tempBegIdx.value = _xr1.begIdx();
+      tempNbElement.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr2 = rma(localStart - backTeethUpper, localEnd, tempMP, optInTeethPeriod, tempB);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < nbElement; i += 1 ) {
+         outUpper[i] = Math.abs(tempA[i] - tempB[i]);
+      }
+      OutRange _xr3 = rma(localStart - backTeethLower, localEnd, tempMP, optInTeethPeriod, tempA);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr4 = rma(localStart - backLips, localEnd, tempMP, optInLipsPeriod, tempB);
+      tempBegIdx.value = _xr4.begIdx();
+      tempNbElement.value = _xr4.count();
+      retCode = RetCode.SUCCESS;
+      /* A zero spread must come out +0.0. Keep the select: gcc folds the literal
+       * 0.0 - fabs(x) into -fabs(x), which is -0.0 there.
+       */
+      for( i = 0; i < nbElement; i += 1 ) {
+         outLower[i] = (tempA[i] < tempB[i]) ? tempA[i] - tempB[i] : tempB[i] - tempA[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = nbElement;
+      return RetCode.SUCCESS ;
+   }
+   RetCode gatorImpl( int startIdx,
+                      int endIdx,
+                      float inHigh[],
+                      float inLow[],
+                      int optInJawPeriod,
+                      int optInJawShift,
+                      int optInTeethPeriod,
+                      int optInTeethShift,
+                      int optInLipsPeriod,
+                      int optInLipsShift,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outUpper[],
+                      double outLower[] )
+   {
+      RetCode retCode;
+      int i = 0;
+      int nbElement = 0;
+      int maxBack = 0;
+      int lookbackTotal = 0;
+      int mpStartIdx = 0;
+      int localStart = 0;
+      int localEnd = 0;
+      int backJaw = 0;
+      int backTeethUpper = 0;
+      int backTeethLower = 0;
+      int backLips = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempMP;
+      double[] tempA;
+      double[] tempB;
+      if( (startIdx < 0) || (startIdx > INDEX_MAX) ) {
+         return RetCode.OUT_OF_RANGE_START_INDEX ;
+      }
+      if( (endIdx < 0) || (endIdx > INDEX_MAX) || (endIdx < startIdx)) {
+         return RetCode.OUT_OF_RANGE_END_INDEX ;
+      }
+      if( optInJawPeriod == Integer.MIN_VALUE ) {
+         optInJawPeriod = 13;
+      } else if( optInJawPeriod < 1 || optInJawPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInJawShift == Integer.MIN_VALUE ) {
+         optInJawShift = 8;
+      } else if( optInJawShift < 0 || optInJawShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethPeriod == Integer.MIN_VALUE ) {
+         optInTeethPeriod = 8;
+      } else if( optInTeethPeriod < 1 || optInTeethPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethShift == Integer.MIN_VALUE ) {
+         optInTeethShift = 5;
+      } else if( optInTeethShift < 0 || optInTeethShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsPeriod == Integer.MIN_VALUE ) {
+         optInLipsPeriod = 5;
+      } else if( optInLipsPeriod < 1 || optInLipsPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsShift == Integer.MIN_VALUE ) {
+         optInLipsShift = 3;
+      } else if( optInLipsShift < 0 || optInLipsShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( outUpper == outLower ) {
+         return RetCode.BAD_PARAM ;
+      }
+      lookbackTotal = gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.SUCCESS ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      backJaw = 0;
+      backTeethUpper = 0;
+      if( optInJawShift > optInTeethShift ) {
+         backJaw = optInJawShift - optInTeethShift;
+      } else {
+         backTeethUpper = optInTeethShift - optInJawShift;
+      }
+      backTeethLower = 0;
+      backLips = 0;
+      if( optInTeethShift > optInLipsShift ) {
+         backTeethLower = optInTeethShift - optInLipsShift;
+      } else {
+         backLips = optInLipsShift - optInTeethShift;
+      }
+      maxBack = backJaw + backTeethUpper;
+      if( backTeethLower + backLips > maxBack ) {
+         maxBack = backTeethLower + backLips;
+      }
+      mpStartIdx = startIdx - lookbackTotal;
+      localStart = lookbackTotal;
+      localEnd = endIdx - mpStartIdx;
+      nbElement = endIdx - startIdx + 1;
+      tempMP = new double[(int)((endIdx - mpStartIdx + 1) * 1)];
+      tempA = new double[(int)((nbElement + maxBack) * 1)];
+      tempB = new double[(int)((nbElement + maxBack) * 1)];
+      OutRange _xr0 = medprice(mpStartIdx, endIdx, inHigh, inLow, tempMP);
+      tempBegIdx.value = _xr0.begIdx();
+      tempNbElement.value = _xr0.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr1 = rma(localStart - backJaw, localEnd, tempMP, optInJawPeriod, tempA);
+      tempBegIdx.value = _xr1.begIdx();
+      tempNbElement.value = _xr1.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr2 = rma(localStart - backTeethUpper, localEnd, tempMP, optInTeethPeriod, tempB);
+      tempBegIdx.value = _xr2.begIdx();
+      tempNbElement.value = _xr2.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < nbElement; i += 1 ) {
+         outUpper[i] = Math.abs(tempA[i] - tempB[i]);
+      }
+      OutRange _xr3 = rma(localStart - backTeethLower, localEnd, tempMP, optInTeethPeriod, tempA);
+      tempBegIdx.value = _xr3.begIdx();
+      tempNbElement.value = _xr3.count();
+      retCode = RetCode.SUCCESS;
+      OutRange _xr4 = rma(localStart - backLips, localEnd, tempMP, optInLipsPeriod, tempB);
+      tempBegIdx.value = _xr4.begIdx();
+      tempNbElement.value = _xr4.count();
+      retCode = RetCode.SUCCESS;
+      for( i = 0; i < nbElement; i += 1 ) {
+         outLower[i] = (tempA[i] < tempB[i]) ? tempA[i] - tempB[i] : tempB[i] - tempA[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = nbElement;
+      return RetCode.SUCCESS ;
+   }
+   /**
+    * Bill Williams' Gator Oscillator: how far apart the three Alligator lines
+    * are, as two histograms. The upper bars are the gap between Jaw and Teeth,
+    * the lower bars the gap between Teeth and Lips drawn below zero. Both
+    * growing is the alligator eating, a trend under way; both shrinking toward
+    * zero is it falling asleep, the lines converging in a range. One side
+    * growing while the other shrinks is it waking or sated, the turn from one
+    * state into the other. It is read under the Alligator (<a
+    * href="https://ta-lib.org/functions/alligator">{@code ALLIGATOR}</a>), the
+    * Profitunity leg it measures.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/gator">ta-lib.org/functions/gator</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Each line is drawn ahead by its own shift, so the line drawn further ahead is read back by the difference of the two shifts. {@code TA_GATOR_DisplayShift} reports where a chart draws each histogram, the smaller of its two lines' shifts; it changes nothing about the values or the returned range.</li>
+    * <li>Each histogram computes its own lines, each seeded over the bars its own lookback reaches back, so the Teeth an output reads can differ from the {@code TA_ALLIGATOR} Teeth by the seed until it has decayed; setting the {@code RMA} unstable period closes the gap.</li>
+    * <li>A zero Lower is {@code +0.0}.</li>
+    * </ul>
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#gatorLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInJawPeriod Number of bars in the jaw's smoothed moving average
+    *        (default 13; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInJawShift Bars ahead of the computing bar at which a chart
+    *        draws the jaw (default 8; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInTeethPeriod Number of bars in the teeth's smoothed moving
+    *        average (default 8; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInTeethShift Bars ahead of the computing bar at which a chart
+    *        draws the teeth (default 5; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInLipsPeriod Number of bars in the lips' smoothed moving average
+    *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInLipsShift Bars ahead of the computing bar at which a chart
+    *        draws the lips (default 3; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outUpper Gap between the Jaw and the Teeth, zero or above. Must
+    *        hold at least {@code endIdx - max(startIdx, gatorLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @param outLower Gap between the Teeth and the Lips, zero or below. Must
+    *        hold at least {@code endIdx - max(startIdx, gatorLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. Checked before anything is written, so a rejected call leaves every
+    *        buffer untouched.
+    *
+    * @see Core#alligator
+    * @see Core#ao
+    * @see Core#ac
+    * @see Core#rma
+    */
+   public OutRange gator( int startIdx,
+                          int endIdx,
+                          double inHigh[],
+                          double inLow[],
+                          int optInJawPeriod,
+                          int optInJawShift,
+                          int optInTeethPeriod,
+                          int optInTeethShift,
+                          int optInLipsPeriod,
+                          int optInLipsShift,
+                          double outUpper[],
+                          double outLower[] )
+   {
+      requireIndexRange("GATOR", startIdx, endIdx);
+      int guardStart = clampedStart("GATOR", startIdx, gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("GATOR", "inHigh", inHigh, guardInLen);
+      requireLength("GATOR", "inLow", inLow, guardInLen);
+      requireLength("GATOR", "outUpper", outUpper, guardOutLen);
+      requireLength("GATOR", "outLower", outLower, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = gatorImpl(startIdx, endIdx, inHigh, inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, outBegIdx, outNBElement, outUpper, outLower);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("GATOR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+   /**
+    * Bill Williams' Gator Oscillator: how far apart the three Alligator lines
+    * are, as two histograms. The upper bars are the gap between Jaw and Teeth,
+    * the lower bars the gap between Teeth and Lips drawn below zero. Both
+    * growing is the alligator eating, a trend under way; both shrinking toward
+    * zero is it falling asleep, the lines converging in a range. One side
+    * growing while the other shrinks is it waking or sated, the turn from one
+    * state into the other. It is read under the Alligator (<a
+    * href="https://ta-lib.org/functions/alligator">{@code ALLIGATOR}</a>), the
+    * Profitunity leg it measures.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/gator">ta-lib.org/functions/gator</a>.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>Each line is drawn ahead by its own shift, so the line drawn further ahead is read back by the difference of the two shifts. {@code TA_GATOR_DisplayShift} reports where a chart draws each histogram, the smaller of its two lines' shifts; it changes nothing about the values or the returned range.</li>
+    * <li>Each histogram computes its own lines, each seeded over the bars its own lookback reaches back, so the Teeth an output reads can differ from the {@code TA_ALLIGATOR} Teeth by the seed until it has decayed; setting the {@code RMA} unstable period closes the gap.</li>
+    * <li>A zero Lower is {@code +0.0}.</li>
+    * </ul>
+    * <p>This is the {@code float[]} overload. The arithmetic is performed in
+    * {@code double} before being written to the {@code double[]} output, so a
+    * result beyond {@code float} range is still representable.
+    * <p>Values are written only where the indicator is defined. The returned
+    * {@link OutRange} says where they start and how many there are, and the
+    * library never pads with NaN. A valid range that ends before
+    * {@link Core#gatorLookback} is a <b>success with no values</b>
+    * ({@code count() == 0}), not an error.
+    *
+    * @param startIdx First bar of the requested range (inclusive).
+    * @param endIdx Last bar of the requested range (inclusive).
+    * @param inHigh High price of each bar.
+    * @param inLow Low price of each bar.
+    * @param optInJawPeriod Number of bars in the jaw's smoothed moving average
+    *        (default 13; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInJawShift Bars ahead of the computing bar at which a chart
+    *        draws the jaw (default 8; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInTeethPeriod Number of bars in the teeth's smoothed moving
+    *        average (default 8; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInTeethShift Bars ahead of the computing bar at which a chart
+    *        draws the teeth (default 5; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param optInLipsPeriod Number of bars in the lips' smoothed moving average
+    *        (default 5; range 1..100000; {@code Integer.MIN_VALUE} selects the
+    *        default).
+    * @param optInLipsShift Bars ahead of the computing bar at which a chart
+    *        draws the lips (default 3; range 0..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outUpper Gap between the Jaw and the Teeth, zero or above. Must
+    *        hold at least {@code endIdx - max(startIdx, gatorLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @param outLower Gap between the Teeth and the Lips, zero or below. Must
+    *        hold at least {@code endIdx - max(startIdx, gatorLookback(...)) + 1}
+    *        values, and never be empty: an empty array is an absent output.
+    * @return The range written: {@code begIdx} is the first bar with a value,
+    *        {@code count} how many were written.
+    * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
+    *        negative or above {@link Core#INDEX_MAX}, or {@code endIdx < startIdx}.
+    * @throws IllegalArgumentException if an optional parameter is outside its
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. Checked before anything is written, so a rejected call leaves every
+    *        buffer untouched.
+    *
+    * @see Core#alligator
+    * @see Core#ao
+    * @see Core#ac
+    * @see Core#rma
+    */
+   public OutRange gator( int startIdx,
+                          int endIdx,
+                          float inHigh[],
+                          float inLow[],
+                          int optInJawPeriod,
+                          int optInJawShift,
+                          int optInTeethPeriod,
+                          int optInTeethShift,
+                          int optInLipsPeriod,
+                          int optInLipsShift,
+                          double outUpper[],
+                          double outLower[] )
+   {
+      requireIndexRange("GATOR", startIdx, endIdx);
+      int guardStart = clampedStart("GATOR", startIdx, gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("GATOR", "inHigh", inHigh, guardInLen);
+      requireLength("GATOR", "inLow", inLow, guardInLen);
+      requireLength("GATOR", "outUpper", outUpper, guardOutLen);
+      requireLength("GATOR", "outLower", outLower, guardOutLen);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      RetCode retCode = gatorImpl(startIdx, endIdx, inHigh, inLow, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, outBegIdx, outNBElement, outUpper, outLower);
+      if( retCode != RetCode.SUCCESS ) {
+         throw failure("GATOR", retCode);
+      }
+      return new OutRange(outBegIdx.value, outNBElement.value);
+   }
+/**** Streaming API *****/
+
+   /**
+    * A live GATOR stream (unrelated to {@code java.util.stream}): one value per
+    * closed bar, bit-identical to {@link Core#gator} over the same series.
+    * Open with {@link Core#gatorOpen}; there is no close — the handle is
+    * ordinary heap state, unreferenced handles are simply garbage-collected.
+    * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
+    * {@code value} and {@code clone} must not race with an {@code update} on
+    * the same handle. With no concurrent {@code update}, {@code peek}/
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
+    * <p>Not serializable by design: to checkpoint, retain the history and
+    * re-open — the result is bit-identical by contract.
+    */
+   public static final class GatorStream {
+      private Core core;
+      private int optInJawPeriod;
+      private int optInJawShift;
+      private int optInTeethPeriod;
+      private int optInTeethShift;
+      private int optInLipsPeriod;
+      private int optInLipsShift;
+      private double cur_outUpper;
+      private double cur_outLower;
+      private int lagPos0;
+      private int lagCap0;
+      private double[] lagBuf0;
+      private int lagPos1;
+      private int lagCap1;
+      private double[] lagBuf1;
+      private int lagPos2;
+      private int lagCap2;
+      private double[] lagBuf2;
+      private int lagPos3;
+      private int lagCap3;
+      private double[] lagBuf3;
+      private MedpriceStream sub0;
+      private RmaStream sub1;
+      private RmaStream sub2;
+      private RmaStream sub3;
+      private RmaStream sub4;
+      private int outRangeBegIdx;
+      private int outRangeCount;
+
+      private GatorStream( Core core ) { this.core = core; }
+
+      /**
+       * The bars this stream has an output for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#gator} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#INDEX_MAX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
+       */
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(GatorOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
+       */
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("GATOR advance", RetCode.OUT_OF_RANGE_END_INDEX);
+         this.outRangeCount++;
+      }
+
+      private GatorStream( GatorStream other ) {
+         this.core = other.core;
+         this.optInJawPeriod = other.optInJawPeriod;
+         this.optInJawShift = other.optInJawShift;
+         this.optInTeethPeriod = other.optInTeethPeriod;
+         this.optInTeethShift = other.optInTeethShift;
+         this.optInLipsPeriod = other.optInLipsPeriod;
+         this.optInLipsShift = other.optInLipsShift;
+         this.cur_outUpper = other.cur_outUpper;
+         this.cur_outLower = other.cur_outLower;
+         this.lagPos0 = other.lagPos0;
+         this.lagCap0 = other.lagCap0;
+         this.lagBuf0 = other.lagBuf0.clone();
+         this.lagPos1 = other.lagPos1;
+         this.lagCap1 = other.lagCap1;
+         this.lagBuf1 = other.lagBuf1.clone();
+         this.lagPos2 = other.lagPos2;
+         this.lagCap2 = other.lagCap2;
+         this.lagBuf2 = other.lagBuf2.clone();
+         this.lagPos3 = other.lagPos3;
+         this.lagCap3 = other.lagCap3;
+         this.lagBuf3 = other.lagBuf3.clone();
+         this.sub0 = new MedpriceStream(other.sub0);
+         this.sub1 = new RmaStream(other.sub1);
+         this.sub2 = new RmaStream(other.sub2);
+         this.sub3 = new RmaStream(other.sub3);
+         this.sub4 = new RmaStream(other.sub4);
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
+      }
+
+      /**
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(GatorOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
+       * This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#INDEX_MAX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
+       */
+      public void update( double inHigh, double inLow, GatorOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > INDEX_MAX )
+            throw failure("GATOR update", RetCode.OUT_OF_RANGE_END_INDEX);
+         requireArgument("GATOR update", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("GATOR update", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         core.gatorStepImpl(this, inHigh, inLow);
+         this.outRangeCount++;
+         out.upper = this.cur_outUpper;
+         out.lower = this.cur_outLower;
+      }
+
+      /**
+       * Evaluate a forming bar without committing — bit-identical to what the
+       * next {@code update} with the same bar would write — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may run concurrently with each other.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#INDEX_MAX} ceiling {@code update} stops at.
+       */
+      public void peek( double inHigh, double inLow, GatorOut out ) {
+         requireArgument("GATOR peek", "out", out);
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw nonFiniteBar("GATOR peek", !Double.isFinite(inHigh) ? "inHigh" : "inLow");
+         GatorStream sp = this;
+         double cur_tempMP = 0.0;
+         double cur_tempA = 0.0;
+         double cur_tempB = 0.0;
+         double cur_outUpper = 0.0;
+         double cur_outLower = 0.0;
+         double lagIn0 = 0.0;
+         double lagTap0_0 = 0.0;
+         double lagIn1 = 0.0;
+         double lagTap1_0 = 0.0;
+         double lagIn2 = 0.0;
+         double lagTap2_0 = 0.0;
+         double lagIn3 = 0.0;
+         double lagTap3_0 = 0.0;
+         /* Pipeline the new bar through the sub-streams (batch tail order). */
+         cur_tempMP = sp.sub0.peek(inHigh, inLow);
+         cur_tempA = sp.sub1.peek(cur_tempMP);
+         lagIn0 = cur_tempA;
+         cur_tempB = sp.sub2.peek(cur_tempMP);
+         lagIn1 = cur_tempB;
+         /* Combine map (batch tail, per bar). */
+         lagTap0_0 = sp.lagBuf0[sp.lagPos0];
+         lagTap0_0 = (sp.lagCap0 == 0) ? lagIn0 : lagTap0_0;
+         lagTap1_0 = sp.lagBuf1[sp.lagPos1];
+         lagTap1_0 = (sp.lagCap1 == 0) ? lagIn1 : lagTap1_0;
+         cur_outUpper = Math.abs(lagTap0_0 - lagTap1_0);
+         cur_tempA = sp.sub3.peek(cur_tempMP);
+         lagIn2 = cur_tempA;
+         cur_tempB = sp.sub4.peek(cur_tempMP);
+         lagIn3 = cur_tempB;
+         /* Combine map (batch tail, per bar). */
+         lagTap2_0 = sp.lagBuf2[sp.lagPos2];
+         lagTap2_0 = (sp.lagCap2 == 0) ? lagIn2 : lagTap2_0;
+         lagTap3_0 = sp.lagBuf3[sp.lagPos3];
+         lagTap3_0 = (sp.lagCap3 == 0) ? lagIn3 : lagTap3_0;
+         cur_outLower = (lagTap2_0 < lagTap3_0) ? lagTap2_0 - lagTap3_0 : lagTap3_0 - lagTap2_0;
+         out.upper = cur_outUpper;
+         out.lower = cur_outLower;
+      }
+
+      /**
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
+       */
+      public void value( GatorOut out ) {
+         requireArgument("GATOR value", "out", out);
+         out.upper = this.cur_outUpper;
+         out.lower = this.cur_outLower;
+      }
+
+      /**
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
+       */
+      @Override
+      public GatorStream clone() {
+         return new GatorStream(this);
+      }
+   }
+
+   /**
+    * The outputs of one GATOR bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class GatorOut {
+      /** Gap between the Jaw and the Teeth, zero or above. */
+      public double upper;
+      /** Gap between the Teeth and the Lips, zero or below. */
+      public double lower;
+   }
+   private void gatorStepImpl( GatorStream sp, double inHigh, double inLow )
+   {
+      double cur_tempMP = 0.0;
+      double cur_tempA = 0.0;
+      double cur_tempB = 0.0;
+      double cur_outUpper = 0.0;
+      double cur_outLower = 0.0;
+      double lagIn0 = 0.0;
+      double lagTap0_0 = 0.0;
+      double lagIn1 = 0.0;
+      double lagTap1_0 = 0.0;
+      double lagIn2 = 0.0;
+      double lagTap2_0 = 0.0;
+      double lagIn3 = 0.0;
+      double lagTap3_0 = 0.0;
+      int lagCapL0 = 0;
+      int lagPosL0 = 0;
+      int lagCapL1 = 0;
+      int lagPosL1 = 0;
+      int lagCapL2 = 0;
+      int lagPosL2 = 0;
+      int lagCapL3 = 0;
+      int lagPosL3 = 0;
+      /* Pipeline the new bar through the sub-streams (batch tail order). */
+      cur_tempMP = sp.sub0.update(inHigh, inLow);
+      cur_tempA = sp.sub1.update(cur_tempMP);
+      lagIn0 = cur_tempA;
+      cur_tempB = sp.sub2.update(cur_tempMP);
+      lagIn1 = cur_tempB;
+      /* Combine map (batch tail, per bar). */
+      lagTap0_0 = sp.lagBuf0[sp.lagPos0];
+      lagTap0_0 = (sp.lagCap0 == 0) ? lagIn0 : lagTap0_0;
+      lagTap1_0 = sp.lagBuf1[sp.lagPos1];
+      lagTap1_0 = (sp.lagCap1 == 0) ? lagIn1 : lagTap1_0;
+      cur_outUpper = Math.abs(lagTap0_0 - lagTap1_0);
+      cur_tempA = sp.sub3.update(cur_tempMP);
+      lagIn2 = cur_tempA;
+      cur_tempB = sp.sub4.update(cur_tempMP);
+      lagIn3 = cur_tempB;
+      /* Combine map (batch tail, per bar). */
+      lagTap2_0 = sp.lagBuf2[sp.lagPos2];
+      lagTap2_0 = (sp.lagCap2 == 0) ? lagIn2 : lagTap2_0;
+      lagTap3_0 = sp.lagBuf3[sp.lagPos3];
+      lagTap3_0 = (sp.lagCap3 == 0) ? lagIn3 : lagTap3_0;
+      cur_outLower = (lagTap2_0 < lagTap3_0) ? lagTap2_0 - lagTap3_0 : lagTap3_0 - lagTap2_0;
+      lagCapL0 = sp.lagCap0;
+      lagPosL0 = sp.lagPos0;
+      sp.lagBuf0[lagPosL0] = lagIn0;
+      lagPosL0 = lagPosL0 + 1;
+      lagPosL0 = lagPosL0 & (lagPosL0 - lagCapL0 >> 31);
+      sp.lagPos0 = lagPosL0;
+      lagCapL1 = sp.lagCap1;
+      lagPosL1 = sp.lagPos1;
+      sp.lagBuf1[lagPosL1] = lagIn1;
+      lagPosL1 = lagPosL1 + 1;
+      lagPosL1 = lagPosL1 & (lagPosL1 - lagCapL1 >> 31);
+      sp.lagPos1 = lagPosL1;
+      lagCapL2 = sp.lagCap2;
+      lagPosL2 = sp.lagPos2;
+      sp.lagBuf2[lagPosL2] = lagIn2;
+      lagPosL2 = lagPosL2 + 1;
+      lagPosL2 = lagPosL2 & (lagPosL2 - lagCapL2 >> 31);
+      sp.lagPos2 = lagPosL2;
+      lagCapL3 = sp.lagCap3;
+      lagPosL3 = sp.lagPos3;
+      sp.lagBuf3[lagPosL3] = lagIn3;
+      lagPosL3 = lagPosL3 + 1;
+      lagPosL3 = lagPosL3 & (lagPosL3 - lagCapL3 >> 31);
+      sp.lagPos3 = lagPosL3;
+      sp.cur_outUpper = cur_outUpper;
+      sp.cur_outLower = cur_outLower;
+   }
+   private RetCode gatorOpenImpl( GatorStream sp, double inHigh[], double inLow[], int startIdx, int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift, MInteger outBegIdx, MInteger outNBElement, double outUpper[], double outLower[], int outStride )
+   {
+      RetCode retCode;
+      int i = 0;
+      int nbElement = 0;
+      int maxBack = 0;
+      int lookbackTotal = 0;
+      int mpStartIdx = 0;
+      int localStart = 0;
+      int localEnd = 0;
+      int backJaw = 0;
+      int backTeethUpper = 0;
+      int backTeethLower = 0;
+      int backLips = 0;
+      MInteger tempBegIdx = new MInteger();
+      MInteger tempNbElement = new MInteger();
+      double[] tempMP;
+      double[] tempA;
+      double[] tempB;
+      int historyLen = inHigh.length;
+      int endIdx = historyLen - 1;
+      if( historyLen > INDEX_MAX + 1 ) {
+         return RetCode.OUT_OF_RANGE_END_INDEX;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInJawPeriod == Integer.MIN_VALUE ) {
+         optInJawPeriod = 13;
+      } else if( optInJawPeriod < 1 || optInJawPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInJawShift == Integer.MIN_VALUE ) {
+         optInJawShift = 8;
+      } else if( optInJawShift < 0 || optInJawShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethPeriod == Integer.MIN_VALUE ) {
+         optInTeethPeriod = 8;
+      } else if( optInTeethPeriod < 1 || optInTeethPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInTeethShift == Integer.MIN_VALUE ) {
+         optInTeethShift = 5;
+      } else if( optInTeethShift < 0 || optInTeethShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsPeriod == Integer.MIN_VALUE ) {
+         optInLipsPeriod = 5;
+      } else if( optInLipsPeriod < 1 || optInLipsPeriod > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( optInLipsShift == Integer.MIN_VALUE ) {
+         optInLipsShift = 3;
+      } else if( optInLipsShift < 0 || optInLipsShift > 100000 ) {
+         return RetCode.BAD_PARAM;
+      }
+      if( startIdx >= historyLen ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( historyLen < gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift) + 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      double[] sc_outUpper = outStride == 1 ? outUpper : new double[historyLen];
+      double[] sc_outLower = outStride == 1 ? outLower : new double[historyLen];
+      int lagPos0 = 0;
+      int lagCap0 = 0;
+      double[] lagBuf0 = null;
+      int lagPos1 = 0;
+      int lagCap1 = 0;
+      double[] lagBuf1 = null;
+      int lagPos2 = 0;
+      int lagCap2 = 0;
+      double[] lagBuf2 = null;
+      int lagPos3 = 0;
+      int lagCap3 = 0;
+      double[] lagBuf3 = null;
+      int lagD0_0 = 0;
+      int lagD1_0 = 0;
+      int lagD2_0 = 0;
+      int lagD3_0 = 0;
+      int lagNb0 = 0;
+      int lagNb1 = 0;
+      int lagNb2 = 0;
+      int lagNb3 = 0;
+      lookbackTotal = gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+      /* Return before touching anything, so that an input which stops short of
+       * endIdx is never read past its end.
+       */
+      if( lookbackTotal > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.INSUFFICIENT_HISTORY ;
+      }
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      backJaw = 0;
+      backTeethUpper = 0;
+      if( optInJawShift > optInTeethShift ) {
+         backJaw = optInJawShift - optInTeethShift;
+      } else {
+         backTeethUpper = optInTeethShift - optInJawShift;
+      }
+      backTeethLower = 0;
+      backLips = 0;
+      if( optInTeethShift > optInLipsShift ) {
+         backTeethLower = optInTeethShift - optInLipsShift;
+      } else {
+         backLips = optInLipsShift - optInTeethShift;
+      }
+      maxBack = backJaw + backTeethUpper;
+      if( backTeethLower + backLips > maxBack ) {
+         maxBack = backTeethLower + backLips;
+      }
+      mpStartIdx = startIdx - lookbackTotal;
+      localStart = lookbackTotal;
+      localEnd = endIdx - mpStartIdx;
+      nbElement = endIdx - startIdx + 1;
+      tempMP = new double[(int)((endIdx - mpStartIdx + 1) * 1)];
+      tempA = new double[(int)((nbElement + maxBack) * 1)];
+      tempB = new double[(int)((nbElement + maxBack) * 1)];
+      /* Every price is consumed here, before any output is written: an output
+       * may be aliased onto inHigh or inLow.
+       */
+      /* Sub-stream 0: medprice over `inHigh, inLow`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MedpriceStream sub0 = medpriceOpenAndFillInternal(inHigh, inLow, mpStartIdx, tempBegIdx, tempNbElement, tempMP);
+      retCode = RetCode.SUCCESS;
+      /* Each leg is its own rma call starting at its read-back bar and seeded at
+       * its own lookback before that, so from a given first output bar neither
+       * histogram depends on the line it does not read; the teeth is therefore
+       * computed once per histogram. A leg read back by `back` bars starts that
+       * many bars early, so element i of its buffer is the bar the output's
+       * element i pairs it with.
+       */
+      /* Sub-stream 1: rma over `tempMP`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      RmaStream sub1 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (localEnd) + 1), localStart - backJaw, optInJawPeriod, tempBegIdx, tempNbElement, tempA);
+      retCode = RetCode.SUCCESS;
+      lagNb0 = tempNbElement.value;
+      /* Sub-stream 2: rma over `tempMP`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      RmaStream sub2 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (localEnd) + 1), localStart - backTeethUpper, optInTeethPeriod, tempBegIdx, tempNbElement, tempB);
+      retCode = RetCode.SUCCESS;
+      lagNb1 = tempNbElement.value;
+      if( nbElement < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      lagD0_0 = lagNb0 - nbElement;
+      if( lagD0_0 < 0 || lagD0_0 > lagNb0 - 1 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      lagD1_0 = lagNb1 - nbElement;
+      if( lagD1_0 < 0 || lagD1_0 > lagNb1 - 1 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      lagCap0 = lagD0_0;
+      lagBuf0 = new double[Math.max(lagCap0, 1)];
+      System.arraycopy(tempA, lagNb0 - lagCap0, lagBuf0, 0, lagCap0);
+      lagPos0 = 0;
+      lagCap1 = lagD1_0;
+      lagBuf1 = new double[Math.max(lagCap1, 1)];
+      System.arraycopy(tempB, lagNb1 - lagCap1, lagBuf1, 0, lagCap1);
+      lagPos1 = 0;
+      for( i = 0; i < nbElement; i += 1 ) {
+         sc_outUpper[i] = Math.abs(tempA[i] - tempB[i]);
+      }
+      /* Sub-stream 3: rma over `tempMP`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      RmaStream sub3 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (localEnd) + 1), localStart - backTeethLower, optInTeethPeriod, tempBegIdx, tempNbElement, tempA);
+      retCode = RetCode.SUCCESS;
+      lagNb2 = tempNbElement.value;
+      /* Sub-stream 4: rma over `tempMP`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      RmaStream sub4 = rmaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempMP, 0, (localEnd) + 1), localStart - backLips, optInLipsPeriod, tempBegIdx, tempNbElement, tempB);
+      retCode = RetCode.SUCCESS;
+      lagNb3 = tempNbElement.value;
+      /* A zero spread must come out +0.0. Keep the select: gcc folds the literal
+       * 0.0 - fabs(x) into -fabs(x), which is -0.0 there.
+       */
+      if( nbElement < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      lagD2_0 = lagNb2 - nbElement;
+      if( lagD2_0 < 0 || lagD2_0 > lagNb2 - 1 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      lagD3_0 = lagNb3 - nbElement;
+      if( lagD3_0 < 0 || lagD3_0 > lagNb3 - 1 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      lagCap2 = lagD2_0;
+      lagBuf2 = new double[Math.max(lagCap2, 1)];
+      System.arraycopy(tempA, lagNb2 - lagCap2, lagBuf2, 0, lagCap2);
+      lagPos2 = 0;
+      lagCap3 = lagD3_0;
+      lagBuf3 = new double[Math.max(lagCap3, 1)];
+      System.arraycopy(tempB, lagNb3 - lagCap3, lagBuf3, 0, lagCap3);
+      lagPos3 = 0;
+      for( i = 0; i < nbElement; i += 1 ) {
+         sc_outLower[i] = (tempA[i] < tempB[i]) ? tempA[i] - tempB[i] : tempB[i] - tempA[i];
+      }
+      outBegIdx.value = startIdx;
+      outNBElement.value = nbElement;
+      /* Capture the live producer state + sub handles. */
+      if( outNBElement.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      sp.optInJawPeriod = optInJawPeriod;
+      sp.optInJawShift = optInJawShift;
+      sp.optInTeethPeriod = optInTeethPeriod;
+      sp.optInTeethShift = optInTeethShift;
+      sp.optInLipsPeriod = optInLipsPeriod;
+      sp.optInLipsShift = optInLipsShift;
+      sp.sub0 = sub0;
+      sp.sub1 = sub1;
+      sp.sub2 = sub2;
+      sp.sub3 = sub3;
+      sp.sub4 = sub4;
+      sp.lagPos0 = lagPos0;
+      sp.lagCap0 = lagCap0;
+      sp.lagBuf0 = lagBuf0;
+      sp.lagPos1 = lagPos1;
+      sp.lagCap1 = lagCap1;
+      sp.lagBuf1 = lagBuf1;
+      sp.lagPos2 = lagPos2;
+      sp.lagCap2 = lagCap2;
+      sp.lagBuf2 = lagBuf2;
+      sp.lagPos3 = lagPos3;
+      sp.lagCap3 = lagCap3;
+      sp.lagBuf3 = lagBuf3;
+      sp.cur_outUpper = sc_outUpper[outNBElement.value - 1];
+      sp.cur_outLower = sc_outLower[outNBElement.value - 1];
+      return RetCode.SUCCESS;
+   }
+   /* gatorOpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   GatorStream gatorOpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift, MInteger outBegIdx, MInteger outNBElement, double outUpper[], double outLower[] )
+   {
+      GatorStream sp = new GatorStream(this);
+      RetCode retCode = gatorOpenImpl(sp, inHigh, inLow, startIdx, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, outBegIdx, outNBElement, outUpper, outLower, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("GATOR openAndFill", inHigh.length, startIdx, gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift));
+      }
+      throw streamFailure("GATOR openAndFill", retCode);
+   }
+   /* Internal startIdx-anchored open behind gatorOpen (composition seam). */
+   GatorStream gatorOpenInternal( double inHigh[], double inLow[], int startIdx, int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift )
+   {
+      GatorStream sp = new GatorStream(this);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outUpper = new double[1];
+      double[] sink_outLower = new double[1];
+      RetCode retCode = gatorOpenImpl(sp, inHigh, inLow, startIdx, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, outBegIdx, outNBElement, sink_outUpper, sink_outLower, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
+      if( retCode == RetCode.SUCCESS ) {
+         return sp;
+      }
+      if( retCode == RetCode.INSUFFICIENT_HISTORY ) {
+         throw insufficientHistory("GATOR open", inHigh.length, startIdx, gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift));
+      }
+      throw streamFailure("GATOR open", retCode);
+   }
+   /**
+    * Open a live GATOR stream over the warm-up history; the handle's
+    * {@code value()} starts at the last history bar's value — bit-identical
+    * to {@link Core#gator} at that bar.
+    * <p>The history must hold at least {@code gatorLookback(...) + 1} bars
+    * (unstable-period aware), or {@link InsufficientHistoryException} is
+    * thrown, an empty history included. Out-of-range parameters throw {@link IllegalArgumentException}
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). A null argument throws
+    * {@link IllegalArgumentException}, ahead of everything above.
+    */
+   public GatorStream gatorOpen( double inHigh[], double inLow[], int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift )
+   {
+      requireArgument("GATOR open", "inHigh", inHigh);
+      requireHistory("GATOR open", inHigh.length);
+      requireArgument("GATOR open", "inLow", inLow);
+      requireHistoryLength("GATOR open", "inLow", inLow.length, inHigh.length);
+      return gatorOpenInternal(inHigh, inLow, 0, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift);
+   }
+   /**
+    * {@link Core#gatorOpen} that also fills the output array(s) bit-identically
+    * to {@link Core#gator} over the whole history in the same single pass
+    * (no separate batch call needed for the warm-up plot). Output arrays must
+    * not alias the inputs or each other, and must hold
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>The range written is on the returned handle:
+    * {@link GatorStream#outRange()}.
+    */
+   public GatorStream gatorOpenAndFill( double inHigh[], double inLow[], int optInJawPeriod, int optInJawShift, int optInTeethPeriod, int optInTeethShift, int optInLipsPeriod, int optInLipsShift, double outUpper[], double outLower[] )
+   {
+      requireArgument("GATOR openAndFill", "inHigh", inHigh);
+      requireHistory("GATOR openAndFill", inHigh.length);
+      requireArgument("GATOR openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("GATOR openAndFill", inHigh.length, gatorLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift));
+      requireHistoryLength("GATOR openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("GATOR openAndFill", "outUpper", outUpper, guardOutLen);
+      requireLength("GATOR openAndFill", "outLower", outLower, guardOutLen);
+      if( (Object)outUpper == (Object)inHigh || (Object)outUpper == (Object)inLow || (Object)outLower == (Object)inHigh || (Object)outLower == (Object)inLow || (Object)outUpper == (Object)outLower ) {
+         throw streamFailure("GATOR openAndFill", RetCode.BAD_PARAM);
+      }
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      return gatorOpenAndFillInternal(inHigh, inLow, 0, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, outBegIdx, outNBElement, outUpper, outLower);
+   }
+/* List of contributors:
+ *
+ *  Initial  Name/description
+ *  -------------------------------------------------------------------
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
+ *
+ * Change history:
+ *
+ *  MMDDYY BY     Description
+ *  -------------------------------------------------------------------
  *  090526 MF,CC  First version (issue #373).
  *  100626 MF,CC  Auto rule sized on the pole at 1/2: ceil(13*K/9) (#492).
  */
@@ -111242,6 +112776,7 @@ public final class Core {
          int jFull = 0;
          double tempReal2 = 0.0;
          double rw = 0.0;
+         int ringPosL_trailingIdxFull = 0;
          int ringCapL_trailingIdxFull = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
          tempReal = inReal;
@@ -111266,11 +112801,11 @@ public final class Core {
          sp.periodSumFull -= sp.periodSubFull;
          sp.cur_outReal = 2.0 * tempReal - fullOut;
          ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
-         sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
-         sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
-            sp.ringPos_trailingIdxFull = 0;
-         }
+         ringPosL_trailingIdxFull = sp.ringPos_trailingIdxFull;
+         sp.ring_trailingIdxFull_inReal[ringPosL_trailingIdxFull] = inReal;
+         ringPosL_trailingIdxFull = ringPosL_trailingIdxFull + 1;
+         ringPosL_trailingIdxFull = ringPosL_trailingIdxFull & (ringPosL_trailingIdxFull - ringCapL_trailingIdxFull >> 31);
+         sp.ringPos_trailingIdxFull = ringPosL_trailingIdxFull;
          sp.winPos_jFull = sp.winPos_jFull + 1;
          if( sp.winPos_jFull >= sp.winCap_jFull ) {
             sp.winPos_jFull = 0;
@@ -111286,6 +112821,8 @@ public final class Core {
          int ringWalk = 0;
          double tempReal2 = 0.0;
          double rw = 0.0;
+         int ringPosL_trailingIdxFull = 0;
+         int ringPosL_trailingIdxHalf = 0;
          int ringCapL_trailingIdxFull = 0;
          int ringCapL_trailingIdxHalf = 0;
          sp.win_jFull_inReal[sp.winPos_jFull] = inReal;
@@ -111367,17 +112904,17 @@ public final class Core {
          sp.cur_outReal = sp.periodSumSqrt / sp.dividerSqrt;
          sp.periodSumSqrt -= sp.periodSubSqrt;
          ringCapL_trailingIdxFull = sp.ringCap_trailingIdxFull;
-         sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
-         sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
-         if( sp.ringPos_trailingIdxFull >= ringCapL_trailingIdxFull ) {
-            sp.ringPos_trailingIdxFull = 0;
-         }
+         ringPosL_trailingIdxFull = sp.ringPos_trailingIdxFull;
+         sp.ring_trailingIdxFull_inReal[ringPosL_trailingIdxFull] = inReal;
+         ringPosL_trailingIdxFull = ringPosL_trailingIdxFull + 1;
+         ringPosL_trailingIdxFull = ringPosL_trailingIdxFull & (ringPosL_trailingIdxFull - ringCapL_trailingIdxFull >> 31);
+         sp.ringPos_trailingIdxFull = ringPosL_trailingIdxFull;
          ringCapL_trailingIdxHalf = sp.ringCap_trailingIdxHalf;
-         sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf] = inReal;
-         sp.ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf + 1;
-         if( sp.ringPos_trailingIdxHalf >= ringCapL_trailingIdxHalf ) {
-            sp.ringPos_trailingIdxHalf = 0;
-         }
+         ringPosL_trailingIdxHalf = sp.ringPos_trailingIdxHalf;
+         sp.ring_trailingIdxHalf_inReal[ringPosL_trailingIdxHalf] = inReal;
+         ringPosL_trailingIdxHalf = ringPosL_trailingIdxHalf + 1;
+         ringPosL_trailingIdxHalf = ringPosL_trailingIdxHalf & (ringPosL_trailingIdxHalf - ringCapL_trailingIdxHalf >> 31);
+         sp.ringPos_trailingIdxHalf = ringPosL_trailingIdxHalf;
          sp.winPos_jFull = sp.winPos_jFull + 1;
          if( sp.winPos_jFull >= sp.winCap_jFull ) {
             sp.winPos_jFull = 0;
@@ -113560,6 +115097,7 @@ public final class Core {
       double Q2 = 0.0;
       double I2 = 0.0;
       double todayValue = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -113696,11 +115234,11 @@ public final class Core {
       sp.cur_outReal = sp.smoothPeriod;
       /* Ooof... let's do the next price bar now! */
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.streamParity = 1 - sp.streamParity;
    }
    private RetCode htDcperiodOpenImpl( HtDcperiodStream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
@@ -115587,6 +117125,7 @@ public final class Core {
       double DCPeriod = 0.0;
       double imagPart = 0.0;
       double realPart = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -115775,11 +117314,11 @@ public final class Core {
          sp.smoothPrice_Idx = 0;
       }
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.streamParity = 1 - sp.streamParity;
    }
    private RetCode htDcphaseOpenImpl( HtDcphaseStream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
@@ -117532,6 +119071,7 @@ public final class Core {
       double Q2 = 0.0;
       double I2 = 0.0;
       double todayValue = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -117670,11 +119210,11 @@ public final class Core {
       sp.period = Math.fma(0.2, sp.period, 0.8 * tempReal);
       /* Ooof... let's do the next price bar now! */
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.streamParity = 1 - sp.streamParity;
    }
    private RetCode htPhasorOpenImpl( HtPhasorStream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outInPhase[], double outQuadrature[], int outStride )
@@ -119620,6 +121160,7 @@ public final class Core {
       double DCPeriod = 0.0;
       double imagPart = 0.0;
       double realPart = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -119809,11 +121350,11 @@ public final class Core {
          sp.smoothPrice_Idx = 0;
       }
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.streamParity = 1 - sp.streamParity;
    }
    private RetCode htSineOpenImpl( HtSineStream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[], int outStride )
@@ -121723,6 +123264,7 @@ public final class Core {
       double todayValue = 0.0;
       int DCPeriodInt = 0;
       double DCPeriod = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       sp.win_i_inReal[sp.winPos_i] = inReal;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
@@ -121893,11 +123435,11 @@ public final class Core {
       sp.cur_outReal = tempReal2;
       /* Ooof... let's do the next price bar now! */
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.winPos_i = sp.winPos_i + 1;
       if( sp.winPos_i >= sp.winCap_i ) {
          sp.winPos_i = 0;
@@ -124103,6 +125645,7 @@ public final class Core {
       double trendline = 0.0;
       double prevSine = 0.0;
       double prevLeadSine = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       sp.win_j_inReal[sp.winPos_j] = inReal;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
@@ -124350,11 +125893,11 @@ public final class Core {
          sp.smoothPrice_Idx = 0;
       }
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.winPos_j = sp.winPos_j + 1;
       if( sp.winPos_j >= sp.winCap_j ) {
          sp.winPos_j = 0;
@@ -126295,6 +127838,9 @@ public final class Core {
       double[] sc_outKijunSen = outStride == 1 ? outKijunSen : new double[historyLen];
       double[] sc_outSenkouSpanA = outStride == 1 ? outSenkouSpanA : new double[historyLen];
       double[] sc_outSenkouSpanB = outStride == 1 ? outSenkouSpanB : new double[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
+      int lagNb2 = 0;
       outBegIdx.value = 0;
       outNBElement.value = 0;
       lookbackTotal = ichimokuLookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod);
@@ -126314,14 +127860,17 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       MidpriceStream sub0 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInTenkanPeriod, tempBegIdx, tempNbElement, tempT);
       retCode = RetCode.SUCCESS;
+      lagNb0 = tempNbElement.value;
       /* Sub-stream 1: midprice over `inHigh, inLow`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MidpriceStream sub1 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInKijunPeriod, tempBegIdx, tempNbElement, tempK);
       retCode = RetCode.SUCCESS;
+      lagNb1 = tempNbElement.value;
       /* Sub-stream 2: midprice over `inHigh, inLow`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MidpriceStream sub2 = midpriceOpenAndFillInternal(inHigh, inLow, startIdx, optInSenkouBPeriod, tempBegIdx, tempNbElement, sc_outSenkouSpanB);
       retCode = RetCode.SUCCESS;
+      lagNb2 = tempNbElement.value;
       /* Span A halves the two rounded midpoints. (hh+ll+hh+ll)/4 is a different
        * double in the last bit.
        */
@@ -126329,6 +127878,21 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       MedpriceStream sub3 = medpriceOpenAndFillInternal(java.util.Arrays.copyOfRange(tempT, 0, (n - 1) + 1), java.util.Arrays.copyOfRange(tempK, 0, (n - 1) + 1), 0, tempBegIdx, tempNbElement, sc_outSenkouSpanA);
       retCode = RetCode.SUCCESS;
+      if( lagNb0 - 1 - (n - 1) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb1 - 1 - (n - 1) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( n < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - n != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb1 - n != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < n; i += 1 ) {
          sc_outTenkanSen[i] = tempT[i];
          sc_outKijunSen[i] = tempK[i];
@@ -126338,6 +127902,9 @@ public final class Core {
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
          return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb2 - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInTenkanPeriod = optInTenkanPeriod;
       sp.optInKijunPeriod = optInKijunPeriod;
@@ -127908,6 +129475,7 @@ public final class Core {
       double tempReal2 = 0.0;
       double periodROC = 0.0;
       int live = 0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -127956,11 +129524,11 @@ public final class Core {
       sp.cur_outReal = sp.prevKAMA;
       sp.lag1_inReal = inReal;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode kamaOpenImpl( KamaStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -129144,6 +130712,8 @@ public final class Core {
       double[] sc_outRealUpperBand = outStride == 1 ? outRealUpperBand : new double[historyLen];
       double[] sc_outRealMiddleBand = outStride == 1 ? outRealMiddleBand : new double[historyLen];
       double[] sc_outRealLowerBand = outStride == 1 ? outRealLowerBand : new double[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
       emaLookback = emaLookback(optInTimePeriod);
       lookbackTotal = kcLookback(optInTimePeriod, optInATRPeriod, optInNbDev);
       /* Nothing to produce: the range ends before the lookback. Return before
@@ -129171,6 +130741,7 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       TyppriceStream sub0 = typpriceOpenAndFillInternal(inHigh, inLow, inClose, tpStartIdx, tempBegIdx, tempNbElement, tempTP);
       retCode = RetCode.SUCCESS;
+      lagNb0 = tempNbElement.value;
       /* The ATR consumes the price inputs before the moving average below writes
        * the middle band, which may be aliased onto one of them.
        */
@@ -129178,6 +130749,7 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       AtrStream sub1 = atrOpenAndFillInternal(inHigh, inLow, inClose, startIdx, optInATRPeriod, tempBegIdx, tempNbElement, tempATR);
       retCode = RetCode.SUCCESS;
+      lagNb1 = tempNbElement.value;
       /* tempTP is bar-tpStartIdx relative, so entering the moving average at its
        * own lookback puts its first output on startIdx, where the ATR's already is.
        */
@@ -129185,11 +130757,20 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       EmaStream sub2 = emaOpenAndFillInternal(java.util.Arrays.copyOfRange(tempTP, 0, (endIdx - tpStartIdx) + 1), emaLookback, optInTimePeriod, outBegIdx, outNBElement, sc_outRealMiddleBand);
       retCode = RetCode.SUCCESS;
+      if( lagNb0 - 1 - (endIdx - tpStartIdx) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return RetCode.INSUFFICIENT_HISTORY ;
       }
       outBegIdx.value = startIdx;
+      if( (int)outNBElement.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb1 - (int)outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < (int)outNBElement.value; i += 1 ) {
          middle = sc_outRealMiddleBand[i];
          tempReal = tempATR[i] * optInNbDev;
@@ -131487,6 +133068,10 @@ public final class Core {
       double rcma2 = 0.0;
       double rcma3 = 0.0;
       double rcma4 = 0.0;
+      int ringPosL_den1 = 0;
+      int ringPosL_den2 = 0;
+      int ringPosL_den3 = 0;
+      int ringPosL_den4 = 0;
       if( sp.ringCap_den1 == 0 ) {
          sp.ring_den1_inReal[0] = inReal;
       }
@@ -131550,26 +133135,26 @@ public final class Core {
       sp.sigTotal -= sp.cb_sigRing[sp.sigRing_Idx];
       sp.cur_outKST = kst;
       sp.cur_outKSTSignal = sig;
-      sp.ring_den1_inReal[sp.ringPos_den1] = inReal;
-      sp.ringPos_den1 = sp.ringPos_den1 + 1;
-      if( sp.ringPos_den1 >= sp.ringCap_den1 ) {
-         sp.ringPos_den1 = 0;
-      }
-      sp.ring_den2_inReal[sp.ringPos_den2] = inReal;
-      sp.ringPos_den2 = sp.ringPos_den2 + 1;
-      if( sp.ringPos_den2 >= sp.ringCap_den2 ) {
-         sp.ringPos_den2 = 0;
-      }
-      sp.ring_den3_inReal[sp.ringPos_den3] = inReal;
-      sp.ringPos_den3 = sp.ringPos_den3 + 1;
-      if( sp.ringPos_den3 >= sp.ringCap_den3 ) {
-         sp.ringPos_den3 = 0;
-      }
-      sp.ring_den4_inReal[sp.ringPos_den4] = inReal;
-      sp.ringPos_den4 = sp.ringPos_den4 + 1;
-      if( sp.ringPos_den4 >= sp.ringCap_den4 ) {
-         sp.ringPos_den4 = 0;
-      }
+      ringPosL_den1 = sp.ringPos_den1;
+      sp.ring_den1_inReal[ringPosL_den1] = inReal;
+      ringPosL_den1 = ringPosL_den1 + 1;
+      ringPosL_den1 = ringPosL_den1 & (ringPosL_den1 - sp.ringCap_den1 >> 31);
+      sp.ringPos_den1 = ringPosL_den1;
+      ringPosL_den2 = sp.ringPos_den2;
+      sp.ring_den2_inReal[ringPosL_den2] = inReal;
+      ringPosL_den2 = ringPosL_den2 + 1;
+      ringPosL_den2 = ringPosL_den2 & (ringPosL_den2 - sp.ringCap_den2 >> 31);
+      sp.ringPos_den2 = ringPosL_den2;
+      ringPosL_den3 = sp.ringPos_den3;
+      sp.ring_den3_inReal[ringPosL_den3] = inReal;
+      ringPosL_den3 = ringPosL_den3 + 1;
+      ringPosL_den3 = ringPosL_den3 & (ringPosL_den3 - sp.ringCap_den3 >> 31);
+      sp.ringPos_den3 = ringPosL_den3;
+      ringPosL_den4 = sp.ringPos_den4;
+      sp.ring_den4_inReal[ringPosL_den4] = inReal;
+      ringPosL_den4 = ringPosL_den4 + 1;
+      ringPosL_den4 = ringPosL_den4 & (ringPosL_den4 - sp.ringCap_den4 >> 31);
+      sp.ringPos_den4 = ringPosL_den4;
    }
    private RetCode kstOpenImpl( KstStream sp, double inReal[], int startIdx, int optInROC1Period, int optInROC2Period, int optInROC3Period, int optInROC4Period, int optInSMA1Period, int optInSMA2Period, int optInSMA3Period, int optInSMA4Period, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outKST[], double outKSTSignal[], int outStride )
    {
@@ -133153,6 +134738,11 @@ public final class Core {
       }
       double[] sc_outKST = outStride == 1 ? outKST : new double[historyLen];
       double[] sc_outKSTSignal = outStride == 1 ? outKSTSignal : new double[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
+      int lagNb2 = 0;
+      int lagNb3 = 0;
+      int lagNb4 = 0;
       /* With every type SMA this is bit-exact with kst(): each leg's average
        * starts on the first bar the signal consumes, and the line accumulates
        * its legs left to right. Changing either breaks the equality.
@@ -133224,6 +134814,13 @@ public final class Core {
       tempBegIdx.value = _xr1.begIdx();
       legNb.value = _xr1.count();
       retCode = RetCode.SUCCESS;
+      lagNb0 = legNb.value;
+      if( kstNb.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - kstNb.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(2.0, tempBuffer[i], kstBuffer[i]);
       }
@@ -133238,6 +134835,13 @@ public final class Core {
       tempBegIdx.value = _xr2.begIdx();
       legNb.value = _xr2.count();
       retCode = RetCode.SUCCESS;
+      lagNb1 = legNb.value;
+      if( kstNb.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb1 - kstNb.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(3.0, tempBuffer[i], kstBuffer[i]);
       }
@@ -133252,10 +134856,25 @@ public final class Core {
       tempBegIdx.value = _xr3.begIdx();
       legNb.value = _xr3.count();
       retCode = RetCode.SUCCESS;
+      lagNb2 = legNb.value;
+      lagNb3 = kstNb.value;
+      if( kstNb.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb2 - kstNb.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < kstNb.value; i += 1 ) {
          kstBuffer[i] = Math.fma(4.0, tempBuffer[i], kstBuffer[i]);
       }
       /* Every read of inReal is done: an output may alias it. */
+      lagNb4 = endIdx - startIdx + 1;
+      if( endIdx - startIdx < 0 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb3 - lookbackSignal - (endIdx - startIdx + 1) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       System.arraycopy(kstBuffer, lookbackSignal, sc_outKST, 0, (endIdx - startIdx + 1) * 1);
       /* Sub-stream 8: ma over `kstBuffer`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -133266,6 +134885,9 @@ public final class Core {
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
          return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb4 - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInROC1Period = optInROC1Period;
       sp.optInROC2Period = optInROC2Period;
@@ -144947,6 +146569,9 @@ public final class Core {
       double[] sc_outMACD = outStride == 1 ? outMACD : new double[historyLen];
       double[] sc_outMACDSignal = outStride == 1 ? outMACDSignal : new double[historyLen];
       double[] sc_outMACDHist = outStride == 1 ? outMACDHist : new double[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
+      int lagNb2 = 0;
       /* Make sure slow is really slower than
        * the fast period! if not, swap...
        */
@@ -145002,11 +146627,19 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       MaStream sub1 = maOpenAndFillInternal(inReal, tempInteger, optInFastPeriod, optInFastMAType, outBegIdx2, outNbElement2, fastMABuffer);
       retCode = RetCode.SUCCESS;
+      lagNb0 = outNbElement2.value;
       /* Parano tests. Will be removed eventually. */
       if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
          return RetCode.BAD_PARAM ;
       }
       /* Calculate (fast MA) - (slow MA). */
+      lagNb1 = outNbElement1.value;
+      if( outNbElement1.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - outNbElement1.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < outNbElement1.value; i += 1 ) {
          fastMABuffer[i] = fastMABuffer[i] - slowMABuffer[i];
       }
@@ -145014,6 +146647,13 @@ public final class Core {
       /* memmove, not memcpy: fastMABuffer aliases outMACD when the caller buffer is
        * reused as scratch, so source and destination overlap (issue #94).
        */
+      lagNb2 = endIdx - startIdx + 1;
+      if( endIdx - startIdx < 0 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb1 - lookbackSignal - (endIdx - startIdx + 1) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       System.arraycopy(fastMABuffer, lookbackSignal, sc_outMACD, 0, (endIdx - startIdx + 1) * 1);
       /* Calculate the signal/trigger line. */
       /* Sub-stream 2: ma over `fastMABuffer`, warmed from bar 0 up to the
@@ -145021,6 +146661,12 @@ public final class Core {
       MaStream sub2 = maOpenAndFillInternal(java.util.Arrays.copyOfRange(fastMABuffer, 0, (outNbElement1.value - 1) + 1), 0, optInSignalPeriod, optInSignalMAType, outBegIdx2, outNbElement2, sc_outMACDSignal);
       retCode = RetCode.SUCCESS;
       /* Calculate the histogram. */
+      if( outNbElement2.value < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb2 - outNbElement2.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < outNbElement2.value; i += 1 ) {
          sc_outMACDHist[i] = sc_outMACD[i] - sc_outMACDSignal[i];
       }
@@ -145030,6 +146676,9 @@ public final class Core {
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
          return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb2 - outNBElement.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
       }
       sp.optInFastPeriod = optInFastPeriod;
       sp.optInFastMAType = optInFastMAType;
@@ -149266,6 +150915,7 @@ public final class Core {
       double Q2 = 0.0;
       double I2 = 0.0;
       double todayValue = 0.0;
+      int ringPosL_trailingWMAIdx = 0;
       int ringCapL_trailingWMAIdx = 0;
       adjustedPrevPeriod = Math.fma(0.075, sp.period, 0.54);
       todayValue = inReal;
@@ -149433,11 +151083,11 @@ public final class Core {
       sp.period = Math.fma(0.2, sp.period, 0.8 * tempReal);
       /* Ooof... let's do the next price bar now! */
       ringCapL_trailingWMAIdx = sp.ringCap_trailingWMAIdx;
-      sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
-      sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
-      if( sp.ringPos_trailingWMAIdx >= ringCapL_trailingWMAIdx ) {
-         sp.ringPos_trailingWMAIdx = 0;
-      }
+      ringPosL_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+      sp.ring_trailingWMAIdx_inReal[ringPosL_trailingWMAIdx] = inReal;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx + 1;
+      ringPosL_trailingWMAIdx = ringPosL_trailingWMAIdx & (ringPosL_trailingWMAIdx - ringCapL_trailingWMAIdx >> 31);
+      sp.ringPos_trailingWMAIdx = ringPosL_trailingWMAIdx;
       sp.streamParity = 1 - sp.streamParity;
    }
    private RetCode mamaOpenImpl( MamaStream sp, double inReal[], int startIdx, double optInFastLimit, double optInSlowLimit, MInteger outBegIdx, MInteger outNBElement, double outMAMA[], double outFAMA[], int outStride )
@@ -167702,14 +169352,15 @@ public final class Core {
    }
    private void momStepImpl( MomStream sp, double inReal )
    {
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       sp.cur_outReal = inReal - sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode momOpenImpl( MomStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -171569,6 +173220,7 @@ public final class Core {
          return RetCode.INSUFFICIENT_HISTORY;
       }
       double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
+      int lagNb0 = 0;
       lookbackTotal = percentbLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
       firstIdx = startIdx;
       if( firstIdx < lookbackTotal ) {
@@ -171587,6 +173239,7 @@ public final class Core {
          tempX[outIdx++] = inReal[today];
          today += 1;
       }
+      lagNb0 = outIdx;
       /* Sub-stream 0: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MaStream sub0 = maOpenAndFillInternal(inReal, startIdx, optInTimePeriod, optInMAType, maBegIdx, maNbElement, tempMA);
@@ -171596,6 +173249,21 @@ public final class Core {
       VarStream sub1 = varOpenAndFillInternal(inReal, maBegIdx.value, optInTimePeriod, 1.0, outBegIdx, outNBElement, sc_outReal);
       retCode = RetCode.SUCCESS;
       offset = maNbElement.value - outNBElement.value;
+      if( optInNbDevUp == optInNbDevDn ) {
+         if( (int)outNBElement.value < 1 ) {
+            return RetCode.INSUFFICIENT_HISTORY;
+         }
+         if( lagNb0 - (int)outNBElement.value != 0 ) {
+            return RetCode.INTERNAL_ERROR;
+         }
+      } else {
+         if( (int)outNBElement.value < 1 ) {
+            return RetCode.INSUFFICIENT_HISTORY;
+         }
+         if( lagNb0 - (int)outNBElement.value != 0 ) {
+            return RetCode.INTERNAL_ERROR;
+         }
+      }
       if( optInNbDevUp == optInNbDevDn ) {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
             middle = tempMA[i + offset];
@@ -182087,6 +183755,7 @@ public final class Core {
    private void qstickStepImpl( QstickStream sp, double inOpen, double inClose )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       if( sp.ringCap_trailingIdx == 0 ) {
          sp.ring_trailingIdx_derived[0] = (double)(inClose - inOpen);
       }
@@ -182094,11 +183763,11 @@ public final class Core {
       tempReal = sp.periodTotal;
       sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx];
       sp.cur_outReal = tempReal / (double)sp.optInTimePeriod;
-      sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx] = (double)(inClose - inOpen);
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = (double)(inClose - inOpen);
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode qstickOpenImpl( QstickStream sp, double inOpen[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -183472,6 +185141,7 @@ public final class Core {
    private void rocStepImpl( RocStream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       if( tempReal != 0.0 ) {
@@ -183480,11 +185150,11 @@ public final class Core {
          sp.cur_outReal = 0.0;
       }
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode rocOpenImpl( RocStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -184126,6 +185796,7 @@ public final class Core {
    private void rocpStepImpl( RocpStream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       if( tempReal != 0.0 ) {
@@ -184134,11 +185805,11 @@ public final class Core {
          sp.cur_outReal = 0.0;
       }
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode rocpOpenImpl( RocpStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -184782,6 +186453,7 @@ public final class Core {
    private void rocrStepImpl( RocrStream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       if( tempReal != 0.0 ) {
@@ -184790,11 +186462,11 @@ public final class Core {
          sp.cur_outReal = 0.0;
       }
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode rocrOpenImpl( RocrStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -185440,6 +187112,7 @@ public final class Core {
    private void rocr100StepImpl( Rocr100Stream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       if( tempReal != 0.0 ) {
@@ -185448,11 +187121,11 @@ public final class Core {
          sp.cur_outReal = 0.0;
       }
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode rocr100OpenImpl( Rocr100Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -190450,6 +192123,7 @@ public final class Core {
       double todayVolume = 0.0;
       double trailingVolume = 0.0;
       int liveIn = 0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       /* Drop the trailing bar BEFORE adding today's. Up to the first dead
        * window, that order makes each baseline bit-identical to the moving
@@ -190471,11 +192145,11 @@ public final class Core {
          sp.periodTotal = 0.0;
       }
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inVolume[ringPosL_trailingIdx] = inVolume;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode rvolOpenImpl( RvolStream sp, double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -198412,6 +200086,7 @@ public final class Core {
    private void smaStepImpl( SmaStream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       if( sp.ringCap_trailingIdx == 0 ) {
          sp.ring_trailingIdx_inReal[0] = inReal;
       }
@@ -198419,11 +200094,11 @@ public final class Core {
       tempReal = sp.periodTotal;
       sp.periodTotal -= (double)sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       sp.cur_outReal = tempReal / (double)sp.optInTimePeriod;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode smaOpenImpl( SmaStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -203175,6 +204850,12 @@ public final class Core {
       }
       double[] sc_outMomentum = outStride == 1 ? outMomentum : new double[historyLen];
       int[] sc_outSqueeze = outStride == 1 ? outSqueeze : new int[historyLen];
+      int lagNb0 = 0;
+      int lagNb1 = 0;
+      int lagNb2 = 0;
+      int lagNb3 = 0;
+      int lagNb4 = 0;
+      int lagNb5 = 0;
       /* Each rolling statistic is a call to the shipped function, so it carries
        * that function's own arithmetic bit for bit:
        *
@@ -203225,18 +204906,33 @@ public final class Core {
       /* The momentum anchor: the Donchian midpoint and the Keltner centre, averaged.
        * midprice is bit-identical to donchian's middle band.
        */
+      lagNb0 = endIdx + 1;
       /* Sub-stream 0: midprice over `inHigh, inLow`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MidpriceStream sub0 = midpriceOpenAndFillInternal(inHigh, inLow, stageIdx, optInKCPeriod, outBegIdx, outNBElement, tempDev);
       retCode = RetCode.SUCCESS;
+      lagNb1 = outNBElement.value;
       /* Sub-stream 1: sma over `inClose`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       SmaStream sub1 = smaOpenAndFillInternal(inClose, stageIdx, optInKCPeriod, tempBegIdx, kcmNb, tempKCM);
       retCode = RetCode.SUCCESS;
+      lagNb2 = kcmNb.value;
       /* DEV, over the staged range. The close is read at the index midprice
        * reported for the range, which is what lets this loop stream: keep
        * outBegIdx as midprice's receiver, and reuse it for no call above here.
        */
+      if( stageLen < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb0 - stageLen - outBegIdx.value != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb2 - stageLen != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb1 - stageLen != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < stageLen; i += 1 ) {
          tempDev[i] = inClose[outBegIdx.value + i] - (tempDev[i] + tempKCM[i]) / 2.0;
       }
@@ -203248,9 +204944,13 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       TrangeStream sub2 = trangeOpenAndFillInternal(inHigh, inLow, inClose, stageIdx, tempBegIdx, tempNbElement, tempWork);
       retCode = RetCode.SUCCESS;
+      lagNb3 = tempNbElement.value;
       /* Sub-stream 3: sma over `tempWork`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       SmaStream sub3 = smaOpenInternal(java.util.Arrays.copyOfRange(tempWork, 0, (stageLen - 1) + 1), 0, optInKCPeriod);
+      if( lagNb3 - 1 - (stageLen - 1) != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       OutRange _xr0 = sma(0, stageLen - 1, tempWork, optInKCPeriod, tempWork);
       tempBegIdx.value = _xr0.begIdx();
       tempNbElement.value = _xr0.count();
@@ -203259,10 +204959,12 @@ public final class Core {
        * sub-call's own startIdx (the seeding point). */
       SmaStream sub4 = smaOpenAndFillInternal(inClose, startIdx, optInBBPeriod, tempBegIdx, tempNbElement, tempMid);
       retCode = RetCode.SUCCESS;
+      lagNb4 = tempNbElement.value;
       /* Sub-stream 5: stddev over `inClose`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       StddevStream sub5 = stddevOpenAndFillInternal(inClose, startIdx, optInBBPeriod, 1.0, tempBegIdx, sdNb, tempSD);
       retCode = RetCode.SUCCESS;
+      lagNb5 = sdNb.value;
       /* The centre is staged one regression window early; the shift puts it on
        * the bar the bands are on.
        */
@@ -203287,6 +204989,18 @@ public final class Core {
        * upper one contracts into a fused multiply-add and the lower one cannot,
        * and a band within one ulp of an edge then changes level.
        */
+      if( n < 1 ) {
+         return RetCode.INSUFFICIENT_HISTORY;
+      }
+      if( lagNb5 - n != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb4 - n != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
+      if( lagNb2 - n - kcmShift != 0 ) {
+         return RetCode.INTERNAL_ERROR;
+      }
       for( i = 0; i < n; i += 1 ) {
          dev = tempSD[i] * optInNbDev;
          up = tempMid[i] + dev;
@@ -210594,17 +212308,18 @@ public final class Core {
    private void sumStepImpl( SumStream sp, double inReal )
    {
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       sp.periodTotal += inReal;
       tempReal = sp.periodTotal;
       sp.periodTotal -= sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
       sp.cur_outReal = tempReal;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode sumOpenImpl( SumStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -220062,6 +221777,8 @@ public final class Core {
    private void trimaStepImpl( TrimaStream sp, double inReal )
    {
       if( sp.optInTimePeriod % 2 == 1 ) {
+         int ringPosL_middleIdx = 0;
+         int ringPosL_trailingIdx = 0;
          if( sp.ringCap_middleIdx == 0 ) {
             sp.ring_middleIdx_inReal[0] = inReal;
          }
@@ -220083,17 +221800,19 @@ public final class Core {
          /* Step (4) */
          sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          sp.cur_outReal = sp.numerator * sp.factor;
-         sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
-         sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
-         if( sp.ringPos_middleIdx >= sp.ringCap_middleIdx ) {
-            sp.ringPos_middleIdx = 0;
-         }
-         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-         if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-            sp.ringPos_trailingIdx = 0;
-         }
+         ringPosL_middleIdx = sp.ringPos_middleIdx;
+         sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal;
+         ringPosL_middleIdx = ringPosL_middleIdx + 1;
+         ringPosL_middleIdx = ringPosL_middleIdx & (ringPosL_middleIdx - sp.ringCap_middleIdx >> 31);
+         sp.ringPos_middleIdx = ringPosL_middleIdx;
+         ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+         sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+         ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+         ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+         sp.ringPos_trailingIdx = ringPosL_trailingIdx;
       } else {
+         int ringPosL_middleIdx = 0;
+         int ringPosL_trailingIdx = 0;
          int ringCapL_middleIdx = 0;
          int ringCapL_trailingIdx = 0;
          /* Step (1) */
@@ -220112,17 +221831,17 @@ public final class Core {
          sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
          sp.cur_outReal = sp.numerator * sp.factor;
          ringCapL_middleIdx = sp.ringCap_middleIdx;
-         sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
-         sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
-         if( sp.ringPos_middleIdx >= ringCapL_middleIdx ) {
-            sp.ringPos_middleIdx = 0;
-         }
+         ringPosL_middleIdx = sp.ringPos_middleIdx;
+         sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal;
+         ringPosL_middleIdx = ringPosL_middleIdx + 1;
+         ringPosL_middleIdx = ringPosL_middleIdx & (ringPosL_middleIdx - ringCapL_middleIdx >> 31);
+         sp.ringPos_middleIdx = ringPosL_middleIdx;
          ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-         if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-            sp.ringPos_trailingIdx = 0;
-         }
+         ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+         sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+         ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+         ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+         sp.ringPos_trailingIdx = ringPosL_trailingIdx;
       }
    }
    private RetCode trimaOpenImpl( TrimaStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
@@ -228333,6 +230052,7 @@ public final class Core {
       double up = 0.0;
       double tempReal = 0.0;
       double k = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -228368,11 +230088,11 @@ public final class Core {
       sp.upSum -= up;
       sp.downSum -= up - diff;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode vidyaOpenImpl( VidyaStream sp, double inReal[], int startIdx, int optInTimePeriod, int optInCMOPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -229614,6 +231334,7 @@ public final class Core {
       double tempLT = 0.0;
       double tempHT = 0.0;
       double tempCY = 0.0;
+      int ringPosL_trailingIdx = 0;
       sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
       sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
       sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
@@ -229702,10 +231423,10 @@ public final class Core {
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode vortexOpenImpl( VortexStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outPlusVI[], double outMinusVI[], int outStride )
    {
@@ -231587,6 +233308,7 @@ public final class Core {
       double tempV = 0.0;
       double tempReal = 0.0;
       double trailingVolume = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -231627,12 +233349,12 @@ public final class Core {
       }
       sp.zeroCount -= (Math.abs(trailingVolume) <= 0.0) ? 1 : 0;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      sp.ring_trailingIdx_inVolume[ringPosL_trailingIdx] = inVolume;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode vwmaOpenImpl( VwmaStream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
@@ -236522,6 +238244,7 @@ public final class Core {
       int j = 0;
       int rw = 0;
       double tempReal = 0.0;
+      int ringPosL_trailingIdx = 0;
       int ringCapL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -236602,11 +238325,11 @@ public final class Core {
       /* Prepare the periodSum for the next iteration. */
       sp.periodSum -= sp.periodSub;
       ringCapL_trailingIdx = sp.ringCap_trailingIdx;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= ringCapL_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - ringCapL_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
       sp.winPos_j = sp.winPos_j + 1;
       if( sp.winPos_j >= sp.winCap_j ) {
          sp.winPos_j = 0;
@@ -238667,6 +240390,7 @@ public final class Core {
    }
    private void zlemaStepImpl( ZlemaStream sp, double inReal )
    {
+      int ringPosL_trailingIdx = 0;
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
          return ;
@@ -238676,11 +240400,11 @@ public final class Core {
       }
       sp.prevMA = Math.fma(sp.emaBeta, sp.prevMA, sp.optInK_1 * (2.0 * inReal - sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]));
       sp.cur_outReal = sp.prevMA;
-      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-         sp.ringPos_trailingIdx = 0;
-      }
+      ringPosL_trailingIdx = sp.ringPos_trailingIdx;
+      sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal;
+      ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
+      ringPosL_trailingIdx = ringPosL_trailingIdx & (ringPosL_trailingIdx - sp.ringCap_trailingIdx >> 31);
+      sp.ringPos_trailingIdx = ringPosL_trailingIdx;
    }
    private RetCode zlemaOpenImpl( ZlemaStream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {

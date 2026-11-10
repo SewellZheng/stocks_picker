@@ -42,9 +42,9 @@
 //! a leading one on a line of its own before it. The renderers emit both
 //! inline and [`lay_out`] places them.
 
-use crate::backends::builtins::MathFn;
+use crate::backends::builtins::{MathFn, SpecialBuiltin};
 use crate::helper_registry::{try_inline_expr, HelperRegistry};
-use crate::ir::{BinOp, Expr, FuncDef, LookbackExpr, Output, ParamType, Statement, VarType};
+use crate::ir::{BinOp, CircBuf, Expr, FuncDef, LookbackExpr, Output, ParamType, Statement, VarType};
 use crate::streaming::{rewrite_expr, walk_expr};
 
 pub(crate) const EAGER_AND: &str = "ta_eager_and";
@@ -74,6 +74,21 @@ const PURE_HELPERS: &[&str] = &[
 
 /// Pure, but it divides.
 const DIVIDING_HELPER: &str = "ta_candleaverage";
+
+/// The bar a candle helper's price arguments name, when they are `inOpen`,
+/// `inHigh`, `inLow` and `inClose` at one index: C reads them through a macro
+/// that takes that index alone.
+fn candle_bar(ohlc: &[Expr]) -> Option<&Expr> {
+    let mut at: Option<&Expr> = None;
+    for (a, want) in ohlc.iter().zip(["inOpen", "inHigh", "inLow", "inClose"]) {
+        let Expr::ArrayAccess(n, i) = a else { return None };
+        if n != want || at.is_some_and(|x| !crate::streaming::exprs_equal(x, i)) {
+            return None;
+        }
+        at = Some(i);
+    }
+    (ohlc.len() == 4).then_some(at?)
+}
 
 /// `NOTE<comment>(operand)`: the comment trails the operand.
 const NOTE: &str = "\u{1}note:";
@@ -208,11 +223,12 @@ pub(crate) fn is_boolean(e: &Expr) -> bool {
     }
 }
 
-/// What a function declares: its real input arrays and real scalar
-/// parameters, its parameters in order, its lookback function and the
+/// What a function declares: its input arrays, those of them real, its real
+/// scalar parameters, its parameters in order, its lookback function and the
 /// literal part of what that returns. Locals are read off the body.
 #[derive(Default)]
 pub(crate) struct Declared {
+    pub(crate) inputs: Vec<String>,
     pub(crate) arrays: Vec<String>,
     pub(crate) reals: Vec<String>,
     pub(crate) params: Vec<String>,
@@ -237,6 +253,7 @@ impl Declared {
             _ => 0,
         };
         Self {
+            inputs: func.inputs.iter().map(|i| i.name.clone()).collect(),
             arrays: func.inputs.iter().filter(|i| i.param_type == ParamType::Real).map(|i| i.name.clone()).collect(),
             reals: func.optional_inputs.iter().filter(|o| o.param_type == ParamType::Real).map(|o| o.name.clone()).collect(),
             params: func.optional_inputs.iter().map(|o| o.name.clone()).collect(),
@@ -274,7 +291,8 @@ struct Entering {
 fn writes_of(body: &[Statement]) -> (Vec<String>, Vec<String>) {
     let (mut written, mut taken) = (Vec::new(), Vec::new());
     each_statement(body, &mut |s| {
-        if let Statement::Assign { target: Expr::Var(v), .. } = s {
+        // A declaration starts another variable of that name.
+        if let Statement::Assign { target: Expr::Var(v), .. } | Statement::VarDecl { name: v, .. } | Statement::For { var: v, .. } = s {
             written.push(v.clone());
         }
         for e in exprs_of(s) {
@@ -299,6 +317,12 @@ fn writes_of(body: &[Statement]) -> (Vec<String>, Vec<String>) {
 fn entering(body: &[Statement], declared: &Declared) -> Entering {
     let (written, taken) = writes_of(body);
     let count = |n: &str| written.iter().filter(|w| *w == n).count();
+    let mut decls = Vec::new();
+    each_statement(body, &mut |s| {
+        if let Statement::VarDecl { name, .. } = s {
+            decls.push(name.clone());
+        }
+    });
     let free = |n: &str| count(n) == 0 && !taken.iter().any(|t| t == n);
     let var = |e: &Expr, n: &str| matches!(e, Expr::Var(v) if v == n);
     let clamp = |s: &Statement| match s {
@@ -327,7 +351,8 @@ fn entering(body: &[Statement], declared: &Declared) -> Entering {
             && clamps == 1
             && clamp(c).is_some_and(|v| var(&v, lb))
             && exits(e)
-            && count(lb) == 1
+            // A declaration of it runs before the assignment, or names another variable.
+            && count(lb) == 1 + decls.iter().filter(|d| *d == lb).count()
             && !taken.iter().any(|t| t == lb)
             && declared.params.iter().all(|p| free(p))
     });
@@ -359,28 +384,38 @@ pub(crate) fn rewrite(body: &[Statement], declared: &Declared, outputs: &[Output
             defined.push(name.clone());
         }
     });
-    for s in body.iter().take_while(|s| !holds_loop(s)) {
+    let prologue = &body[..body.iter().position(holds_loop).unwrap_or(body.len())];
+    for s in prologue {
         if let Statement::Assign { target: Expr::Var(v), compound: false, .. } = s {
             defined.push(v.clone());
         }
     }
     decls.extend(declared.reals.iter().map(|n| (n.clone(), VarType::Real)));
-    // A name declared with two types somewhere is no name's type: refuse it.
-    let one_type = |n: &str| {
-        let mut types = decls.iter().filter(|(d, _)| d == n).map(|(_, t)| t);
-        types.next().is_some_and(|first| types.all(|t| t == first))
+    // Every rule here goes by name, so a name declared twice, a parameter or
+    // candle setting included, is refused: what holds for one of its
+    // variables may not hold for the other.
+    let parameter = |n: &str| {
+        ["startIdx", "endIdx", "outBegIdx", "outNBElement"].contains(&n)
+            || crate::candle_settings::is_setting_property(n)
+            || declared.inputs.iter().chain(&declared.params).any(|p| p == n)
+            || outputs.iter().any(|o| o.name == n)
     };
+    let one_decl = |n: &str| decls.iter().filter(|(d, _)| d == n).count() + usize::from(parameter(n) && !declared.reals.iter().any(|r| r == n)) == 1;
+    let is_defined = |n: &str| one_decl(n) && (defined.iter().any(|d| d == n) || declared.reals.iter().any(|r| r == n) || written_first(body, n));
     let arrays: Vec<String> = declared.arrays.iter().filter(|a| !decls.iter().any(|(d, _)| d == *a)).cloned().collect();
-    let reals: Vec<String> = decls
+    let reals: Vec<String> = decls.iter().filter(|(n, t)| *t == VarType::Real && is_defined(n)).map(|(n, _)| n.clone()).collect();
+    let undefined: Vec<String> = decls.iter().filter(|(n, _)| !is_defined(n)).map(|(n, _)| n.clone()).collect();
+    let length = |a: &str| match decls.iter().find(|(d, _)| d == a) {
+        Some((_, VarType::RealArray(len))) if one_decl(a) => len.trim().parse::<i64>().ok(),
+        _ => None,
+    };
+    let filled: Vec<(String, i64)> = prologue
         .iter()
-        .filter(|(n, t)| *t == VarType::Real && one_type(n) && (defined.contains(n) || declared.reals.contains(n) || written_first(body, n)))
-        .map(|(n, _)| n.clone())
-        .collect();
-    let sized: Vec<(String, i64)> = decls
-        .iter()
-        .filter(|(n, _)| one_type(n))
-        .filter_map(|(n, t)| match t {
-            VarType::RealArray(len) => len.trim().parse().ok().map(|len| (n.clone(), len)),
+        .filter_map(|s| match s {
+            Statement::Assign { target: Expr::ArrayAccess(a, k), compound: false, .. } => match k.as_ref() {
+                Expr::IntLiteral(k) if length(a).is_some_and(|len| (0..len).contains(k)) => Some((a.clone(), *k)),
+                _ => None,
+            },
             _ => None,
         })
         .collect();
@@ -391,7 +426,8 @@ pub(crate) fn rewrite(body: &[Statement], declared: &Declared, outputs: &[Output
         real: &real,
         arrays: &arrays,
         reals: &reals,
-        sized: &sized,
+        undefined: &undefined,
+        filled: &filled,
         taken: &writes_of(body).1,
         entering: entering(body, declared),
     };
@@ -471,7 +507,10 @@ struct Rules<'a> {
     /// Declared real.
     arrays: &'a [String],
     reals: &'a [String],
-    sized: &'a [(String, i64)],
+    /// Locals of any type that a pass may read before anything writes them.
+    undefined: &'a [String],
+    /// The elements of real local arrays stored before the first loop.
+    filled: &'a [(String, i64)],
     /// Address-taken anywhere in the function.
     taken: &'a [String],
     entering: Entering,
@@ -499,7 +538,10 @@ struct Entry<'a> {
 
 fn pass_of(pass: &[Statement], counter: Option<&String>, entry: &Entry, rules: &Rules) -> Pass {
     let mut leaves = false;
-    each_statement(pass, &mut |s| leaves |= matches!(s, Statement::Break | Statement::Continue | Statement::Return { .. }));
+    each_statement(pass, &mut |s| {
+        leaves |= matches!(s, Statement::Break | Statement::Continue | Statement::Return { .. } | Statement::CircBuf(CircBuf::Init { .. }))
+            || exprs_of(s).iter().any(|e| may_exit(e, rules.helpers));
+    });
     let tested: Vec<Statement> = entry.test.map(|t| Statement::Expr(t.clone())).into_iter().collect();
     let (mut writes, _) = writes_of(&[pass, tested.as_slice()].concat());
     writes.extend(rules.taken.iter().cloned());
@@ -533,7 +575,7 @@ fn pass_of(pass: &[Statement], counter: Option<&String>, entry: &Entry, rules: &
     };
     if !leaves {
         for s in pass {
-            sure_reads(s, &mut |a, i| {
+            sure_reads(s, rules.helpers, &mut |a, i| {
                 if let Some((v, o)) = offset(i).filter(|_| rules.arrays.iter().any(|x| x == a)) {
                     prove(v, Some(o), Some(o));
                 }
@@ -541,7 +583,8 @@ fn pass_of(pass: &[Statement], counter: Option<&String>, entry: &Entry, rules: &
         }
         let at = &rules.entering;
         for v in &steps {
-            let init = entry.before.and_then(|b| enters_as_start(v, b));
+            // A counted loop starts its counter at the count, whatever came before.
+            let init = entry.before.filter(|_| counter != Some(v)).and_then(|b| enters_as_start(v, b));
             let from_start = init.is_some();
             if let (Some(init), true) = (init, at.raised_only) {
                 let floor = at.canonical.filter(|(end, _)| init > *end).map_or(0, |(_, fixed)| fixed);
@@ -560,12 +603,17 @@ fn pass_of(pass: &[Statement], counter: Option<&String>, entry: &Entry, rules: &
 }
 
 /// Where `v` takes `startIdx` before the loop: its last top-level assignment
-/// there, with nothing after it writing `v`.
+/// or declaration there, with nothing after it writing `v`.
 fn enters_as_start(v: &str, before: &[Statement]) -> Option<usize> {
-    let at = before.iter().rposition(|s| matches!(s, Statement::Assign { target: Expr::Var(t), .. } if t == v))?;
+    let start = |e: &Expr| matches!(e, Expr::Var(n) if n == "startIdx");
+    let entry = |s: &Statement| match s {
+        Statement::Assign { target: Expr::Var(t), value, compound } if t == v => Some(!compound && start(value)),
+        Statement::VarDecl { name, init, .. } if name == v => Some(init.as_ref().is_some_and(start)),
+        _ => None,
+    };
+    let at = before.iter().rposition(|s| entry(s).is_some())?;
     let (later, taken) = writes_of(&before[at + 1..]);
-    let entry = matches!(&before[at], Statement::Assign { value: Expr::Var(n), compound: false, .. } if n == "startIdx");
-    (entry && !later.iter().chain(&taken).any(|w| w == v)).then_some(at)
+    (entry(&before[at])? && !later.iter().chain(&taken).any(|w| w == v)).then_some(at)
 }
 
 /// `v`, `v + c` or `v - c` as `(v, offset)`.
@@ -580,24 +628,49 @@ fn offset(i: &Expr) -> Option<(&String, i64)> {
     }
 }
 
+/// Whether `e` calls something whose rendering may return early: a backend
+/// renders a cross-call's failure, or a buffer allocation's, as a return the
+/// IR does not hold.
+fn may_exit(e: &Expr, helpers: &HelperRegistry) -> bool {
+    let mut hit = false;
+    walk_expr(e, &mut |x| {
+        if let Expr::FuncCall(n, _) = x {
+            let known = PURE_HELPERS.contains(&n.as_str()) || n == DIVIDING_HELPER || helpers.get(n).is_some();
+            hit |= !known && MathFn::from_name(n).is_none() && SpecialBuiltin::from_name(n).is_none() && !is_pseudo_call(n);
+        }
+    });
+    hit
+}
+
 /// The array reads a top-level statement of the pass runs whatever the data.
-fn sure_reads(s: &Statement, see: &mut dyn FnMut(&str, &Expr)) {
-    fn expr(e: &Expr, see: &mut dyn FnMut(&str, &Expr)) {
+/// The backends paste a one-expression helper's body in place of its call, so
+/// an argument counts only where that body reads it unconditionally.
+fn sure_reads(s: &Statement, helpers: &HelperRegistry, see: &mut dyn FnMut(&str, &Expr)) {
+    fn expr(e: &Expr, helpers: &HelperRegistry, see: &mut dyn FnMut(&str, &Expr)) {
         match e {
             Expr::ArrayAccess(a, i) => {
                 see(a, i);
-                expr(i, see);
+                expr(i, helpers, see);
             }
-            Expr::BinOp(l, BinOp::And | BinOp::Or, _) | Expr::Ternary(l, _, _) => expr(l, see),
+            Expr::BinOp(l, BinOp::And | BinOp::Or, _) | Expr::Ternary(l, _, _) => expr(l, helpers, see),
             Expr::BinOp(l, _, r) => {
-                expr(l, see);
-                expr(r, see);
+                expr(l, helpers, see);
+                expr(r, helpers, see);
             }
-            // The candle average reads its bar only when the average period is
-            // 0. The candle range reads it for every range type the settings
-            // accept.
-            Expr::FuncCall(n, _) if n == DIVIDING_HELPER => {}
-            Expr::FuncCall(_, args) => args.iter().for_each(|a| expr(a, see)),
+            // Every range type the settings accept reads the bar, but only
+            // where all four prices name one.
+            Expr::FuncCall(n, args) if n == "ta_candlerange" => {
+                if let Some(i) = args.get(1..).and_then(candle_bar) {
+                    see("inClose", i);
+                    expr(i, helpers, see);
+                }
+            }
+            Expr::FuncCall(n, args) if MathFn::from_name(n).is_some() => args.iter().for_each(|a| expr(a, helpers, see)),
+            Expr::FuncCall(n, args) => {
+                if let Some(inlined) = helpers.get(n).and_then(|h| try_inline_expr(h, args)) {
+                    expr(&inlined, helpers, see);
+                }
+            }
             Expr::Cast(_, x)
             | Expr::Not(x)
             | Expr::Neg(x)
@@ -605,19 +678,19 @@ fn sure_reads(s: &Statement, see: &mut dyn FnMut(&str, &Expr)) {
             | Expr::PostIncrement(x)
             | Expr::PostDecrement(x)
             | Expr::PreIncrement(x)
-            | Expr::PreDecrement(x) => expr(x, see),
+            | Expr::PreDecrement(x) => expr(x, helpers, see),
             _ => {}
         }
     }
     match s {
         Statement::Assign { target, value, .. } => {
             if let Expr::ArrayAccess(_, i) = target {
-                expr(i, see);
+                expr(i, helpers, see);
             }
-            expr(value, see);
+            expr(value, helpers, see);
         }
-        Statement::If { condition: e, .. } | Statement::VarDecl { init: Some(e), .. } | Statement::Expr(e) => expr(e, see),
-        Statement::Block { body } => body.iter().for_each(|b| sure_reads(b, see)),
+        Statement::If { condition: e, .. } | Statement::VarDecl { init: Some(e), .. } | Statement::Expr(e) => expr(e, helpers, see),
+        Statement::Block { body } => body.iter().for_each(|b| sure_reads(b, helpers, see)),
         _ => {}
     }
 }
@@ -637,7 +710,10 @@ fn walk(body: &[Statement], pass: Option<&Pass>, top: bool, rules: &Rules) -> Ve
             let inner = match s {
                 Statement::While { body, condition } => Some(pass_of(body, None, &Entry { before, test: Some(condition), tested_first: true }, rules)),
                 Statement::DoWhile { body, condition } => Some(pass_of(body, None, &Entry { before, test: Some(condition), tested_first: false }, rules)),
-                Statement::For { var, body, .. } => Some(pass_of(body, Some(var), &Entry { before, test: None, tested_first: true }, rules)),
+                Statement::For { var, body, count } => {
+                    let before = before.map(|b| [b, &[Statement::Expr(count.clone())]].concat());
+                    Some(pass_of(body, Some(var), &Entry { before: before.as_deref(), test: None, tested_first: true }, rules))
+                }
                 Statement::ForC { init, body, update, condition } => {
                     let pass = [body.as_slice(), std::slice::from_ref(update.as_ref())].concat();
                     let before = before.map(|b| [b, std::slice::from_ref(init.as_ref())].concat());
@@ -1066,22 +1142,22 @@ fn pure(e: &Expr, rules: &Rules) -> bool {
 }
 
 /// Whether running `e` on every pass can neither trap nor act. An allowlist:
-/// literals; names declared real, with one type throughout the function;
+/// literals; names declared once, real, and written before a pass reads them;
 /// input-array reads at a loop step plus or minus a literal inside the step's
 /// proven window (or a choice between two such); real local arrays at a
-/// literal inside their declared length; the pure candle helpers, which take
-/// any name as an argument; `fabs`, `max` and `min`; `+ - * /` with an operand
-/// declared real, so the arithmetic is floating; comparisons, `!`, `&&` and
-/// `||`; a choice between two literals; and a literal times a 1/-1 or 1/0
-/// flag. Everything else is refused, integer arithmetic above all: a guard on
-/// it may be what keeps it in range.
+/// literal stored before the first loop; the pure candle helpers, which take
+/// any name but an undefined local as an argument; `fabs`, `max` and `min`;
+/// `+ - * /` with an operand declared real, so the arithmetic is floating;
+/// comparisons, `!`, `&&` and `||`; a choice between two literals; and a
+/// literal times a 1/-1 or 1/0 flag. Everything else is refused, integer
+/// arithmetic above all: a guard on it may be what keeps it in range.
 fn eager_safe(e: &Expr, windows: &Windows, rules: &Rules) -> bool {
     let safe = |x: &Expr| eager_safe(x, windows, rules);
     let real = |x: &Expr| declared_real(x, rules);
     match e {
         Expr::Literal(_) | Expr::IntLiteral(_) => true,
         Expr::Var(n) => rules.reals.contains(n),
-        Expr::ArrayAccess(a, i) => (rules.arrays.contains(a) && in_window(i, windows, rules)) || in_declared_length(a, i, rules),
+        Expr::ArrayAccess(a, i) => (rules.arrays.contains(a) && in_window(i, windows, rules)) || filled(a, i, rules),
         Expr::BinOp(l, op, r) => match op {
             BinOp::And | BinOp::Or | BinOp::Less | BinOp::LessEq | BinOp::Greater | BinOp::GreaterEq | BinOp::Eq | BinOp::NotEq => {
                 safe(l) && safe(r)
@@ -1096,7 +1172,7 @@ fn eager_safe(e: &Expr, windows: &Windows, rules: &Rules) -> bool {
             if note_of(n).is_some() {
                 args.iter().all(safe)
             } else if PURE_HELPERS.contains(&n.as_str()) || n == DIVIDING_HELPER {
-                args.iter().all(|a| safe(a) || matches!(a, Expr::Var(_)))
+                args.iter().all(|a| safe(a) || matches!(a, Expr::Var(n) if !rules.undefined.contains(n)))
             } else {
                 matches!(MathFn::from_name(n), Some(MathFn::Abs | MathFn::Max | MathFn::Min)) && args.iter().all(safe)
             }
@@ -1111,7 +1187,7 @@ fn declared_real(e: &Expr, rules: &Rules) -> bool {
     match e {
         Expr::Literal(_) => true,
         Expr::Var(n) => rules.reals.contains(n),
-        Expr::ArrayAccess(a, _) => rules.arrays.contains(a) || rules.sized.iter().any(|(n, _)| n == a),
+        Expr::ArrayAccess(a, _) => rules.arrays.contains(a) || rules.filled.iter().any(|(n, _)| n == a),
         Expr::BinOp(l, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div, r) => real(l) || real(r),
         Expr::Neg(x) => real(x),
         Expr::FuncCall(n, args) if note_of(n).is_some() => args.iter().all(real),
@@ -1134,9 +1210,9 @@ fn scaled_flag(k: &Expr, f: &Expr, rules: &Rules) -> bool {
     int_value(k).is_some() && flag(f, rules.helpers).is_some_and(|(_, t, f)| matches!((t, f), (1, -1 | 0) | (-1 | 0, 1)))
 }
 
-/// A real local array read at a literal inside its declared length.
-fn in_declared_length(a: &str, i: &Expr, rules: &Rules) -> bool {
-    matches!(i, Expr::IntLiteral(k) if rules.sized.iter().any(|(n, len)| n == a && (0..*len).contains(k)))
+/// A real local array read at a literal stored before the first loop.
+fn filled(a: &str, i: &Expr, rules: &Rules) -> bool {
+    matches!(i, Expr::IntLiteral(k) if rules.filled.iter().any(|(n, f)| n == a && f == k))
 }
 
 /// A step plus or minus a literal inside the step's window, or a choice
@@ -1378,8 +1454,10 @@ mod tests {
     fn declared() -> &'static Declared {
         static D: std::sync::OnceLock<Declared> = std::sync::OnceLock::new();
         D.get_or_init(|| Declared {
+            inputs: names(&["inClose", "inOpen", "inHigh", "inLow"]),
             arrays: names(&["inClose", "inOpen", "inHigh", "inLow"]),
             reals: names(&["x", "y", "a", "b", "c", "d", "o", "h", "l", "f", "s"]),
+            params: names(&["x", "y", "a", "b", "c", "d", "o", "h", "l", "f", "s", "p"]),
             ..Declared::default()
         })
     }
@@ -1406,7 +1484,7 @@ mod tests {
         H.get_or_init(|| HelperRegistry::from_dir(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../input")))
     }
     fn rules() -> Rules<'static> {
-        Rules { outputs: vec!["out"], int_outputs: Vec::new(), helpers: helpers(), real: &real, arrays: &declared().arrays, reals: &declared().reals, sized: &[], taken: &[], entering: Entering::default() }
+        Rules { outputs: vec!["out"], int_outputs: Vec::new(), helpers: helpers(), real: &real, arrays: &declared().arrays, reals: &declared().reals, undefined: &[], filled: &[], taken: &[], entering: Entering::default() }
     }
     fn run(body: &[Statement]) -> Vec<Statement> {
         walk(body, None, true, &rules())
@@ -1520,27 +1598,11 @@ mod tests {
     }
 
     #[test]
-    fn a_name_declared_with_two_types_is_not_real() {
-        let outputs = [Output { name: "out".into(), param_type: ParamType::Integer, flags: Vec::new(), levels: Vec::new() }];
-        let decl = |t: VarType| Statement::VarDecl { var_type: t, name: "z".into(), init: Some(int(0)) };
-        let tree = simple_if(bin(gt(var("z"), int(1)), BinOp::And, a_gt_b()), int(1));
-        let folds = |body: &[Statement]| {
-            let out = rewrite(body, declared(), &outputs, helpers());
-            out.iter().any(|s| matches!(s, Statement::While { body, .. } if is_fold(&body[0])))
-        };
-        let mut body = vec![decl(VarType::Real)];
-        body.extend(in_loop(tree));
-        assert!(folds(&body));
-        body.insert(1, Statement::Block { body: vec![decl(VarType::Integer)] });
-        assert!(!folds(&body));
-    }
-
-    #[test]
     fn the_eager_allowlist_admits_only_declared_reals_and_step_reads() {
         let (arrays, reals) = (names(&["inClose", "inOpen", "inHigh"]), names(&["x", "y"]));
-        let sized = [("tot".to_string(), 2)];
+        let filled = [("tot".to_string(), 1)];
         let mut r = rules();
-        (r.arrays, r.reals, r.sized) = (&arrays, &reals, &sized);
+        (r.arrays, r.reals, r.filled) = (&arrays, &reals, &filled);
         let windows = [("i".to_string(), -4, 0)];
         let ok = |e: Expr| eager_safe(&e, &windows, &r);
         let nonzero = |n: &str| bin(var(n), BinOp::NotEq, int(0));
@@ -1559,7 +1621,7 @@ mod tests {
             nonzero("tmp"),
             gt(at("inClose", var("m")), var("x")),
             gt(at("inClose", Expr::Cast(VarType::Integer, Box::new(at("inHigh", var("i"))))), var("x")),
-            gt(at("tot", int(2)), var("x")),
+            gt(at("tot", int(0)), var("x")),
             gt(bin(var("i"), BinOp::Div, var("sumN")), int(1)),
             gt(bin(var("i"), BinOp::Mul, var("n")), int(5)),
             gt(call("external_effect", vec![var("x")]), var("y")),
@@ -1947,5 +2009,220 @@ mod tests {
         let doji = iff(a_gt_b(), vec![simple_if(c_lt_d(), int(100))], vec![store(stepped(), int(0))]);
         let Statement::If { condition, .. } = folded(doji) else { panic!() };
         same!(condition, a_gt_b());
+    }
+
+    /// Whether `rewrite` folds some tree of `body`.
+    fn folds_in(body: &[Statement], declared: &Declared) -> bool {
+        let outputs = [Output { name: "out".into(), param_type: ParamType::Integer, flags: Vec::new(), levels: Vec::new() }];
+        let mut hit = false;
+        each_statement(&rewrite(body, declared, &outputs, helpers()), &mut |s| hit |= is_fold(s));
+        hit
+    }
+    fn local(t: VarType, n: &str, init: Option<Expr>) -> Statement {
+        Statement::VarDecl { var_type: t, name: n.into(), init }
+    }
+    fn x_half_and(e: Expr) -> Statement {
+        simple_if(and(gt(var("x"), Expr::Literal(0.5)), e), int(1))
+    }
+
+    #[test]
+    fn a_step_declared_in_its_for_init_enters_where_the_declaration_says() {
+        let d = Declared { arrays: declared().arrays.clone(), reals: names(&["x"]), lookback: "f_lookback".into(), fixed: 3, ..Declared::default() };
+        let looped = |init: Statement| {
+            let body = vec![
+                assign("lookbackTotal", call("f_lookback", Vec::new())),
+                iff(bin(var("startIdx"), BinOp::Less, var("lookbackTotal")), vec![assign("startIdx", var("lookbackTotal"))], Vec::new()),
+                iff(gt(var("startIdx"), var("endIdx")), vec![Statement::Return { value: None }], Vec::new()),
+                assign("i", var("startIdx")),
+                Statement::ForC {
+                    init: Box::new(init),
+                    condition: bin(var("i"), BinOp::LessEq, var("endIdx")),
+                    update: Box::new(step()),
+                    body: vec![x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))))],
+                },
+            ];
+            folds_in(&body, &d)
+        };
+        let below = bin(var("startIdx"), BinOp::Sub, int(3));
+        assert!(!looped(local(VarType::Integer, "i", Some(below.clone()))), "a declared step entering below the floor folds");
+        assert!(!looped(assign("i", below)));
+        assert!(looped(local(VarType::Integer, "i", Some(var("startIdx")))));
+        assert!(looped(assign("i", var("startIdx"))));
+    }
+
+    #[test]
+    fn a_helper_argument_must_be_written_before_it_runs() {
+        let tree = || x_half_and(gt(call("ta_realbody", vec![var("z"), at("inClose", var("i"))]), Expr::Literal(1.0)));
+        let write = || assign("z", at("inClose", var("i")));
+        let looped = |pass: Vec<Statement>| vec![local(VarType::Real, "z", None), Statement::While { condition: gt(var("n"), int(0)), body: pass }];
+        assert!(!folds_in(&looped(vec![tree(), write(), reads(), step()]), declared()), "an unwritten local runs eagerly in a helper");
+        assert!(folds_in(&looped(vec![write(), tree(), reads(), step()]), declared()));
+    }
+
+    #[test]
+    fn an_inner_declaration_writes_only_its_own_name() {
+        let looped = |pre: Vec<Statement>| {
+            let mut body = pre;
+            body.extend(in_loop(x_half_and(gt(var("z"), at("inClose", var("i"))))));
+            body
+        };
+        let inner = Statement::Block { body: vec![local(VarType::Real, "z", Some(Expr::Literal(1.0)))] };
+        assert!(!folds_in(&looped(vec![local(VarType::Real, "z", None), inner]), declared()), "a shadowing declaration writes the outer name");
+        assert!(folds_in(&looped(vec![local(VarType::Real, "z", Some(Expr::Literal(1.0)))]), declared()));
+    }
+
+    #[test]
+    fn a_local_array_element_must_be_written_before_the_loop() {
+        let looped = |pre: Vec<Statement>| {
+            let mut body = vec![local(VarType::RealArray("2".into()), "buf", None)];
+            body.extend(pre);
+            body.extend(in_loop(x_half_and(gt(at("buf", int(0)), at("inClose", var("i"))))));
+            body
+        };
+        let set = |k: i64| store(at("buf", int(k)), Expr::Literal(0.0));
+        assert!(!folds_in(&looped(Vec::new()), declared()), "an unwritten array element runs eagerly");
+        assert!(!folds_in(&looped(vec![set(1)]), declared()));
+        assert!(folds_in(&looped(vec![set(0)]), declared()));
+    }
+
+    /// The canonical prologue, raising `startIdx` to 3, then `rest`.
+    fn after_prologue(rest: Vec<Statement>) -> (Vec<Statement>, Declared) {
+        let mut body = vec![
+            assign("lookbackTotal", call("f_lookback", Vec::new())),
+            iff(bin(var("startIdx"), BinOp::Less, var("lookbackTotal")), vec![assign("startIdx", var("lookbackTotal"))], Vec::new()),
+            iff(gt(var("startIdx"), var("endIdx")), vec![Statement::Return { value: None }], Vec::new()),
+            assign("i", var("startIdx")),
+        ];
+        body.extend(rest);
+        (body, Declared { arrays: declared().arrays.clone(), reals: names(&["x"]), lookback: "f_lookback".into(), fixed: 3, ..Declared::default() })
+    }
+    /// `pre`, a loop whose pass is `head`, `tree` and its window reads, then `after`.
+    fn around(mut pre: Vec<Statement>, head: Vec<Statement>, tree: Statement, after: Vec<Statement>) -> Vec<Statement> {
+        let mut pass = head;
+        pass.extend([tree, reads(), step()]);
+        pre.push(Statement::While { condition: gt(var("n"), int(0)), body: pass });
+        pre.extend(after);
+        pre
+    }
+
+    #[test]
+    fn a_step_redeclared_in_the_pass_or_a_for_init_list_indexes_nothing() {
+        let tree = || x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))));
+        let below = || local(VarType::Integer, "i", Some(bin(var("startIdx"), BinOp::Sub, int(3))));
+        let to_end = || bin(var("i"), BinOp::LessEq, var("endIdx"));
+        let looped = |pass: Vec<Statement>| {
+            let (body, d) = after_prologue(vec![Statement::While { condition: to_end(), body: pass }]);
+            folds_in(&body, &d)
+        };
+        assert!(looped(vec![tree(), step()]));
+        assert!(!looped(vec![below(), tree(), step()]));
+        assert!(!looped(vec![Statement::Block { body: vec![below(), tree()] }, step()]));
+        let init = Statement::Block { body: vec![below(), assign("k", int(0))] };
+        let listed = Statement::ForC { init: Box::new(init), condition: to_end(), update: Box::new(step()), body: vec![tree()] };
+        let (body, d) = after_prologue(vec![listed]);
+        assert!(!folds_in(&body, &d));
+    }
+
+    #[test]
+    fn a_name_declared_twice_is_refused_even_where_each_is_written() {
+        let tree = || x_half_and(gt(var("z"), at("inClose", var("i"))));
+        let z = |init: Option<Expr>| local(VarType::Real, "z", init);
+        let write = || assign("z", at("inOpen", var("i")));
+        assert!(folds_in(&around(vec![z(None)], vec![write()], tree(), vec![]), declared()));
+        let shadowed = Statement::Block { body: vec![z(None), tree()] };
+        assert!(!folds_in(&around(vec![z(None)], vec![write()], shadowed, vec![]), declared()), "the inner z is never written");
+        let both = vec![Statement::Block { body: vec![z(Some(Expr::Literal(1.0)))] }];
+        assert!(!folds_in(&around(vec![z(Some(Expr::Literal(0.0)))], vec![], tree(), both), declared()));
+        let buf = || local(VarType::RealArray("2".into()), "buf", None);
+        let read_buf = || x_half_and(gt(at("buf", int(0)), at("inClose", var("i"))));
+        let put = || store(at("buf", int(0)), Expr::Literal(0.0));
+        assert!(!folds_in(&around(vec![buf(), put()], vec![], read_buf(), vec![Statement::Block { body: vec![buf()] }]), declared()));
+    }
+
+    #[test]
+    fn a_local_shadowing_any_parameter_is_refused() {
+        let shadow = |n: &str, t: VarType, init: Option<Expr>| vec![Statement::Block { body: vec![local(t, n, init)] }];
+        // `p` and the setting are integers: the division may trap.
+        for n in ["p", "BodyDoji_avgPeriod"] {
+            let divides = x_half_and(gt(bin(int(100), BinOp::Div, var(n)), at("inClose", var("i"))));
+            assert!(!folds_in(&around(vec![], vec![], divides, shadow(n, VarType::Real, Some(Expr::Literal(1.0)))), declared()), "{n}");
+        }
+        let output = x_half_and(gt(at("out", int(0)), at("inClose", var("i"))));
+        let put = store(at("out", int(0)), Expr::Literal(0.0));
+        assert!(!folds_in(&around(vec![put], vec![], output, shadow("out", VarType::RealArray("2".into()), None)), declared()));
+    }
+
+    #[test]
+    fn a_counted_loop_takes_no_floor_from_before_it() {
+        let r = Rules { entering: Entering { raised_only: true, canonical: Some((0, 3)), end_fixed: true, ..Entering::default() }, ..rules() };
+        let folds = |reads: Expr| {
+            let tree = x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))));
+            let counted = Statement::For { var: "i".into(), count: var("n"), body: vec![tree, assign("w", reads)] };
+            let out = walk(&[Statement::Comment(vec!["prologue".into()]), assign("i", var("startIdx")), counted], None, true, &r);
+            let Statement::For { body, .. } = &out[2] else { panic!("loop gone") };
+            is_fold(&body[0])
+        };
+        assert!(folds(bin(at("inClose", i_minus(3)), BinOp::Add, at("inOpen", var("i")))));
+        assert!(!folds(at("inOpen", var("i"))));
+        // `j` is no counter: the loop leaves it as `j = startIdx` set it.
+        let j_folds = |count: Expr| {
+            let tree = x_half_and(gt(at("inClose", bin(var("j"), BinOp::Sub, int(3))), at("inOpen", var("j"))));
+            let j_step = Statement::Expr(Expr::PostIncrement(Box::new(var("j"))));
+            let counted = Statement::For { var: "m".into(), count, body: vec![tree, assign("w", at("inOpen", var("j"))), j_step] };
+            let out = walk(&[Statement::Comment(vec!["prologue".into()]), assign("j", var("startIdx")), counted], None, true, &r);
+            let Statement::For { body, .. } = &out[2] else { panic!("loop gone") };
+            is_fold(&body[0])
+        };
+        assert!(j_folds(var("n")));
+        assert!(!j_folds(Expr::PostDecrement(Box::new(var("j")))));
+        let reset_by = |counter: &str| {
+            let tree = x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))));
+            let lp = Statement::While { condition: bin(var("i"), BinOp::LessEq, var("endIdx")), body: vec![tree, step()] };
+            let counted = Statement::For { var: counter.into(), count: int(5), body: Vec::new() };
+            let out = walk(&[Statement::Comment(vec!["prologue".into()]), assign("i", var("startIdx")), counted, lp], None, true, &r);
+            let Statement::While { body, .. } = &out[3] else { panic!("loop gone") };
+            is_fold(&body[0])
+        };
+        assert!(reset_by("m"));
+        assert!(!reset_by("i"), "the counted loop leaves i at 0");
+    }
+
+    /// Whether a tree reading `inClose[i-3]` folds in a pass that runs `pre`
+    /// first and surely reads `inClose[i]`.
+    fn reads_back_three_after(pre: Statement) -> bool {
+        let tree = x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))));
+        let out = run(&[Statement::While { condition: gt(var("n"), int(0)), body: vec![pre, tree, assign("w", at("inClose", var("i"))), step()] }]);
+        let [Statement::While { body, .. }] = out.as_slice() else { panic!("loop gone") };
+        is_fold(&body[1])
+    }
+
+    #[test]
+    fn a_call_proves_only_the_reads_its_rendering_runs_on_every_pass() {
+        assert!(reads_back_three_after(assign("j", at("inOpen", i_minus(3)))));
+        let cast = Expr::Cast(VarType::Integer, Box::new(at("inOpen", i_minus(3))));
+        assert!(!reads_back_three_after(assign("j", call("ta_auto_stabilization_ema", vec![cast, var("i")]))), "read on one arm of the helper's body");
+        let range = |open: Expr, rest: Expr| {
+            let named = |a: &str| at(a, rest.clone());
+            call("ta_candlerange", vec![var("BodyLong_rangeType"), open, named("inHigh"), named("inLow"), named("inClose")])
+        };
+        assert!(reads_back_three_after(assign("e", range(at("inOpen", i_minus(3)), i_minus(3)))));
+        assert!(!reads_back_three_after(assign("e", range(at("inOpen", i_minus(3)), var("i")))), "the high-low range never reads the open");
+    }
+
+    #[test]
+    fn a_call_that_may_return_proves_no_window() {
+        let looped = |extra: Vec<Statement>| {
+            let mut pass = vec![x_half_and(gt(at("inClose", i_minus(3)), at("inOpen", var("i"))))];
+            pass.extend(extra);
+            pass.extend([reads(), step()]);
+            let out = run(&[Statement::While { condition: gt(var("n"), int(0)), body: pass }]);
+            let [Statement::While { body, .. }] = out.as_slice() else { panic!("loop gone") };
+            is_fold(&body[0])
+        };
+        assert!(looped(vec![]));
+        assert!(!looped(vec![assign("t", call("sma", vec![var("i")]))]), "a cross-call's failure returns");
+        let layout = || crate::ir::CircBufLayout::Plain(VarType::Real);
+        assert!(!looped(vec![Statement::CircBuf(CircBuf::Init { id: "b".into(), layout: layout(), size: var("n") })]), "an allocation's failure returns");
+        assert!(looped(vec![Statement::CircBuf(CircBuf::Next { id: "b".into() })]));
     }
 }
