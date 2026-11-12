@@ -763,9 +763,11 @@ static ErrorNumber test_wad_published_vectors( void )
 
 /**** Global functions definitions.   ****/
 
-/* A 2e17 bar among ordinary ones leaves the running sums below zero once it
- * retires, so ULTOSC answers negative on well-formed bars: the sign its
- * metadata declares, which the ride must see somewhere. */
+/* A 2e17 bar among ordinary ones leaves the running totals below zero once it
+ * retires, and a total that comes out negative must be rebuilt from the
+ * window: no output may be negative, every bar the spike has left must match
+ * fresh window totals, and the stream must agree with the batch bit for bit
+ * (#588). */
 static void cancel_bars( double spike, double closeFrac, TA_Real h[], TA_Real l[], TA_Real c[], int n )
 {
    int i;
@@ -781,26 +783,196 @@ static void cancel_bars( double spike, double closeFrac, TA_Real h[], TA_Real l[
    c[5] = spike * closeFrac;
 }
 
+/* Every language server must reproduce the batch bit for bit on these bars,
+ * which the codegen sweep never sends, and so must the stream opened past the
+ * longest window. */
+static ErrorNumber ultosc_cross_check( const char *tag, const TA_Real h[],
+                                       const TA_Real l[], const TA_Real c[],
+                                       int n, const int periods[3],
+                                       const TA_Real out[], TA_Integer beg,
+                                       TA_Integer nb )
+{
+   TA_ULTOSC_Stream *stream;
+   TA_RetCode rc;
+   TA_Real v;
+   int i;
+
+   if( server_verify_active() )
+   {
+      int cmpBefore = server_verify_comparisons();
+      ErrorNumber e = server_verify( "ULTOSC", 0, n - 1, n, TA_SUCCESS, beg, nb,
+                                     (const TA_Real*[]){ h, l, c, NULL },
+                                     (double[]){ periods[0], periods[1], periods[2] }, 3,
+                                     (const TA_Real*[]){ out, NULL }, NULL );
+      if( e != TA_TEST_PASS )
+         return e;
+      if( server_verify_comparisons() == cmpBefore )
+      {
+         printf( "ULTOSC %s: compared no server despite live pipes\n", tag );
+         return TA_SV_ROUTED_VACUOUS;
+      }
+   }
+
+   rc = TA_ULTOSC_Open( &stream, h, l, c, periods[2] + 1,
+                        periods[0], periods[1], periods[2], &v );
+   for( i = periods[2] + 1; rc == TA_SUCCESS && i < n; i++ )
+   {
+      rc = TA_ULTOSC_Update( stream, h[i], l[i], c[i], &v );
+      if( rc == TA_SUCCESS && memcmp( &v, &out[i-periods[2]], sizeof(TA_Real) ) != 0 )
+      {
+         printf( "ULTOSC Fail: %s bar %d: stream %.17g, batch %.17g\n",
+                 tag, i, v, out[i-periods[2]] );
+         TA_ULTOSC_Close( stream );
+         return TA_ULTOSC_CANCEL;
+      }
+   }
+   if( rc != TA_SUCCESS )
+   {
+      printf( "ULTOSC Fail: the %s stream returned %d\n", tag, (int)rc );
+      return TA_ULTOSC_CANCEL;
+   }
+   TA_ULTOSC_Close( stream );
+   return TA_TEST_PASS;
+}
+
 static ErrorNumber test_ultosc_cancel( void )
 {
+   static const int periods[3] = { 2, 3, 4 };
    TA_Real h[24], l[24], c[24], out[24];
    TA_Integer beg, nb;
-   int i, neg = 0;
+   int i, j, w;
 
    cancel_bars( 2e17, -0.25, h, l, c, 24 );
-   if( TA_ULTOSC( 0, 23, h, l, c, 2, 3, 4, &beg, &nb, out ) != TA_SUCCESS )
+   if( TA_ULTOSC( 0, 23, h, l, c, periods[0], periods[1], periods[2],
+                  &beg, &nb, out ) != TA_SUCCESS )
    {
       printf( "ULTOSC Fail: the spike call failed\n" );
       return TA_ULTOSC_CANCEL;
    }
    for( i = 0; i < nb; i++ )
-      neg += out[i] < 0.0;
-   if( !neg )
    {
-      printf( "ULTOSC Fail: no output went negative after the 2e17 spike\n" );
+      int bar = beg + i;
+      double want = 0.0;
+      if( out[i] < 0.0 )
+      {
+         printf( "ULTOSC Fail: bar %d is %.17g after the 2e17 spike\n", bar, out[i] );
+         return TA_ULTOSC_CANCEL;
+      }
+      /* Bar 6's terms are the last to read the spike. */
+      if( bar - periods[2] + 1 <= 6 )
+         continue;
+      for( w = 0; w < 3; w++ )
+      {
+         double a = 0.0, b = 0.0;
+         for( j = bar - periods[w] + 1; j <= bar; j++ )
+         {
+            double trueLow  = l[j] < c[j-1] ? l[j] : c[j-1];
+            double trueHigh = h[j] > c[j-1] ? h[j] : c[j-1];
+            a += c[j] - trueLow;
+            b += trueHigh - trueLow;
+         }
+         if( b > 0.0 )
+            want += (w == 0 ? 4.0 : w == 1 ? 2.0 : 1.0) * (a / b);
+      }
+      want = 100.0 * (want / 7.0);
+      if( fabs( out[i] - want ) > 1e-9 )
+      {
+         printf( "ULTOSC Fail: bar %d is %.17g after the 2e17 spike, fresh totals "
+                 "give %.17g\n", bar, out[i], want );
+         return TA_ULTOSC_CANCEL;
+      }
+   }
+
+   return ultosc_cross_check( "spike", h, l, c, 24, periods, out, beg, nb );
+}
+
+/* A spike closing at its high, then bars held at that close: once a whole
+ * window is held, every total is exactly zero and so is the output, though
+ * the spike left residue in the totals when it retired. */
+static ErrorNumber test_ultosc_held_after_spike( void )
+{
+   static const int periods[3] = { 2, 3, 4 };
+   TA_Real h[24], l[24], c[24], out[24];
+   TA_Integer beg, nb;
+   int i, compared = 0;
+
+   cancel_bars( 0.0, 0.0, h, l, c, 24 );
+   h[5] = 5e9;
+   l[5] = l[4];
+   c[5] = 5e9;
+   for( i = 6; i < 24; i++ )
+      h[i] = l[i] = c[i] = 5e9;
+   if( TA_ULTOSC( 0, 23, h, l, c, periods[0], periods[1], periods[2],
+                  &beg, &nb, out ) != TA_SUCCESS )
+   {
+      printf( "ULTOSC Fail: the held-after-spike call failed\n" );
       return TA_ULTOSC_CANCEL;
    }
-   return TA_TEST_PASS;
+   for( i = 0; i < nb; i++ )
+   {
+      int bar = beg + i;
+      if( bar - periods[2] + 1 <= 5 )
+         continue;
+      compared++;
+      if( out[i] != 0.0 )
+      {
+         printf( "ULTOSC Fail: bar %d is %.17g on a held window after a spike, "
+                 "expected 0.0\n", bar, out[i] );
+         return TA_ULTOSC_CANCEL;
+      }
+   }
+   if( compared == 0 )
+   {
+      printf( "ULTOSC Fail: the held-after-spike test compared no bar\n" );
+      return TA_ULTOSC_CANCEL;
+   }
+   return ultosc_cross_check( "held-after-spike", h, l, c, 24, periods, out, beg, nb );
+}
+
+/* A close far below its low cancels against the next bar's a-term, which reads
+ * it as its true low, and the cancellation leaves the shorter totals negative
+ * while the bad bar is still in the longest window, so no rebuild runs. Once
+ * that bar retires, no output may be negative. */
+static ErrorNumber test_ultosc_malformed_retires( void )
+{
+   static const int periods[3] = { 2, 3, 4 };
+   TA_Real h[24], l[24], c[24], out[24];
+   TA_Integer beg, nb;
+   int i, compared = 0;
+
+   for( i = 0; i < 24; i++ )
+   {
+      double b = 100.0 + ((i * 112) % 7) * 0.71 + ((i * 115) % 5) * 0.37;
+      h[i] = round( (b + 0.1 + ((i * 112) % 3) * 0.4) * 100.0 ) / 100.0;
+      l[i] = round( (b - 0.2 - ((i + 112) % 4) * 0.3) * 100.0 ) / 100.0;
+      c[i] = round( (l[i] + (h[i] - l[i]) * ((i * 112) % 5) / 4.0) * 100.0 ) / 100.0;
+   }
+   c[5] = l[5] - 2e16;
+   if( TA_ULTOSC( 0, 23, h, l, c, periods[0], periods[1], periods[2],
+                  &beg, &nb, out ) != TA_SUCCESS )
+   {
+      printf( "ULTOSC Fail: the malformed-close call failed\n" );
+      return TA_ULTOSC_CANCEL;
+   }
+   for( i = 0; i < nb; i++ )
+   {
+      int bar = beg + i;
+      if( bar - periods[2] + 1 <= 5 )
+         continue;
+      compared++;
+      if( out[i] < 0.0 )
+      {
+         printf( "ULTOSC Fail: bar %d is %.17g, its window holds no close "
+                 "below its low\n", bar, out[i] );
+         return TA_ULTOSC_CANCEL;
+      }
+   }
+   if( compared == 0 )
+   {
+      printf( "ULTOSC Fail: the malformed-close test compared no bar\n" );
+      return TA_ULTOSC_CANCEL;
+   }
+   return ultosc_cross_check( "malformed-close", h, l, c, 24, periods, out, beg, nb );
 }
 
 ErrorNumber test_func_per_hlc( TA_History *history )
@@ -823,6 +995,20 @@ ErrorNumber test_func_per_hlc( TA_History *history )
    if( retValue != TA_TEST_PASS )
    {
       printf( "Failed ULTOSC spike test (Code=%d)\n", retValue );
+      return retValue;
+   }
+
+   retValue = test_ultosc_held_after_spike();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "Failed ULTOSC held-after-spike test (Code=%d)\n", retValue );
+      return retValue;
+   }
+
+   retValue = test_ultosc_malformed_retires();
+   if( retValue != TA_TEST_PASS )
+   {
+      printf( "Failed ULTOSC malformed-close test (Code=%d)\n", retValue );
       return retValue;
    }
 

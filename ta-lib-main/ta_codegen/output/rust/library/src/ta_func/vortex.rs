@@ -55,6 +55,9 @@
  *  090626 KL     First version (issue #349).
  *  102326 MF,CC  #554 branch-free zero run, rare reset.
  *  102426 MF,CC  #554 zero-run test on the true range itself.
+ *  110926 KL     #588 rebuild a sum that comes out negative.
+ *  111026 MF,CC  #588 only a negative vortex sum can turn an output negative.
+ *  111126 MF,CC  #588 test after the outputs; rebuild from the trailing bars.
  */
 
 // Import types from parent module
@@ -160,9 +163,13 @@ impl Core {
         let mut i: usize = 0_usize;
         let mut nullRun: usize = 0_usize;
         let mut live: usize = 0_usize;
+        let mut seeded: usize = 0_usize;
+        let mut prevHigh: f64 = 0.0_f64;
+        let mut prevLow: f64 = 0.0_f64;
+        let mut prevClose: f64 = 0.0_f64;
         let mut sTR: f64 = 0.0_f64;
-        let mut sVMP: f64 = 0.0_f64;
         let mut sVMM: f64 = 0.0_f64;
+        let mut sVMP: f64 = 0.0_f64;
         let mut curTR: f64 = 0.0_f64;
         let mut curVMP: f64 = 0.0_f64;
         let mut curVMM: f64 = 0.0_f64;
@@ -171,6 +178,9 @@ impl Core {
         let mut tempLT: f64 = 0.0_f64;
         let mut tempHT: f64 = 0.0_f64;
         let mut tempCY: f64 = 0.0_f64;
+        // Keep sVMM declared before sVMP: the stream state takes this order, and
+        // the reverse lets gcc pair the previous bar's low and high in one load
+        // that straddles two stores, a store-forwarding stall on every update.
         // Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
         // each a rolling sum of "vortex movement" normalized by the rolling sum
         // of true range over the same optInTimePeriod bars.
@@ -308,6 +318,44 @@ impl Core {
             } else {
                 outPlusVI[outIdx] = 0.0;
                 outMinusVI[outIdx] = 0.0;
+            }
+            // Every term is non-negative, so a sum below zero is the residue a
+            // term far larger than the rest of the window left when it retired.
+            // Tested on the sums the next bar adds to, not on the ones it outputs:
+            // a non-negative sum plus a non-negative term stays non-negative, and
+            // nothing a peek returns depends on it. The rebuild sums the retained
+            // terms oldest first, the state a call starting at the next bar primes.
+            // The first bar it reads only seeds the second, so an aliased output
+            // slot holding it changes nothing. Only the vortex sums are tested: a
+            // negative sTR fails the division gate and writes 0.0. Keep
+            // two compares rather than a min: the two sums have no order, and gcc
+            // may emit that select as a branch that mispredicts whenever they swap
+            // order.
+            if sVMP < 0.0 || sVMM < 0.0 {
+                cold_arm();
+                sTR = 0.0;
+                sVMP = 0.0;
+                sVMM = 0.0;
+                seeded = 0;
+                for i in (today - ((optInTimePeriod) as usize) as usize)..(today as usize) + 1 {
+                    if seeded > 1 {
+                        tempLT = inLow[i];
+                        tempHT = inHigh[i];
+                        trueRange = tempHT - tempLT;
+                        tempDouble = (prevClose - tempHT).abs();
+                        trueRange = c_max(tempDouble, trueRange);
+                        tempDouble = (prevClose - tempLT).abs();
+                        trueRange = c_max(tempDouble, trueRange);
+                        sTR += trueRange;
+                        sVMP += (tempHT - prevLow).abs();
+                        sVMM += (tempLT - prevHigh).abs();
+                    }
+                    prevHigh = inHigh[i];
+                    prevLow = inLow[i];
+                    prevClose = inClose[i];
+                    seeded += 1;
+                }
+                i = (today as usize) + 1;
             }
             outIdx += 1;
             today += 1;
@@ -470,9 +518,12 @@ pub struct VortexStream {
 struct VortexStreamState {
     optInTimePeriod: i32,
     nullRun: usize,
+    prevHigh: f64,
+    prevLow: f64,
+    prevClose: f64,
     sTR: f64,
-    sVMP: f64,
     sVMM: f64,
+    sVMP: f64,
     lag1_inHigh: f64,
     lag1_inLow: f64,
     lag1_inClose: f64,
@@ -493,7 +544,9 @@ struct VortexStreamState {
 #[allow(unused_parens)]
 impl Core {
     fn vortex_step_impl(sp: &mut VortexStreamState, inHigh: f64, inLow: f64, inClose: f64, outPlusVI: &mut f64, outMinusVI: &mut f64) {
+        let mut i: usize = 0_usize;
         let mut live: usize = 0_usize;
+        let mut seeded: usize = 0_usize;
         let mut curTR: f64 = 0.0_f64;
         let mut curVMP: f64 = 0.0_f64;
         let mut curVMM: f64 = 0.0_f64;
@@ -578,6 +631,47 @@ impl Core {
             (*outPlusVI) = 0.0;
             (*outMinusVI) = 0.0;
         }
+        // Every term is non-negative, so a sum below zero is the residue a
+        // term far larger than the rest of the window left when it retired.
+        // Tested on the sums the next bar adds to, not on the ones it outputs:
+        // a non-negative sum plus a non-negative term stays non-negative, and
+        // nothing a peek returns depends on it. The rebuild sums the retained
+        // terms oldest first, the state a call starting at the next bar primes.
+        // The first bar it reads only seeds the second, so an aliased output
+        // slot holding it changes nothing. Only the vortex sums are tested: a
+        // negative sTR fails the division gate and writes 0.0. Keep
+        // two compares rather than a min: the two sums have no order, and gcc
+        // may emit that select as a branch that mispredicts whenever they swap
+        // order.
+        if sp.sVMP < 0.0 || sp.sVMM < 0.0 {
+            cold_arm();
+            sp.sTR = 0.0;
+            sp.sVMP = 0.0;
+            sp.sVMM = 0.0;
+            seeded = 0;
+            // for( i = sp.optInTimePeriod; i >= 0; i -= 1 )
+            i = (sp.optInTimePeriod) as usize;
+            loop {
+                if seeded > 1 {
+                    tempLT = sp.ring_trailingIdx_inLow[((if sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx } else { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i })) as usize];
+                    tempHT = sp.ring_trailingIdx_inHigh[((if sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx } else { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i })) as usize];
+                    trueRange = tempHT - tempLT;
+                    tempDouble = (sp.prevClose - tempHT).abs();
+                    trueRange = c_max(tempDouble, trueRange);
+                    tempDouble = (sp.prevClose - tempLT).abs();
+                    trueRange = c_max(tempDouble, trueRange);
+                    sp.sTR += trueRange;
+                    sp.sVMP += (tempHT - sp.prevLow).abs();
+                    sp.sVMM += (tempLT - sp.prevHigh).abs();
+                }
+                sp.prevHigh = sp.ring_trailingIdx_inHigh[((if sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx } else { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i })) as usize];
+                sp.prevLow = sp.ring_trailingIdx_inLow[((if sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx } else { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i })) as usize];
+                sp.prevClose = sp.ring_trailingIdx_inClose[((if sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx } else { sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i })) as usize];
+                seeded += 1;
+                if i == 0 { break; }
+                i -= 1;
+            }
+        }
         sp.cur_outPlusVI = (*outPlusVI);
         sp.cur_outMinusVI = (*outMinusVI);
         sp.lag1_inHigh = inHigh;
@@ -624,9 +718,13 @@ impl Core {
         let mut i: usize = 0_usize;
         let mut nullRun: usize = 0_usize;
         let mut live: usize = 0_usize;
+        let mut seeded: usize = 0_usize;
+        let mut prevHigh: f64 = 0.0_f64;
+        let mut prevLow: f64 = 0.0_f64;
+        let mut prevClose: f64 = 0.0_f64;
         let mut sTR: f64 = 0.0_f64;
-        let mut sVMP: f64 = 0.0_f64;
         let mut sVMM: f64 = 0.0_f64;
+        let mut sVMP: f64 = 0.0_f64;
         let mut curTR: f64 = 0.0_f64;
         let mut curVMP: f64 = 0.0_f64;
         let mut curVMM: f64 = 0.0_f64;
@@ -635,6 +733,9 @@ impl Core {
         let mut tempLT: f64 = 0.0_f64;
         let mut tempHT: f64 = 0.0_f64;
         let mut tempCY: f64 = 0.0_f64;
+        // Keep sVMM declared before sVMP: the stream state takes this order, and
+        // the reverse lets gcc pair the previous bar's low and high in one load
+        // that straddles two stores, a store-forwarding stall on every update.
         // Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
         // each a rolling sum of "vortex movement" normalized by the rolling sum
         // of true range over the same optInTimePeriod bars.
@@ -765,6 +866,44 @@ impl Core {
                 outPlusVI[(outIdx * outStride) as usize] = 0.0;
                 outMinusVI[(outIdx * outStride) as usize] = 0.0;
             }
+            // Every term is non-negative, so a sum below zero is the residue a
+            // term far larger than the rest of the window left when it retired.
+            // Tested on the sums the next bar adds to, not on the ones it outputs:
+            // a non-negative sum plus a non-negative term stays non-negative, and
+            // nothing a peek returns depends on it. The rebuild sums the retained
+            // terms oldest first, the state a call starting at the next bar primes.
+            // The first bar it reads only seeds the second, so an aliased output
+            // slot holding it changes nothing. Only the vortex sums are tested: a
+            // negative sTR fails the division gate and writes 0.0. Keep
+            // two compares rather than a min: the two sums have no order, and gcc
+            // may emit that select as a branch that mispredicts whenever they swap
+            // order.
+            if sVMP < 0.0 || sVMM < 0.0 {
+                cold_arm();
+                sTR = 0.0;
+                sVMP = 0.0;
+                sVMM = 0.0;
+                seeded = 0;
+                for i in (today - ((optInTimePeriod) as usize) as usize)..(today as usize) + 1 {
+                    if seeded > 1 {
+                        tempLT = inLow[i];
+                        tempHT = inHigh[i];
+                        trueRange = tempHT - tempLT;
+                        tempDouble = (prevClose - tempHT).abs();
+                        trueRange = c_max(tempDouble, trueRange);
+                        tempDouble = (prevClose - tempLT).abs();
+                        trueRange = c_max(tempDouble, trueRange);
+                        sTR += trueRange;
+                        sVMP += (tempHT - prevLow).abs();
+                        sVMM += (tempLT - prevHigh).abs();
+                    }
+                    prevHigh = inHigh[i];
+                    prevLow = inLow[i];
+                    prevClose = inClose[i];
+                    seeded += 1;
+                }
+                i = (today as usize) + 1;
+            }
             outIdx += 1;
             today += 1;
         }
@@ -775,6 +914,9 @@ impl Core {
         let capLag_trailingIdx: i64 = (today as i64) - (trailingIdx as i64);
         let cap_trailingIdx: i64 = capLag_trailingIdx + 2;
         if capLag_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+            return Err(RetCode::InternalError);
+        }
+        if cap_trailingIdx < (optInTimePeriod + 1) as i64 {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
@@ -805,9 +947,12 @@ impl Core {
         let state = VortexStreamState {
             optInTimePeriod,
             nullRun,
+            prevHigh,
+            prevLow,
+            prevClose,
             sTR,
-            sVMP,
             sVMM,
+            sVMP,
             cur_outPlusVI: outPlusVI[(*outNBElement - 1) * outStride],
             cur_outMinusVI: outMinusVI[(*outNBElement - 1) * outStride],
             lag1_inHigh: inHigh[historyLen - 1],

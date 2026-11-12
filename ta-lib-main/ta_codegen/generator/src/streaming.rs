@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::ir::{BinOp, CircBuf, CircBufLayout, Expr, FuncDef, ParamType, Statement, StreamTier, VarType};
 
 pub mod composed_lag;
+mod extrema_reads;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -209,6 +210,9 @@ pub struct RingSpec {
     /// transition ([`crate::ring_lag`]): it never holds the current bar, so it
     /// takes no zero-capacity guard, and Open rejects a capacity below 1.
     pub lag_ge1: bool,
+    /// Rescan windows whose raw reads this ring serves instead of a buffer of
+    /// their own ([`serve_windows_from_rings`]).
+    pub served: Vec<WindowSpec>,
 }
 
 /// One trailing index collapsed to a single derived scalar per bar.
@@ -258,7 +262,7 @@ pub struct WindowFold {
 /// `WindowSpec` is built — which is why the 14 candlesticks that carried
 /// `win_totIdx_in{Open,High,Low,Close}` carry nothing now, and AVGDEV / IMI /
 /// HT_TRENDLINE / HT_TRENDMODE, whose reads are raw columns, still do.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WindowSpec {
     /// The inner-loop counter variable (stays a live local in the transition).
     pub var: String,
@@ -1852,7 +1856,7 @@ pub fn analyze_with<'a>(
         }
     }
     let mut model = analyze_region(func, body, outputs)?;
-    prove_ring_lags(&mut model, &[], &[], vec![], lookup);
+    prove_buffers(&mut model, &[], &[], vec![], lookup)?;
     Ok(model)
 }
 
@@ -1885,6 +1889,77 @@ pub fn step_temps(model: &StreamModel, tape: Option<&TapeNames>) -> Vec<(String,
         .filter(|(n, _)| !unused.contains(n))
         .cloned()
         .collect()
+}
+
+/// [`prove_ring_lags`], then [`check_extrema_reach`], over the same body.
+fn prove_buffers(
+    model: &mut StreamModel,
+    prologue: &[Statement],
+    epilogue: &[Statement],
+    facts: Vec<Expr>,
+    lookup: &dyn CalleeLookup,
+) -> Result<(), StreamError> {
+    prove_ring_lags(model, prologue, epilogue, facts.clone(), lookup);
+    serve_windows_from_rings(model, prologue, epilogue, facts.clone(), lookup);
+    check_extrema_reach(model, prologue, epilogue, facts, lookup)
+}
+
+/// Moves each rescan window whose raw columns a raw `back > 0` ring already
+/// stores into that ring's [`RingSpec::served`], so the stream keeps one
+/// buffer, not two. Such a ring holds bars `[cursor - lag - back, cursor]`
+/// with the current bar written before the body, so it covers the window's
+/// `[cursor - cap + 1, cursor]` exactly when `cursor - cap + back + 1 - var`
+/// is proved non-negative; Open re-checks the capacity. Unproved, the window
+/// keeps its buffer.
+fn serve_windows_from_rings(
+    model: &mut StreamModel,
+    prologue: &[Statement],
+    epilogue: &[Statement],
+    mut facts: Vec<Expr>,
+    lookup: &dyn CalleeLookup,
+) {
+    if model.windows().is_empty() {
+        return;
+    }
+    if let Some(id) = &model.identity {
+        facts.push(Expr::Not(Box::new(id.condition.clone())));
+    }
+    let input = crate::ring_lag::LagProofInput {
+        prologue,
+        region: model.body,
+        epilogue,
+        cursor: &model.cursor,
+        facts,
+        lookup,
+    };
+    let mut picks: Vec<(usize, usize)> = Vec::new();
+    for (wi, win) in model.windows().iter().enumerate() {
+        let pick = model.rings().iter().position(|r| {
+            if r.derived.is_some() || r.back <= 0 || !win.arrays.iter().all(|a| r.arrays.contains(a)) {
+                return false;
+            }
+            let at = Expr::BinOp(
+                Box::new(Expr::BinOp(
+                    Box::new(Expr::Var(model.cursor.clone())),
+                    BinOp::Sub,
+                    Box::new(win.cap.clone()),
+                )),
+                BinOp::Add,
+                Box::new(Expr::IntLiteral(r.back + 1)),
+            );
+            crate::ring_lag::reach_lower_bounds(model.func, &input, &[(r.var.as_str(), &at)])[0]
+                .is_some_and(|lb| lb >= 0)
+        });
+        if let Some(ri) = pick {
+            picks.push((wi, ri));
+        }
+    }
+    if let Steady::Batch { rings, windows, .. } = &mut model.steady {
+        for &(wi, ri) in picks.iter().rev() {
+            let win = windows.remove(wi);
+            rings[ri].served.push(win);
+        }
+    }
 }
 
 /// Sets [`RingSpec::lag_ge1`] on each `back == 0` ring the body Open
@@ -1932,6 +2007,55 @@ fn prove_ring_lags(
         }
     }
     model.temps.extend(locals);
+}
+
+/// Refuse an extrema body that can read before its window start. Open sizes
+/// the automaton's ring from `cursor - trailing`, so an older read lands on a
+/// slot the ring has reused; rounding the ring up to a power of two hides that
+/// for every window length but the exact powers.
+fn check_extrema_reach(
+    model: &StreamModel,
+    prologue: &[Statement],
+    epilogue: &[Statement],
+    mut facts: Vec<Expr>,
+    lookup: &dyn CalleeLookup,
+) -> Result<(), StreamError> {
+    let Some(ex) = model.extrema() else { return Ok(()) };
+    let (cursor, trailing) = (model.cursor.as_str(), ex.trailing.as_str());
+    if let Some(id) = &model.identity {
+        facts.push(Expr::Not(Box::new(id.condition.clone())));
+    }
+    let input = crate::ring_lag::LagProofInput {
+        prologue,
+        region: model.body,
+        epilogue,
+        cursor,
+        facts,
+        lookup,
+    };
+    let walked = extrema_reads::extrema_reads(&model.steady_stmts, cursor, trailing, &model.bar_inputs);
+    // Report the root cause: a jump also fails the window-start proof, and a
+    // window start out of step can leave a read unbounded.
+    let start = Expr::Var(trailing.to_string());
+    if !matches!(walked, Err(StreamError::Unsupported(_)))
+        && crate::ring_lag::reach_lower_bounds(model.func, &input, &[(trailing, &start)])[0].is_none()
+    {
+        return Err(StreamError::Unsupported(format!(
+            "extrema automaton: cannot prove `{cursor} - {trailing}` stays what Open captured: \
+             both must advance by the same step on every pass, with no parameter reassigned and \
+             neither written after the loop"
+        )));
+    }
+    let reads = walked?;
+    let queries: Vec<(&str, &Expr)> = reads.iter().map(|(_, e)| (trailing, e)).collect();
+    let bounds = crate::ring_lag::reach_lower_bounds(model.func, &input, &queries);
+    match reads.iter().zip(bounds).find(|(_, lb)| !lb.is_some_and(|lb| lb >= 0)) {
+        None => Ok(()),
+        Some(((shown, _), _)) => Err(StreamError::UnsupportedAccess(format!(
+            "extrema automaton: `{shown}` is not proved to stay at or after `{trailing}`, \
+             the oldest bar the ring holds"
+        ))),
+    }
 }
 
 /// [`analyze`] over an explicit body region with an outputs override. The
@@ -2323,14 +2447,14 @@ pub fn analyze_dual_mode_with<'a>(
     mode_b.identity = identity;
     mode_a.identity_hoisted = true;
     mode_b.identity_hoisted = true;
-    prove_ring_lags(&mut mode_a, prologue, epilogue, vec![condition.clone()], lookup);
-    prove_ring_lags(
+    prove_buffers(&mut mode_a, prologue, epilogue, vec![condition.clone()], lookup)?;
+    prove_buffers(
         &mut mode_b,
         prologue,
         epilogue,
         vec![Expr::Not(Box::new(condition.clone()))],
         lookup,
-    );
+    )?;
 
     Ok(DualModePlan {
         func,
@@ -2571,6 +2695,7 @@ pub fn analyze_composed<'a>(
         let series = written.into_iter().next().expect("len checked");
         intermediates.push(series.clone());
         let producer = analyze_region(func, region, vec![series.clone()])?;
+        check_extrema_reach(&producer, &[], tail, vec![], lookup)?;
         (Some(producer), Some(series))
     } else {
         // Loopless: the prologue must be pure scalar setup (no array
@@ -6204,9 +6329,9 @@ fn classify_or_extrema(
 /// Build the absolute-index automaton description. The paced variable is
 /// the one advanced exactly once per bar at the loop's top level (the
 /// window start); everything else that indexes the inputs is a free
-/// automaton index. Reads through those indices are trusted to stay inside
-/// `[trailing, cursor]` — the batch automaton guarantees it, and any
-/// violation reads a stale ring slot and fails the bitwise gate loudly.
+/// automaton index. Reads through those indices must stay inside
+/// `[trailing, cursor]`; [`check_extrema_reach`] refuses a body that computes
+/// one before `trailing`.
 fn build_extrema(
     steady_stmts: &[Statement],
     cursor: &str,
@@ -7056,6 +7181,7 @@ fn assemble_rings(
         .map(|(var, arrs)| RingSpec {
             derived: None,
             lag_ge1: false,
+            served: Vec::new(),
             back: ring_back
                 .get(&var)
                 .copied()
@@ -8727,7 +8853,7 @@ fn ring_offset_read(
 /// resolves a RESCAN-WINDOW offset (#229) rather than a trailing one: slot
 /// `pos` holds the CURRENT bar, stored by the transition prologue, which is
 /// why the election refuses any ring with `back == 0` (those store after the
-/// body). `off` is in `[0, winCap - 1]` and `winCap <= back + 1 <= cap`, so
+/// body). `off` is in `[0, winCap - 1]` and `winCap <= cap`, so
 /// `pos + cap - off` is in `[1, 2*cap)` and one conditional subtract is the
 /// exact modulo -- the same form the window buffer read used, so the fold
 /// changes the buffer and nothing about the per-element cost.
@@ -8790,6 +8916,20 @@ fn window_buf_read(
         names.win_buf(&win.var, array),
         Box::new(idx),
     ))
+}
+
+/// The ring serving rescan window `w0`'s column `array`, if any. The offset var
+/// may already be state-mapped, as in [`window_buf_read`].
+fn served_window_ring<'a>(
+    model: &'a StreamModel,
+    w0: &str,
+    array: &str,
+    names: &dyn NameMap,
+) -> Option<&'a RingSpec> {
+    model.rings().iter().find(|r| {
+        r.arrays.iter().any(|a| a == array)
+            && r.served.iter().any(|w| w.var == w0 || names.state(&w.var) == w0)
+    })
 }
 
 /// The ring a folded window read (#229) names, if any.
@@ -9059,6 +9199,10 @@ fn rewrite_expr_for_transition(
                             .any(|w| w.var == w0 || names.state(&w.var) == w0) =>
                 {
                     tape.unwrap().read(Expr::Var(w0))
+                }
+                InputIndex::WindowVar(w0) if served_window_ring(model, &w0, &n, names).is_some() => {
+                    let ring = served_window_ring(model, &w0, &n, names).unwrap();
+                    ring_cursor_read(ring, &n, Expr::Var(w0), names)
                 }
                 InputIndex::WindowVar(w0) => match window_buf_read(model, &n, &w0, names) {
                     Some(read) => read,
@@ -12177,6 +12321,7 @@ mod tests {
             back,
             fwd: 0,
             lag_ge1: false,
+            served: Vec::new(),
             derived: Some(DerivedRing {
                 slot: "derived".into(),
                 expr: hlr(trail_minus("w")),
@@ -12295,6 +12440,7 @@ mod tests {
                 back: 2,
                 fwd: 0,
                 lag_ge1: false,
+                served: Vec::new(),
                 derived: Some(DerivedRing {
                     slot: "derived".into(),
                     expr: outer(trail_minus("w"), trail_minus("w")),

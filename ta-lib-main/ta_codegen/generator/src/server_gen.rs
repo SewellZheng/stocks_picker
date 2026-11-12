@@ -124,7 +124,6 @@ pub(crate) fn expand_input_names(inputs: &[Input]) -> Vec<String> {
 
 /// Map a price-component input name to its reference array name prefix.
 /// Returns None for non-price input names.
-/// Used by Java and C# servers (e.g., "inHigh" -> "refHigh").
 fn price_input_to_ref(name: &str) -> Option<&'static str> {
     match name {
         "inOpen" => Some("refOpen"),
@@ -137,17 +136,34 @@ fn price_input_to_ref(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Map a price-component input name to its RefData field name (Rust server).
-/// Returns None for non-price input names.
-fn price_input_to_rust_ref(name: &str) -> Option<&'static str> {
-    match name {
-        "inOpen" => Some("open"),
-        "inHigh" => Some("high"),
-        "inLow" => Some("low"),
-        "inClose" => Some("close"),
-        "inVolume" => Some("volume"),
-        "inOpenInterest" => Some("oi"),
-        _ => None,
+/// The `ref*` series each preloaded input slot reads, in every server. Keyed by
+/// role: MAVP's periods slot is expanded to `inReal1`.
+fn preload_refs(func: &FuncDef, input_names: &[String]) -> Vec<&'static str> {
+    let periods = crate::bench_gen::periods_slots(func);
+    input_names
+        .iter()
+        .enumerate()
+        .map(|(j, name)| {
+            if periods[j] {
+                "refPeriods"
+            } else {
+                price_input_to_ref(name).unwrap_or(if j == 0 { "refClose" } else { "refHigh" })
+            }
+        })
+        .collect()
+}
+
+/// The Rust server's `RefData` field for a [`preload_refs`] name.
+fn rust_ref_field(r: &str) -> &'static str {
+    match r {
+        "refOpen" => "open",
+        "refHigh" => "high",
+        "refLow" => "low",
+        "refClose" => "close",
+        "refVolume" => "volume",
+        "refOI" => "oi",
+        "refPeriods" => "periods",
+        other => unreachable!("no RefData field for {other}"),
     }
 }
 
@@ -393,7 +409,7 @@ pub fn generate_c_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) ->
     // Main loop
     s.push_str("int main(void) {\n");
     s.push_str("    TA_Initialize();\n");
-    // Buffers sized for load_data: 100k points × 6 arrays × ~20 chars ≈ 12MB
+    // ta_bench's whole load_data must fit one line: fgets splits a longer one silently.
     s.push_str("    static char line[16*1024*1024];\n");
     s.push_str("    static char response[16*1024*1024];\n");
     s.push_str("    while( fgets(line, sizeof(line), stdin) ) {\n");
@@ -699,24 +715,17 @@ fn generate_c_global_buffers(funcs: &[FuncDef]) -> String {
     s.push_str("static double g_refClose[MAX_ARRAY_SIZE];\n");
     s.push_str("static double g_refVolume[MAX_ARRAY_SIZE];\n");
     s.push_str("static double g_refOI[MAX_ARRAY_SIZE];\n");
+    s.push_str("static double g_refPeriods[MAX_ARRAY_SIZE];\n");
     s.push_str("static int g_refN = 0; /* number of pre-loaded points */\n\n");
 
-    // Helper: copy pre-loaded data into working input buffers based on input type
-    s.push_str("static void preload_to_working(int nInputs, int isPriceInput) {\n");
-    s.push_str("    if( isPriceInput ) {\n");
-    s.push_str("        /* OHLCV — map into g_inBuf0..4 in OHLCV order */\n");
-    s.push_str("        memcpy(g_inBuf0, g_refOpen,   g_refN * sizeof(double));\n");
-    s.push_str("        memcpy(g_inBuf1, g_refHigh,   g_refN * sizeof(double));\n");
-    s.push_str("        memcpy(g_inBuf2, g_refLow,    g_refN * sizeof(double));\n");
-    s.push_str("        memcpy(g_inBuf3, g_refClose,  g_refN * sizeof(double));\n");
-    s.push_str("        memcpy(g_inBuf4, g_refVolume, g_refN * sizeof(double));\n");
-    s.push_str("        memcpy(g_inBuf5, g_refOI,     g_refN * sizeof(double));\n");
-    s.push_str("    } else {\n");
-    s.push_str("        /* Single/dual real input — use close (and high for 2nd) */\n");
-    s.push_str("        memcpy(g_inBuf0, g_refClose, g_refN * sizeof(double));\n");
-    s.push_str("        if( nInputs > 1 ) memcpy(g_inBuf1, g_refHigh, g_refN * sizeof(double));\n");
-    s.push_str("    }\n");
-    s.push_str("}\n\n");
+    s
+}
+
+fn c_preload_copies(func: &FuncDef, input_names: &[String]) -> String {
+    let mut s = String::new();
+    for (j, src) in preload_refs(func, input_names).iter().enumerate() {
+        let _ = writeln!(s, "            memcpy(g_inBuf{j}, g_{src}, g_refN * sizeof(double));");
+    }
     s
 }
 
@@ -860,6 +869,7 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
     s.push_str("        json_find_double_array(json, \"close\",         g_refClose,  MAX_ARRAY_SIZE);\n");
     s.push_str("        json_find_double_array(json, \"volume\",        g_refVolume, MAX_ARRAY_SIZE);\n");
     s.push_str("        json_find_double_array(json, \"openInterest\",  g_refOI,     MAX_ARRAY_SIZE);\n");
+    s.push_str("        json_find_double_array(json, \"periods\",       g_refPeriods, MAX_ARRAY_SIZE);\n");
     s.push_str("        snprintf(resp, resp_size, \"{\\\"status\\\":\\\"ok\\\",\\\"n\\\":%d}\", g_refN);\n");
     s.push_str("        return;\n");
     s.push_str("    }\n\n");
@@ -889,20 +899,9 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
 
         // Extract input arrays — either from pre-loaded reference data or inline JSON.
         let input_names = expand_input_names(&func.inputs);
-        let is_price_input = input_names.iter().any(|n| {
-            matches!(
-                n.as_str(),
-                "inOpen" | "inHigh" | "inLow" | "inClose" | "inVolume" | "inOpenInterest"
-            )
-        });
-        let n_inputs = input_names.len();
-
         s.push_str("        int use_preloaded = json_find_int(json, \"use_preloaded\");\n");
         s.push_str("        if( use_preloaded && g_refN > 0 ) {\n");
-        s.push_str(&format!(
-            "            preload_to_working({n_inputs}, {});\n",
-            i32::from(is_price_input)
-        ));
+        s.push_str(&c_preload_copies(func, &input_names));
         s.push_str("        } else {\n");
         for (j, name) in input_names.iter().enumerate() {
             let buf = format!("g_inBuf{j}");
@@ -968,10 +967,7 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
 
         // Copy once before timing
         s.push_str("        if( use_preloaded ) {\n");
-        s.push_str(&format!(
-            "            preload_to_working({n_inputs}, {});\n",
-            i32::from(is_price_input)
-        ));
+        s.push_str(&c_preload_copies(func, &input_names));
         s.push_str("        }\n");
 
         // Single timing block around ALL iterations — amortizes timer overhead.
@@ -1689,6 +1685,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    static double[] refClose = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static double[] refVolume = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static double[] refOI = new double[MAX_ARRAY_SIZE];\n");
+    s.push_str("    static double[] refPeriods = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static int refN = 0;\n\n");
 
     // JSON helpers
@@ -1884,6 +1881,8 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            System.arraycopy(tmp, 0, refVolume, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));\n");
     s.push_str("            tmp = jsonDoubleArray(json, \"openInterest\");\n");
     s.push_str("            System.arraycopy(tmp, 0, refOI, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));\n");
+    s.push_str("            tmp = jsonDoubleArray(json, \"periods\");\n");
+    s.push_str("            System.arraycopy(tmp, 0, refPeriods, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));\n");
     s.push_str("            return \"{\\\"status\\\":\\\"ok\\\",\\\"n\\\":\" + refN + \"}\";\n");
     s.push_str("        }\n");
 
@@ -2057,14 +2056,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str(&format!("        double[] {name};\n"));
         }
         s.push_str("        if (use_preloaded != 0 && refN > 0) {\n");
-        for (j, name) in input_names.iter().enumerate() {
-            let ref_src = if let Some(r) = price_input_to_ref(name) {
-                r.to_string()
-            } else if j == 0 {
-                "refClose".to_string()
-            } else {
-                "refHigh".to_string()
-            };
+        for (name, ref_src) in input_names.iter().zip(preload_refs(func, &input_names)) {
             s.push_str(&format!(
                 "            {name} = new double[MAX_ARRAY_SIZE];\n\
                  \x20           System.arraycopy({ref_src}, 0, {name}, 0, refN);\n"
@@ -2695,6 +2687,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("    static double[] refClose = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static double[] refVolume = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static double[] refOI = new double[MAX_ARRAY_SIZE];\n");
+    s.push_str("    static double[] refPeriods = new double[MAX_ARRAY_SIZE];\n");
     s.push_str("    static int refN = 0;\n\n");
 
     // An empty `params` object for the RPCs that send none. Parsed once; the
@@ -2843,6 +2836,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("                LoadRef(p, \"close\", refClose);\n");
     s.push_str("                LoadRef(p, \"volume\", refVolume);\n");
     s.push_str("                LoadRef(p, \"openInterest\", refOI);\n");
+    s.push_str("                LoadRef(p, \"periods\", refPeriods);\n");
     s.push_str("                return $\"{{\\\"status\\\":\\\"ok\\\",\\\"n\\\":{refN}}}\";\n");
     s.push_str("            }\n\n");
 
@@ -3122,14 +3116,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str(&format!("        double[] {name};\n"));
         }
         s.push_str("        if (use_preloaded != 0 && refN > 0) {\n");
-        for (j, name) in input_names.iter().enumerate() {
-            let ref_src = if let Some(r) = price_input_to_ref(name) {
-                r.to_string()
-            } else if j == 0 {
-                "refClose".to_string()
-            } else {
-                "refHigh".to_string()
-            };
+        for (name, ref_src) in input_names.iter().zip(preload_refs(func, &input_names)) {
             s.push_str(&format!(
                 "            {name} = new double[refN]; Array.Copy({ref_src}, {name}, refN);\n"
             ));
@@ -3600,6 +3587,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    close: Vec<f64>,\n");
     s.push_str("    volume: Vec<f64>,\n");
     s.push_str("    oi: Vec<f64>,\n");
+    s.push_str("    periods: Vec<f64>,\n");
     s.push_str("    n: usize,\n");
     s.push_str("}\n\n");
     s.push_str("impl RefData {\n");
@@ -3611,6 +3599,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            close: vec![0.0; MAX_ARRAY_SIZE],\n");
     s.push_str("            volume: vec![0.0; MAX_ARRAY_SIZE],\n");
     s.push_str("            oi: vec![0.0; MAX_ARRAY_SIZE],\n");
+    s.push_str("            periods: vec![0.0; MAX_ARRAY_SIZE],\n");
     s.push_str("            n: 0,\n");
     s.push_str("        }\n");
     s.push_str("    }\n");
@@ -3858,6 +3847,9 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            ref_data.volume[..ref_data.n].copy_from_slice(&volume[..ref_data.n]);\n");
     s.push_str("            let oi = parse_f64_array(&params[\"openInterest\"]);\n");
     s.push_str("            ref_data.oi[..ref_data.n].copy_from_slice(&oi[..ref_data.n]);\n");
+    s.push_str("            let periods = parse_f64_array(&params[\"periods\"]);\n");
+    s.push_str("            let np = periods.len().min(ref_data.n);\n");
+    s.push_str("            ref_data.periods[..np].copy_from_slice(&periods[..np]);\n");
     s.push_str("            format!(\"{{\\\"status\\\":\\\"ok\\\",\\\"n\\\":{}}}\", ref_data.n)\n");
     s.push_str("        }\n");
 
@@ -3952,14 +3944,8 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             }
         }
         s.push_str("            } else if use_preloaded != 0 && ref_data.n > 0 {\n");
-        for (j, name) in input_names.iter().enumerate() {
-            let ref_field = if let Some(f) = price_input_to_rust_ref(name) {
-                f.to_string()
-            } else if j == 0 {
-                "close".to_string()
-            } else {
-                "high".to_string()
-            };
+        for (name, ref_src) in input_names.iter().zip(preload_refs(func, &input_names)) {
+            let ref_field = rust_ref_field(ref_src);
             s.push_str(&format!(
                 "                {name} = &ref_data.{ref_field}[..ref_data.n];\n"
             ));
@@ -5189,6 +5175,7 @@ const refLow = new Float64Array(MAX_ARRAY_SIZE);
 const refClose = new Float64Array(MAX_ARRAY_SIZE);
 const refVolume = new Float64Array(MAX_ARRAY_SIZE);
 const refOI = new Float64Array(MAX_ARRAY_SIZE);
+const refPeriods = new Float64Array(MAX_ARRAY_SIZE);
 let refN = 0;
 
 const OK = '{"status":"ok"}';
@@ -5311,6 +5298,7 @@ function loadData(p: Params): string {
   loadRef(p, 'close', refClose);
   loadRef(p, 'volume', refVolume);
   loadRef(p, 'openInterest', refOI);
+  loadRef(p, 'periods', refPeriods);
   return `{"status":"ok","n":${refN}}`;
 }
 
@@ -5847,8 +5835,7 @@ fn ts_batch_handler(func: &FuncDef, enums: &HashMap<String, EnumDef>, opt_reads:
     s.push_str("  const startIdx = int(p, 'startIdx', 0);\n");
     s.push_str("  const endIdx = int(p, 'endIdx', 0);\n");
     s.push_str("  const pre = int(p, 'use_preloaded', 0) !== 0 && refN > 0;\n");
-    for (j, name) in input_names.iter().enumerate() {
-        let src = price_input_to_ref(name).unwrap_or(if j == 0 { "refClose" } else { "refHigh" });
+    for (name, src) in input_names.iter().zip(preload_refs(func, &input_names)) {
         let _ = writeln!(s, "  const {name} = pre ? {src}.slice(0, refN) : f64Array(p, '{name}');");
     }
     // The warm-up arms (ta_bench --mode=open / openfill) open on the range the

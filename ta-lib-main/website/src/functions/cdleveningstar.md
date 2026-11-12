@@ -9,7 +9,7 @@ A three-candle bearish reversal pattern: a long white candle, a short-bodied sta
 
 ## Chart
 
-<ta-chart src="/functions/cdleveningstar.svg" ratio="720:274" label="CDLEVENINGSTAR over IBM, daily, 1999" alt="Drawn on the price pane over candles, with outInteger as markers on the candles, ▼ above the high for a bearish call."></ta-chart>
+<ta-chart src="/functions/cdleveningstar.svg" ratio="720:274" label="CDLEVENINGSTAR over IBM, daily, 1999" alt="Drawn on the price pane over candles, with outInteger as markers on the candles, an arrow down from the top of the pane to above the high for a bearish call."></ta-chart>
 
 <div class="ta-chart-links">
 
@@ -21,7 +21,7 @@ A three-candle bearish reversal pattern: a long white candle, a short-bodied sta
 
 **Outputs**
 
-- `outInteger`: `line` · `pattern_bull_bear` · `zero` · `negative`
+- `outInteger`: `pattern_bull_bear` · `zero` · `negative`
 
 :::
 
@@ -202,4 +202,4 @@ Evening Star
 
 ## See Also
 
-[CDLEVENINGDOJISTAR](/functions/cdleveningdojistar.md) · [CDLMORNINGSTAR](/functions/cdlmorningstar.md) · [CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar.md) · CDLSTARSINSOUTH
+[CDLEVENINGDOJISTAR](/functions/cdleveningdojistar.md) · [CDLMORNINGSTAR](/functions/cdlmorningstar.md) · [CDLMORNINGDOJISTAR](/functions/cdlmorningdojistar.md) · [CDL3STARSINSOUTH](/functions/cdl3starsinsouth.md)

@@ -1543,7 +1543,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -1585,7 +1584,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -1627,7 +1625,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -1670,7 +1667,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -1713,7 +1709,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -1756,7 +1751,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -1798,7 +1792,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -1856,7 +1849,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -1899,7 +1891,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -1941,7 +1932,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -1984,7 +1974,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2027,7 +2016,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2070,7 +2058,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2112,7 +2099,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2171,7 +2157,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -2213,7 +2198,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2255,7 +2239,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2298,7 +2281,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2340,7 +2322,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2400,7 +2381,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -2458,7 +2438,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -2500,7 +2479,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2543,7 +2521,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2585,7 +2562,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2627,7 +2603,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -2669,7 +2644,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2713,7 +2687,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -2757,10 +2730,10 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
+					<Flag>Pattern Color</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -2799,7 +2772,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Pattern Confirm</Flag>
 					<Flag>Positive</Flag>
@@ -2843,7 +2815,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Pattern Confirm</Flag>
 					<Flag>Positive</Flag>
@@ -2887,7 +2858,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -2929,7 +2899,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -2971,7 +2940,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -3013,7 +2981,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3055,7 +3022,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3098,7 +3064,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3141,7 +3106,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3183,7 +3147,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3225,7 +3188,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3268,7 +3230,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3311,7 +3272,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3369,7 +3329,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3427,7 +3386,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3485,7 +3443,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3527,7 +3484,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -3569,7 +3525,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3611,7 +3566,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3653,7 +3607,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3696,7 +3649,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -3739,7 +3691,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -3781,10 +3732,10 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
+					<Flag>Pattern Color</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3823,10 +3774,10 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
+					<Flag>Pattern Color</Flag>
 				</Flags>
 			</OutputArgument>
 		</OutputArguments>
@@ -3865,7 +3816,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -3907,7 +3857,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3949,7 +3898,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -3991,7 +3939,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -4034,7 +3981,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -4076,7 +4022,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -4119,7 +4064,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -4161,7 +4105,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
@@ -4203,7 +4146,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outInteger</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bull Bear</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Negative</Flag>
@@ -5871,7 +5813,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outSwingHigh</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -5882,7 +5823,6 @@ public static class FunctionDescription
 				<Type>Integer Array</Type>
 				<Name>outSwingLow</Name>
 				<Flags>
-					<Flag>Line</Flag>
 					<Flag>Pattern Bool</Flag>
 					<Flag>Positive</Flag>
 					<Flag>Zero</Flag>
@@ -12150,7 +12090,6 @@ public static class FunctionDescription
 				<Flags>
 					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
-					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
@@ -12359,7 +12298,6 @@ public static class FunctionDescription
 				<Flags>
 					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
-					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>
@@ -12369,7 +12307,6 @@ public static class FunctionDescription
 				<Flags>
 					<Flag>Line</Flag>
 					<Flag>Positive</Flag>
-					<Flag>Negative</Flag>
 					<Flag>Zero</Flag>
 				</Flags>
 			</OutputArgument>

@@ -382,6 +382,36 @@ fn cdl3blackcrows_window_folds_into_its_ring() {
 }
 
 #[test]
+fn vortex_window_is_served_by_its_trailing_ring() {
+    // VORTEX's rebuild rescans raw columns its retire ring already stores, at a
+    // depth the ring is proved to hold: the window keeps no buffer, and its reads
+    // must land in that ring rather than vanish.
+    let f = load("vortex");
+    let m = streaming::analyze(&f).expect("VORTEX analyzes");
+    assert!(m.windows().is_empty(), "window served, got {:?}", m.windows().iter().map(|w| &w.var).collect::<Vec<_>>());
+    let ring = m.rings().iter().find(|r| r.var == "trailingIdx").expect("retire ring");
+    assert_eq!(ring.served.iter().map(|w| w.var.as_str()).collect::<Vec<_>>(), ["i"]);
+}
+
+#[test]
+fn a_window_deeper_than_its_ring_keeps_its_buffer() {
+    // The control: one bar less lag and the ring no longer holds the window's
+    // oldest bar, so the depth proof fails and the window keeps its buffer.
+    let dir = input_dir().join("vortex");
+    let mut func = parser::yaml::parse_yaml(&dir.join("vortex.yaml"));
+    let src = std::fs::read_to_string(dir.join("vortex.c")).expect("vortex.c");
+    let shallow = src.replace(
+        "trailingIdx = startIdx - optInTimePeriod + 1;",
+        "trailingIdx = startIdx - optInTimePeriod + 2;",
+    );
+    assert_ne!(shallow, src, "the fixture edit applied");
+    parser::c_source::wire_parsed_source(&mut func, &parser::c_source::parse_c_source_str(&shallow));
+    let m = streaming::analyze(&func).expect("shallow VORTEX analyzes");
+    assert_eq!(m.windows().len(), 1, "unproved depth keeps the window");
+    assert!(m.rings().iter().all(|r| r.served.is_empty()));
+}
+
+#[test]
 fn avgdev_window_keeps_its_buffer() {
     // The control for the fold above, over the real corpus. Two guards would
     // each hold it on their own and it is the FIRST that fires: AVGDEV's window
@@ -395,7 +425,7 @@ fn avgdev_window_keeps_its_buffer() {
     assert_eq!(
         m.windows().len(),
         1,
-        "raw rescan reads keep their own buffer"
+        "raw rescan reads with no ring to serve them keep their own buffer"
     );
     assert!(
         read_arrays(&m).contains("inReal"),
@@ -4025,4 +4055,36 @@ fn a_tap_fuses_in_the_step_where_its_read_fuses_in_batch() {
         assert!(fused > 0, "{lang}: the batch map fuses nothing");
         assert_eq!(stepped, fused, "{lang}: the step fuses {stepped} sites, batch {fused}");
     }
+}
+
+/// #581: Open captures a composed producer's state after the tail runs, so a
+/// read bounded by a local the tail rewrites is refused.
+#[test]
+fn composed_extrema_read_bound_rewritten_by_the_tail_is_refused() {
+    let base = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../input/stoch/stoch.c"),
+    )
+    .unwrap();
+    let variant = |tail: &str| {
+        let mut src = base.clone();
+        for (from, to) in [
+            ("   int bufferIsAllocated;\n", "   int bufferIsAllocated;\n   int k, j;\n"),
+            ("   while( today <= endIdx )", "   k = 0;\n   while( today <= endIdx )"),
+            ("      trailingIdx++;\n      today++;\n   }", "      j = trailingIdx + k;\n      tmp = inClose[j];\n      trailingIdx++;\n      today++;\n   }"),
+            ("   retCode = ma( 0, outIdx-1,", &format!("{tail}   retCode = ma( 0, outIdx-1,")),
+        ] {
+            assert_eq!(src.matches(from).count(), 1, "{from}");
+            src = src.replace(from, to);
+        }
+        load_with_source("stoch", &src)
+    };
+    let kept = variant("");
+    let plan = streaming::analyze_composed(&kept, lookup()).expect("k untouched after the loop streams");
+    assert!(plan.producer.as_ref().is_some_and(|p| p.extrema().is_some()), "the producer is an extrema automaton");
+    let rewritten = variant("   k = -10;\n");
+    let Err(err) = streaming::analyze_composed(&rewritten, lookup()) else {
+        panic!("accepted a read bounded by a local the tail rewrites")
+    };
+    let err = err.to_string();
+    assert!(err.contains("not proved") && err.contains("inClose[j]"), "{err}");
 }

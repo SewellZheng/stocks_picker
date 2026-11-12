@@ -57,6 +57,9 @@ public partial class Core
     *  090626 KL     First version (issue #349).
     *  102326 MF,CC  #554 branch-free zero run, rare reset.
     *  102426 MF,CC  #554 zero-run test on the true range itself.
+    *  110926 KL     #588 rebuild a sum that comes out negative.
+    *  111026 MF,CC  #588 only a negative vortex sum can turn an output negative.
+    *  111126 MF,CC  #588 test after the outputs; rebuild from the trailing bars.
     */
    /// <summary>
    /// Number of leading input bars <c>Vortex</c> consumes before it can produce
@@ -127,9 +130,13 @@ public partial class Core
       int i = 0;
       int nullRun = 0;
       int live = 0;
+      int seeded = 0;
+      double prevHigh = 0;
+      double prevLow = 0;
+      double prevClose = 0;
       double sTR = 0;
-      double sVMP = 0;
       double sVMM = 0;
+      double sVMP = 0;
       double curTR = 0;
       double curVMP = 0;
       double curVMM = 0;
@@ -155,6 +162,10 @@ public partial class Core
       if( (outPlusVI.Overlaps(inHigh) && outPlusVI != inHigh) || (outPlusVI.Overlaps(inLow) && outPlusVI != inLow) || (outPlusVI.Overlaps(inClose) && outPlusVI != inClose) || (outMinusVI.Overlaps(inHigh) && outMinusVI != inHigh) || (outMinusVI.Overlaps(inLow) && outMinusVI != inLow) || (outMinusVI.Overlaps(inClose) && outMinusVI != inClose) ) {
          return RetCode.BadParam ;
       }
+      /* Keep sVMM declared before sVMP: the stream state takes this order, and
+       * the reverse lets gcc pair the previous bar's low and high in one load
+       * that straddles two stores, a store-forwarding stall on every update.
+       */
       /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
        * each a rolling sum of "vortex movement" normalized by the rolling sum
        * of true range over the same optInTimePeriod bars.
@@ -286,6 +297,43 @@ public partial class Core
             outPlusVI[outIdx] = 0.0;
             outMinusVI[outIdx] = 0.0;
          }
+         /* Every term is non-negative, so a sum below zero is the residue a
+          * term far larger than the rest of the window left when it retired.
+          * Tested on the sums the next bar adds to, not on the ones it outputs:
+          * a non-negative sum plus a non-negative term stays non-negative, and
+          * nothing a peek returns depends on it. The rebuild sums the retained
+          * terms oldest first, the state a call starting at the next bar primes.
+          * The first bar it reads only seeds the second, so an aliased output
+          * slot holding it changes nothing. Only the vortex sums are tested: a
+          * negative sTR fails the division gate and writes 0.0. Keep
+          * two compares rather than a min: the two sums have no order, and gcc
+          * may emit that select as a branch that mispredicts whenever they swap
+          * order.
+          */
+         if( sVMP < 0.0 || sVMM < 0.0 ) {
+            sTR = 0.0;
+            sVMP = 0.0;
+            sVMM = 0.0;
+            seeded = 0;
+            for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+               if( seeded > 1 ) {
+                  tempLT = inLow[i];
+                  tempHT = inHigh[i];
+                  trueRange = tempHT - tempLT;
+                  tempDouble = Math.Abs(prevClose - tempHT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  tempDouble = Math.Abs(prevClose - tempLT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  sTR += trueRange;
+                  sVMP += Math.Abs(tempHT - prevLow);
+                  sVMM += Math.Abs(tempLT - prevHigh);
+               }
+               prevHigh = inHigh[i];
+               prevLow = inLow[i];
+               prevClose = inClose[i];
+               seeded += 1;
+            }
+         }
          outIdx += 1;
          today += 1;
       }
@@ -313,9 +361,13 @@ public partial class Core
       int i = 0;
       int nullRun = 0;
       int live = 0;
+      int seeded = 0;
+      double prevHigh = 0;
+      double prevLow = 0;
+      double prevClose = 0;
       double sTR = 0;
-      double sVMP = 0;
       double sVMM = 0;
+      double sVMP = 0;
       double curTR = 0;
       double curVMP = 0;
       double curVMM = 0;
@@ -411,6 +463,30 @@ public partial class Core
          } else {
             outPlusVI[outIdx] = 0.0;
             outMinusVI[outIdx] = 0.0;
+         }
+         if( sVMP < 0.0 || sVMM < 0.0 ) {
+            sTR = 0.0;
+            sVMP = 0.0;
+            sVMM = 0.0;
+            seeded = 0;
+            for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+               if( seeded > 1 ) {
+                  tempLT = (double)inLow[i];
+                  tempHT = (double)inHigh[i];
+                  trueRange = tempHT - tempLT;
+                  tempDouble = Math.Abs(prevClose - tempHT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  tempDouble = Math.Abs(prevClose - tempLT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  sTR += trueRange;
+                  sVMP += Math.Abs(tempHT - prevLow);
+                  sVMM += Math.Abs(tempLT - prevHigh);
+               }
+               prevHigh = (double)inHigh[i];
+               prevLow = (double)inLow[i];
+               prevClose = (double)inClose[i];
+               seeded += 1;
+            }
          }
          outIdx += 1;
          today += 1;
@@ -653,9 +729,12 @@ public partial class Core
       internal Core core;
       internal int optInTimePeriod;
       internal int nullRun;
+      internal double prevHigh;
+      internal double prevLow;
+      internal double prevClose;
       internal double sTR;
-      internal double sVMP;
       internal double sVMM;
+      internal double sVMP;
       internal double lag1_inHigh;
       internal double lag1_inLow;
       internal double lag1_inClose;
@@ -710,9 +789,12 @@ public partial class Core
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.nullRun = other.nullRun;
+         this.prevHigh = other.prevHigh;
+         this.prevLow = other.prevLow;
+         this.prevClose = other.prevClose;
          this.sTR = other.sTR;
-         this.sVMP = other.sVMP;
          this.sVMM = other.sVMM;
+         this.sVMP = other.sVMP;
          this.lag1_inHigh = other.lag1_inHigh;
          this.lag1_inLow = other.lag1_inLow;
          this.lag1_inClose = other.lag1_inClose;
@@ -902,7 +984,9 @@ public partial class Core
 
    private void VortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
    {
+      int i = 0;
       int live = 0;
+      int seeded = 0;
       double curTR = 0.0;
       double curVMP = 0.0;
       double curVMM = 0.0;
@@ -989,6 +1073,43 @@ public partial class Core
          sp.cur_outPlusVI = 0.0;
          sp.cur_outMinusVI = 0.0;
       }
+      /* Every term is non-negative, so a sum below zero is the residue a
+       * term far larger than the rest of the window left when it retired.
+       * Tested on the sums the next bar adds to, not on the ones it outputs:
+       * a non-negative sum plus a non-negative term stays non-negative, and
+       * nothing a peek returns depends on it. The rebuild sums the retained
+       * terms oldest first, the state a call starting at the next bar primes.
+       * The first bar it reads only seeds the second, so an aliased output
+       * slot holding it changes nothing. Only the vortex sums are tested: a
+       * negative sTR fails the division gate and writes 0.0. Keep
+       * two compares rather than a min: the two sums have no order, and gcc
+       * may emit that select as a branch that mispredicts whenever they swap
+       * order.
+       */
+      if( sp.sVMP < 0.0 || sp.sVMM < 0.0 ) {
+         sp.sTR = 0.0;
+         sp.sVMP = 0.0;
+         sp.sVMM = 0.0;
+         seeded = 0;
+         for( i = sp.optInTimePeriod; i >= 0; i -= 1 ) {
+            if( seeded > 1 ) {
+               tempLT = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+               tempHT = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+               trueRange = tempHT - tempLT;
+               tempDouble = Math.Abs(sp.prevClose - tempHT);
+               trueRange = MaxGt(tempDouble, trueRange);
+               tempDouble = Math.Abs(sp.prevClose - tempLT);
+               trueRange = MaxGt(tempDouble, trueRange);
+               sp.sTR += trueRange;
+               sp.sVMP += Math.Abs(tempHT - sp.prevLow);
+               sp.sVMM += Math.Abs(tempLT - sp.prevHigh);
+            }
+            sp.prevHigh = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+            sp.prevLow = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+            sp.prevClose = sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+            seeded += 1;
+         }
+      }
       sp.lag1_inHigh = inHigh;
       sp.lag1_inLow = inLow;
       sp.lag1_inClose = inClose;
@@ -1011,9 +1132,13 @@ public partial class Core
       int i = 0;
       int nullRun = 0;
       int live = 0;
+      int seeded = 0;
+      double prevHigh = 0;
+      double prevLow = 0;
+      double prevClose = 0;
       double sTR = 0;
-      double sVMP = 0;
       double sVMM = 0;
+      double sVMP = 0;
       double curTR = 0;
       double curVMP = 0;
       double curVMM = 0;
@@ -1040,6 +1165,10 @@ public partial class Core
          outNBElement = 0;
          return RetCode.InsufficientHistory;
       }
+      /* Keep sVMM declared before sVMP: the stream state takes this order, and
+       * the reverse lets gcc pair the previous bar's low and high in one load
+       * that straddles two stores, a store-forwarding stall on every update.
+       */
       /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
        * each a rolling sum of "vortex movement" normalized by the rolling sum
        * of true range over the same optInTimePeriod bars.
@@ -1171,6 +1300,43 @@ public partial class Core
             outPlusVI[outIdx * outStride] = 0.0;
             outMinusVI[outIdx * outStride] = 0.0;
          }
+         /* Every term is non-negative, so a sum below zero is the residue a
+          * term far larger than the rest of the window left when it retired.
+          * Tested on the sums the next bar adds to, not on the ones it outputs:
+          * a non-negative sum plus a non-negative term stays non-negative, and
+          * nothing a peek returns depends on it. The rebuild sums the retained
+          * terms oldest first, the state a call starting at the next bar primes.
+          * The first bar it reads only seeds the second, so an aliased output
+          * slot holding it changes nothing. Only the vortex sums are tested: a
+          * negative sTR fails the division gate and writes 0.0. Keep
+          * two compares rather than a min: the two sums have no order, and gcc
+          * may emit that select as a branch that mispredicts whenever they swap
+          * order.
+          */
+         if( sVMP < 0.0 || sVMM < 0.0 ) {
+            sTR = 0.0;
+            sVMP = 0.0;
+            sVMM = 0.0;
+            seeded = 0;
+            for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+               if( seeded > 1 ) {
+                  tempLT = inLow[i];
+                  tempHT = inHigh[i];
+                  trueRange = tempHT - tempLT;
+                  tempDouble = Math.Abs(prevClose - tempHT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  tempDouble = Math.Abs(prevClose - tempLT);
+                  trueRange = MaxGt(tempDouble, trueRange);
+                  sTR += trueRange;
+                  sVMP += Math.Abs(tempHT - prevLow);
+                  sVMM += Math.Abs(tempLT - prevHigh);
+               }
+               prevHigh = inHigh[i];
+               prevLow = inLow[i];
+               prevClose = inClose[i];
+               seeded += 1;
+            }
+         }
          outIdx += 1;
          today += 1;
       }
@@ -1180,6 +1346,9 @@ public partial class Core
       int capLag_trailingIdx = today - trailingIdx;
       int cap_trailingIdx = capLag_trailingIdx + 2;
       if( capLag_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+         return RetCode.InternalError;
+      }
+      if( cap_trailingIdx < (int)(optInTimePeriod + 1) ) {
          return RetCode.InternalError;
       }
       int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -1197,9 +1366,12 @@ public partial class Core
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.nullRun = nullRun;
+      sp.prevHigh = prevHigh;
+      sp.prevLow = prevLow;
+      sp.prevClose = prevClose;
       sp.sTR = sTR;
-      sp.sVMP = sVMP;
       sp.sVMM = sVMM;
+      sp.sVMP = sVMP;
       sp.lag1_inHigh = inHigh[historyLen - 1];
       sp.lag1_inLow = inLow[historyLen - 1];
       sp.lag1_inClose = inClose[historyLen - 1];

@@ -1120,11 +1120,10 @@ fn validate_outputs(body: &str, func: &FuncDef) -> Result<(), String> {
 /// declare, both ways. A function with one pattern output has one table under the
 /// heading; one with several has a `### `outName`` table per output, in call order.
 fn validate_output_values(body: &str, func: &FuncDef) -> Result<(), String> {
-    let candlestick = func.is_candlestick();
     let patterns: Vec<(&str, Vec<i32>)> = func
         .outputs
         .iter()
-        .filter_map(|o| o.pattern_values(candlestick).map(|v| (o.name.as_str(), v)))
+        .filter_map(|o| o.pattern_values().map(|v| (o.name.as_str(), v)))
         .collect();
     let page = format!("{}: {}.md", func.name, func.name.to_lowercase());
     let lines: Vec<&str> = body.lines().collect();
@@ -1604,15 +1603,6 @@ fn build_index(funcs: &[&FuncDef]) -> String {
          formula, inputs, outputs, and links to the {} source.\n",
         labels.join(" / ")
     ));
-    s.push_str(
-        "\n## Reference data\n\n\
-         Each page charts the function at default parameters over one fixed price series (IBM, \
-         daily, 1999, the series `ta_regtest` ships), or over a synthetic input the page names for \
-         the Math Transform and Math Operators functions, and links a CSV of the inputs and every output, \
-         computed by the C library. Running TA-Lib over the CSV's own input columns from its first \
-         row reproduces the output columns. [Compare with a tolerance](/spec/versions/#tolerance) \
-         rather than bit for bit.\n",
-    );
     for (group, fns) in &by_group {
         s.push_str(&format!("\n## {group}\n\n"));
         for f in fns {
@@ -1817,7 +1807,7 @@ mod tests {
         assert!(err.contains("not a plain integer"), "{err}");
     }
 
-    /// Dropping `candlestick` from a color output leaves no pattern output, and the
+    /// Dropping `pattern_color` from a color output leaves no pattern output, and the
     /// table it still has is what catches that.
     #[test]
     fn output_values_without_a_pattern_output_are_rejected() {

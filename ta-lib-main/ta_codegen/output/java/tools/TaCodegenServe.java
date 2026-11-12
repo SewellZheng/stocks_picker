@@ -40863,6 +40863,7 @@ class Core {
         * @see Core#cdleveningdojistar
         * @see Core#cdlmorningstar
         * @see Core#cdlmorningdojistar
+        * @see Core#cdl3starsinsouth
         */
        public OutRange cdleveningstar( int startIdx,
                                        int endIdx,
@@ -40941,6 +40942,7 @@ class Core {
         * @see Core#cdleveningdojistar
         * @see Core#cdlmorningstar
         * @see Core#cdlmorningdojistar
+        * @see Core#cdl3starsinsouth
         */
        public OutRange cdleveningstar( int startIdx,
                                        int endIdx,
@@ -61765,6 +61767,7 @@ class Core {
         *
         * @see Core#cdlinneck
         * @see Core#cdlthrusting
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlonneck( int startIdx,
                                   int endIdx,
@@ -61837,6 +61840,7 @@ class Core {
         *
         * @see Core#cdlinneck
         * @see Core#cdlthrusting
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlonneck( int startIdx,
                                   int endIdx,
@@ -65269,6 +65273,7 @@ class Core {
         *        buffer untouched.
         *
         * @see Core#cdlbelthold
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlseparatinglines( int startIdx,
                                            int endIdx,
@@ -65340,6 +65345,7 @@ class Core {
         *        buffer untouched.
         *
         * @see Core#cdlbelthold
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlseparatinglines( int startIdx,
                                            int endIdx,
@@ -72064,6 +72070,7 @@ class Core {
         * @see Core#cdlinneck
         * @see Core#cdlonneck
         * @see Core#cdlpiercing
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlthrusting( int startIdx,
                                      int endIdx,
@@ -72139,6 +72146,7 @@ class Core {
         * @see Core#cdlinneck
         * @see Core#cdlonneck
         * @see Core#cdlpiercing
+        * @see Core#cdlcounterattack
         */
        public OutRange cdlthrusting( int startIdx,
                                      int endIdx,
@@ -225528,6 +225536,7 @@ class Core {
      *  DM       Drew McCormack (http://www.trade-strategist.com)
      *  MF       Mario Fortier
      *  DX       Dex Hunter (https://github.com/dexhunter)
+     *  KL       Kevin Lin
      *  CC       Claude Code (AI assistant)
      *
      * Change history:
@@ -225543,6 +225552,11 @@ class Core {
      *               instrument quoted small enough to fall under it.
      *  102326 MF,CC #554 branch-free zero run, rare reset.
      *  102426 MF,CC #554 zero-run test on the true range itself.
+     *  110926 KL    #588 rebuild a total that comes out negative.
+     *  111026 MF,CC #588 only a negative a-total can turn the output negative;
+     *               skip the rebuild while a close below its low keeps it so.
+     *  111126 MF,CC #588 test after the retiring subtraction, past the output;
+     *               skip all work on a fully flat window.
      */
 
        /**
@@ -225624,10 +225638,10 @@ class Core {
                            double outReal[] )
        {
           double a1Total = 0;
-          double a2Total = 0;
-          double a3Total = 0;
           double b1Total = 0;
+          double a2Total = 0;
           double b2Total = 0;
+          double a3Total = 0;
           double b3Total = 0;
           double trueLow = 0;
           double trueRange = 0;
@@ -225637,6 +225651,7 @@ class Core {
           double tempHT = 0;
           double tempLT = 0;
           double tempCY = 0;
+          double lowest = 0;
           int lookbackTotal = 0;
           int longestPeriod = 0;
           int longestIndex = 0;
@@ -225644,8 +225659,10 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
+          int negSlot = 0;
           int trailingPos1 = 0;
           int trailingPos2 = 0;
+          int trailingPos3 = 0;
           int nullRun = 0;
           int live = 0;
           int[] usedFlag = new int[3];
@@ -225679,6 +225696,11 @@ class Core {
           /* The two per-bar terms the three moving sums are built from. Both are a
            * pure function of the bar, so each bar is evaluated once on entry and read
            * back when it leaves each of the three windows.
+           */
+          /* Keep each a-total declared beside its b-total, not beside the next
+           * a-total: the stream state takes this order, and a1 beside a2 lets gcc
+           * load the pair in one read that straddles the two stores the previous
+           * update made, a store-forwarding stall on every update.
            */
           /* One entry per bar of the longest window. Stays on the stack for every
            * period up to 32, which covers the 7/14/28 default.
@@ -225799,6 +225821,11 @@ class Core {
           if( trailingPos2 >= optInTimePeriod3 ) {
              trailingPos2 -= optInTimePeriod3;
           }
+          trailingPos3 = term_Idx + 1;
+          if( trailingPos3 >= optInTimePeriod3 ) {
+             trailingPos3 = 0;
+          }
+          negSlot = 0;
           while( today <= endIdx ) {
              /* Add on today's terms */
              tempLT = inLow[today];
@@ -225817,73 +225844,125 @@ class Core {
              }
              term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
              term_trueRange[term_Idx] = trueRange;
-             a1Total += closeMinusTrueLow;
-             a2Total += closeMinusTrueLow;
-             a3Total += closeMinusTrueLow;
-             b1Total += trueRange;
-             b2Total += trueRange;
-             b3Total += trueRange;
+             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+             nullRun = (nullRun + 1) & (live - 1);
              /* Once a whole window of no-contribution bars has gone by, every slot it
               * spans is 0.0, so its totals are known to be exactly zero and the
               * residue can be dropped. The periods are sorted shortest-first, so a
               * run long enough for a longer window is long enough for every shorter
-              * one.
+              * one. A run as long as the longest window skips the adds, the output
+              * and the retire, which would only add and remove zeros: held prices
+              * take this path on most bars.
               */
-             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
-             nullRun = (nullRun + 1) & (live - 1);
-             if( nullRun >= optInTimePeriod1 ) {
+             if( nullRun >= optInTimePeriod3 ) {
+                nullRun = optInTimePeriod3;
                 a1Total = 0.0;
                 b1Total = 0.0;
-                if( nullRun >= optInTimePeriod2 ) {
-                   a2Total = 0.0;
-                   b2Total = 0.0;
-                   if( nullRun >= optInTimePeriod3 ) {
-                      nullRun = optInTimePeriod3;
-                      a3Total = 0.0;
-                      b3Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                output = 0.0;
+             } else {
+                a1Total += closeMinusTrueLow;
+                a2Total += closeMinusTrueLow;
+                a3Total += closeMinusTrueLow;
+                b1Total += trueRange;
+                b2Total += trueRange;
+                b3Total += trueRange;
+                if( nullRun >= optInTimePeriod1 ) {
+                   a1Total = 0.0;
+                   b1Total = 0.0;
+                   if( nullRun >= optInTimePeriod2 ) {
+                      a2Total = 0.0;
+                      b2Total = 0.0;
                    }
                 }
+                /* Calculate the oscillator value for today. Each window contributes only
+                 * when it holds a true range; the totals are sums of non-negative terms
+                 * and the reseed above removes their residue, so the test is exact.
+                 */
+                output = 0.0;
+                if( b1Total > 0.0 ) {
+                   output += 4.0 * (a1Total / b1Total);
+                }
+                if( b2Total > 0.0 ) {
+                   output += 2.0 * (a2Total / b2Total);
+                }
+                if( b3Total > 0.0 ) {
+                   output += a3Total / b3Total;
+                }
+                a1Total -= term_closeMinusTrueLow[trailingPos1];
+                b1Total -= term_trueRange[trailingPos1];
+                a2Total -= term_closeMinusTrueLow[trailingPos2];
+                b2Total -= term_trueRange[trailingPos2];
+                a3Total -= term_closeMinusTrueLow[trailingPos3];
+                b3Total -= term_trueRange[trailingPos3];
              }
-             /* Calculate the oscillator value for today. Each window contributes only
-              * when it holds a true range; the totals are sums of non-negative terms
-              * and the reseed above removes their residue, so the test is exact.
-              */
-             output = 0.0;
-             if( b1Total > 0.0 ) {
-                output += 4.0 * (a1Total / b1Total);
-             }
-             if( b2Total > 0.0 ) {
-                output += 2.0 * (a2Total / b2Total);
-             }
-             if( b3Total > 0.0 ) {
-                output += a3Total / b3Total;
-             }
-             /* Remove the trailing terms to prepare for next day. Each was evaluated
-              * once, when its bar entered the ring.
-              */
-             a1Total -= term_closeMinusTrueLow[trailingPos1];
-             b1Total -= term_trueRange[trailingPos1];
              trailingPos1 += 1;
              if( trailingPos1 >= optInTimePeriod3 ) {
                 trailingPos1 = 0;
              }
-             a2Total -= term_closeMinusTrueLow[trailingPos2];
-             b2Total -= term_trueRange[trailingPos2];
              trailingPos2 += 1;
              if( trailingPos2 >= optInTimePeriod3 ) {
                 trailingPos2 = 0;
              }
-             term_Idx++;
-             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-             a3Total -= term_closeMinusTrueLow[term_Idx];
-             b3Total -= term_trueRange[term_Idx];
-             /* Last operation is to write the output. Must
-              * be done after the trailing index have all been
-              * taken care of because the caller is allowed
-              * to have the input array to be also the output
-              * array.
+             term_Idx = trailingPos3;
+             trailingPos3 += 1;
+             if( trailingPos3 >= optInTimePeriod3 ) {
+                trailingPos3 = 0;
+             }
+             /* Store only after this bar's last input read: the output array may be
+              * one of the input arrays.
               */
              outReal[outIdx] = 100.0 * (output / 7.0);
+             /* On well-formed bars every term is non-negative, so a total below zero
+              * is the residue a term far larger than the rest of its window left
+              * when it retired. Tested here, on the totals the next bar adds to, and
+              * not before the output: a non-negative total plus a non-negative term
+              * stays non-negative, and after the output nothing a peek returns
+              * depends on it. The rebuild sums each window's retained terms oldest
+              * first, the state a call starting at the next bar primes.
+              * Only the a-totals are tested: a negative b-total fails its division
+              * gate. A close below its low makes an a-term, and so a total,
+              * genuinely negative, and rebuilding it would run on every bar: negSlot
+              * remembers the newest negative term the last rebuild saw, and the
+              * rebuild is skipped while that retained slot still holds a negative
+              * term, which puts a close below its low in the next output's window.
+              * One compare of the smallest a-total, not three: a chain of three
+              * compiles to straight-line selects in Rust. The windows are nested,
+              * so a1 <= a2 <= a3 and either select stays predictable should a
+              * compiler emit it as a branch.
+              */
+             lowest = (a1Total < a2Total) ? a1Total : a2Total;
+             lowest = (a3Total < lowest) ? a3Total : lowest;
+             if( (lowest < 0.0) && (negSlot == term_Idx || term_closeMinusTrueLow[negSlot] >= 0.0) ) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                for( i = 1; i < optInTimePeriod3; i += 1 ) {
+                   j = term_Idx + i;
+                   if( j >= optInTimePeriod3 ) {
+                      j -= optInTimePeriod3;
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod1 ) {
+                      a1Total += term_closeMinusTrueLow[j];
+                      b1Total += term_trueRange[j];
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod2 ) {
+                      a2Total += term_closeMinusTrueLow[j];
+                      b2Total += term_trueRange[j];
+                   }
+                   a3Total += term_closeMinusTrueLow[j];
+                   b3Total += term_trueRange[j];
+                   if( term_closeMinusTrueLow[j] < 0.0 ) {
+                      negSlot = j;
+                   }
+                }
+             }
              /* Increment indexes */
              outIdx += 1;
              today += 1;
@@ -225906,10 +225985,10 @@ class Core {
                            double outReal[] )
        {
           double a1Total = 0;
-          double a2Total = 0;
-          double a3Total = 0;
           double b1Total = 0;
+          double a2Total = 0;
           double b2Total = 0;
+          double a3Total = 0;
           double b3Total = 0;
           double trueLow = 0;
           double trueRange = 0;
@@ -225919,6 +225998,7 @@ class Core {
           double tempHT = 0;
           double tempLT = 0;
           double tempCY = 0;
+          double lowest = 0;
           int lookbackTotal = 0;
           int longestPeriod = 0;
           int longestIndex = 0;
@@ -225926,8 +226006,10 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
+          int negSlot = 0;
           int trailingPos1 = 0;
           int trailingPos2 = 0;
+          int trailingPos3 = 0;
           int nullRun = 0;
           int live = 0;
           int[] usedFlag = new int[3];
@@ -226042,6 +226124,11 @@ class Core {
           if( trailingPos2 >= optInTimePeriod3 ) {
              trailingPos2 -= optInTimePeriod3;
           }
+          trailingPos3 = term_Idx + 1;
+          if( trailingPos3 >= optInTimePeriod3 ) {
+             trailingPos3 = 0;
+          }
+          negSlot = 0;
           while( today <= endIdx ) {
              tempLT = (double)inLow[today];
              tempHT = (double)inHigh[today];
@@ -226059,54 +226146,92 @@ class Core {
              }
              term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
              term_trueRange[term_Idx] = trueRange;
-             a1Total += closeMinusTrueLow;
-             a2Total += closeMinusTrueLow;
-             a3Total += closeMinusTrueLow;
-             b1Total += trueRange;
-             b2Total += trueRange;
-             b3Total += trueRange;
              live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
              nullRun = (nullRun + 1) & (live - 1);
-             if( nullRun >= optInTimePeriod1 ) {
+             if( nullRun >= optInTimePeriod3 ) {
+                nullRun = optInTimePeriod3;
                 a1Total = 0.0;
                 b1Total = 0.0;
-                if( nullRun >= optInTimePeriod2 ) {
-                   a2Total = 0.0;
-                   b2Total = 0.0;
-                   if( nullRun >= optInTimePeriod3 ) {
-                      nullRun = optInTimePeriod3;
-                      a3Total = 0.0;
-                      b3Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                output = 0.0;
+             } else {
+                a1Total += closeMinusTrueLow;
+                a2Total += closeMinusTrueLow;
+                a3Total += closeMinusTrueLow;
+                b1Total += trueRange;
+                b2Total += trueRange;
+                b3Total += trueRange;
+                if( nullRun >= optInTimePeriod1 ) {
+                   a1Total = 0.0;
+                   b1Total = 0.0;
+                   if( nullRun >= optInTimePeriod2 ) {
+                      a2Total = 0.0;
+                      b2Total = 0.0;
                    }
                 }
+                output = 0.0;
+                if( b1Total > 0.0 ) {
+                   output += 4.0 * (a1Total / b1Total);
+                }
+                if( b2Total > 0.0 ) {
+                   output += 2.0 * (a2Total / b2Total);
+                }
+                if( b3Total > 0.0 ) {
+                   output += a3Total / b3Total;
+                }
+                a1Total -= term_closeMinusTrueLow[trailingPos1];
+                b1Total -= term_trueRange[trailingPos1];
+                a2Total -= term_closeMinusTrueLow[trailingPos2];
+                b2Total -= term_trueRange[trailingPos2];
+                a3Total -= term_closeMinusTrueLow[trailingPos3];
+                b3Total -= term_trueRange[trailingPos3];
              }
-             output = 0.0;
-             if( b1Total > 0.0 ) {
-                output += 4.0 * (a1Total / b1Total);
-             }
-             if( b2Total > 0.0 ) {
-                output += 2.0 * (a2Total / b2Total);
-             }
-             if( b3Total > 0.0 ) {
-                output += a3Total / b3Total;
-             }
-             a1Total -= term_closeMinusTrueLow[trailingPos1];
-             b1Total -= term_trueRange[trailingPos1];
              trailingPos1 += 1;
              if( trailingPos1 >= optInTimePeriod3 ) {
                 trailingPos1 = 0;
              }
-             a2Total -= term_closeMinusTrueLow[trailingPos2];
-             b2Total -= term_trueRange[trailingPos2];
              trailingPos2 += 1;
              if( trailingPos2 >= optInTimePeriod3 ) {
                 trailingPos2 = 0;
              }
-             term_Idx++;
-             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-             a3Total -= term_closeMinusTrueLow[term_Idx];
-             b3Total -= term_trueRange[term_Idx];
+             term_Idx = trailingPos3;
+             trailingPos3 += 1;
+             if( trailingPos3 >= optInTimePeriod3 ) {
+                trailingPos3 = 0;
+             }
              outReal[outIdx] = 100.0 * (output / 7.0);
+             lowest = (a1Total < a2Total) ? a1Total : a2Total;
+             lowest = (a3Total < lowest) ? a3Total : lowest;
+             if( (lowest < 0.0) && (negSlot == term_Idx || term_closeMinusTrueLow[negSlot] >= 0.0) ) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                for( i = 1; i < optInTimePeriod3; i += 1 ) {
+                   j = term_Idx + i;
+                   if( j >= optInTimePeriod3 ) {
+                      j -= optInTimePeriod3;
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod1 ) {
+                      a1Total += term_closeMinusTrueLow[j];
+                      b1Total += term_trueRange[j];
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod2 ) {
+                      a2Total += term_closeMinusTrueLow[j];
+                      b2Total += term_trueRange[j];
+                   }
+                   a3Total += term_closeMinusTrueLow[j];
+                   b3Total += term_trueRange[j];
+                   if( term_closeMinusTrueLow[j] < 0.0 ) {
+                      negSlot = j;
+                   }
+                }
+             }
              outIdx += 1;
              today += 1;
           }
@@ -226289,13 +226414,15 @@ class Core {
           private int optInTimePeriod2;
           private int optInTimePeriod3;
           private double a1Total;
-          private double a2Total;
-          private double a3Total;
           private double b1Total;
+          private double a2Total;
           private double b2Total;
+          private double a3Total;
           private double b3Total;
+          private int negSlot;
           private int trailingPos1;
           private int trailingPos2;
+          private int trailingPos3;
           private int nullRun;
           private int term_Idx;
           private int maxIdx_term;
@@ -226349,13 +226476,15 @@ class Core {
              this.optInTimePeriod2 = other.optInTimePeriod2;
              this.optInTimePeriod3 = other.optInTimePeriod3;
              this.a1Total = other.a1Total;
-             this.a2Total = other.a2Total;
-             this.a3Total = other.a3Total;
              this.b1Total = other.b1Total;
+             this.a2Total = other.a2Total;
              this.b2Total = other.b2Total;
+             this.a3Total = other.a3Total;
              this.b3Total = other.b3Total;
+             this.negSlot = other.negSlot;
              this.trailingPos1 = other.trailingPos1;
              this.trailingPos2 = other.trailingPos2;
+             this.trailingPos3 = other.trailingPos3;
              this.nullRun = other.nullRun;
              this.term_Idx = other.term_Idx;
              this.maxIdx_term = other.maxIdx_term;
@@ -226428,6 +226557,7 @@ class Core {
              int term_Idx = sp.term_Idx;
              int trailingPos1 = sp.trailingPos1;
              int trailingPos2 = sp.trailingPos2;
+             int trailingPos3 = sp.trailingPos3;
              int pkSlot0 = -1;
              double pkVal0 = 0.0;
              int pkSlot1 = -1;
@@ -226451,73 +226581,76 @@ class Core {
              pkVal0 = closeMinusTrueLow;
              pkSlot1 = term_Idx;
              pkVal1 = trueRange;
-             a1Total += closeMinusTrueLow;
-             a2Total += closeMinusTrueLow;
-             a3Total += closeMinusTrueLow;
-             b1Total += trueRange;
-             b2Total += trueRange;
-             b3Total += trueRange;
+             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+             nullRun = (nullRun + 1) & (live - 1);
              /* Once a whole window of no-contribution bars has gone by, every slot it
               * spans is 0.0, so its totals are known to be exactly zero and the
               * residue can be dropped. The periods are sorted shortest-first, so a
               * run long enough for a longer window is long enough for every shorter
-              * one.
+              * one. A run as long as the longest window skips the adds, the output
+              * and the retire, which would only add and remove zeros: held prices
+              * take this path on most bars.
               */
-             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
-             nullRun = (nullRun + 1) & (live - 1);
-             if( nullRun >= sp.optInTimePeriod1 ) {
+             if( nullRun >= sp.optInTimePeriod3 ) {
+                nullRun = sp.optInTimePeriod3;
                 a1Total = 0.0;
                 b1Total = 0.0;
-                if( nullRun >= sp.optInTimePeriod2 ) {
-                   a2Total = 0.0;
-                   b2Total = 0.0;
-                   if( nullRun >= sp.optInTimePeriod3 ) {
-                      nullRun = sp.optInTimePeriod3;
-                      a3Total = 0.0;
-                      b3Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                output = 0.0;
+             } else {
+                a1Total += closeMinusTrueLow;
+                a2Total += closeMinusTrueLow;
+                a3Total += closeMinusTrueLow;
+                b1Total += trueRange;
+                b2Total += trueRange;
+                b3Total += trueRange;
+                if( nullRun >= sp.optInTimePeriod1 ) {
+                   a1Total = 0.0;
+                   b1Total = 0.0;
+                   if( nullRun >= sp.optInTimePeriod2 ) {
+                      a2Total = 0.0;
+                      b2Total = 0.0;
                    }
                 }
+                /* Calculate the oscillator value for today. Each window contributes only
+                 * when it holds a true range; the totals are sums of non-negative terms
+                 * and the reseed above removes their residue, so the test is exact.
+                 */
+                output = 0.0;
+                if( b1Total > 0.0 ) {
+                   output += 4.0 * (a1Total / b1Total);
+                }
+                if( b2Total > 0.0 ) {
+                   output += 2.0 * (a2Total / b2Total);
+                }
+                if( b3Total > 0.0 ) {
+                   output += a3Total / b3Total;
+                }
+                a1Total -= (trailingPos1 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos1] : pkVal0;
+                b1Total -= (trailingPos1 != pkSlot1) ? sp.cb_term_trueRange[trailingPos1] : pkVal1;
+                a2Total -= (trailingPos2 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos2] : pkVal0;
+                b2Total -= (trailingPos2 != pkSlot1) ? sp.cb_term_trueRange[trailingPos2] : pkVal1;
+                a3Total -= (trailingPos3 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos3] : pkVal0;
+                b3Total -= (trailingPos3 != pkSlot1) ? sp.cb_term_trueRange[trailingPos3] : pkVal1;
              }
-             /* Calculate the oscillator value for today. Each window contributes only
-              * when it holds a true range; the totals are sums of non-negative terms
-              * and the reseed above removes their residue, so the test is exact.
-              */
-             output = 0.0;
-             if( b1Total > 0.0 ) {
-                output += 4.0 * (a1Total / b1Total);
-             }
-             if( b2Total > 0.0 ) {
-                output += 2.0 * (a2Total / b2Total);
-             }
-             if( b3Total > 0.0 ) {
-                output += a3Total / b3Total;
-             }
-             /* Remove the trailing terms to prepare for next day. Each was evaluated
-              * once, when its bar entered the ring.
-              */
-             a1Total -= (trailingPos1 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos1] : pkVal0;
-             b1Total -= (trailingPos1 != pkSlot1) ? sp.cb_term_trueRange[trailingPos1] : pkVal1;
              trailingPos1 += 1;
              if( trailingPos1 >= sp.optInTimePeriod3 ) {
                 trailingPos1 = 0;
              }
-             a2Total -= (trailingPos2 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos2] : pkVal0;
-             b2Total -= (trailingPos2 != pkSlot1) ? sp.cb_term_trueRange[trailingPos2] : pkVal1;
              trailingPos2 += 1;
              if( trailingPos2 >= sp.optInTimePeriod3 ) {
                 trailingPos2 = 0;
              }
-             term_Idx = term_Idx + 1;
-             if( term_Idx > sp.maxIdx_term ) {
-                term_Idx = 0;
+             term_Idx = trailingPos3;
+             trailingPos3 += 1;
+             if( trailingPos3 >= sp.optInTimePeriod3 ) {
+                trailingPos3 = 0;
              }
-             a3Total -= (term_Idx != pkSlot0) ? sp.cb_term_closeMinusTrueLow[term_Idx] : pkVal0;
-             b3Total -= (term_Idx != pkSlot1) ? sp.cb_term_trueRange[term_Idx] : pkVal1;
-             /* Last operation is to write the output. Must
-              * be done after the trailing index have all been
-              * taken care of because the caller is allowed
-              * to have the input array to be also the output
-              * array.
+             /* Store only after this bar's last input read: the output array may be
+              * one of the input arrays.
               */
              cur_outReal = 100.0 * (output / 7.0);
              return cur_outReal;
@@ -226559,6 +226692,9 @@ class Core {
           double tempHT = 0.0;
           double tempLT = 0.0;
           double tempCY = 0.0;
+          double lowest = 0.0;
+          int i = 0;
+          int j = 0;
           int live = 0;
           /* Add on today's terms */
           tempLT = inLow;
@@ -226577,85 +226713,135 @@ class Core {
           }
           sp.cb_term_closeMinusTrueLow[sp.term_Idx] = closeMinusTrueLow;
           sp.cb_term_trueRange[sp.term_Idx] = trueRange;
-          sp.a1Total += closeMinusTrueLow;
-          sp.a2Total += closeMinusTrueLow;
-          sp.a3Total += closeMinusTrueLow;
-          sp.b1Total += trueRange;
-          sp.b2Total += trueRange;
-          sp.b3Total += trueRange;
+          live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+          sp.nullRun = (sp.nullRun + 1) & (live - 1);
           /* Once a whole window of no-contribution bars has gone by, every slot it
            * spans is 0.0, so its totals are known to be exactly zero and the
            * residue can be dropped. The periods are sorted shortest-first, so a
            * run long enough for a longer window is long enough for every shorter
-           * one.
+           * one. A run as long as the longest window skips the adds, the output
+           * and the retire, which would only add and remove zeros: held prices
+           * take this path on most bars.
            */
-          live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
-          sp.nullRun = (sp.nullRun + 1) & (live - 1);
-          if( sp.nullRun >= sp.optInTimePeriod1 ) {
+          if( sp.nullRun >= sp.optInTimePeriod3 ) {
+             sp.nullRun = sp.optInTimePeriod3;
              sp.a1Total = 0.0;
              sp.b1Total = 0.0;
-             if( sp.nullRun >= sp.optInTimePeriod2 ) {
-                sp.a2Total = 0.0;
-                sp.b2Total = 0.0;
-                if( sp.nullRun >= sp.optInTimePeriod3 ) {
-                   sp.nullRun = sp.optInTimePeriod3;
-                   sp.a3Total = 0.0;
-                   sp.b3Total = 0.0;
+             sp.a2Total = 0.0;
+             sp.b2Total = 0.0;
+             sp.a3Total = 0.0;
+             sp.b3Total = 0.0;
+             output = 0.0;
+          } else {
+             sp.a1Total += closeMinusTrueLow;
+             sp.a2Total += closeMinusTrueLow;
+             sp.a3Total += closeMinusTrueLow;
+             sp.b1Total += trueRange;
+             sp.b2Total += trueRange;
+             sp.b3Total += trueRange;
+             if( sp.nullRun >= sp.optInTimePeriod1 ) {
+                sp.a1Total = 0.0;
+                sp.b1Total = 0.0;
+                if( sp.nullRun >= sp.optInTimePeriod2 ) {
+                   sp.a2Total = 0.0;
+                   sp.b2Total = 0.0;
                 }
              }
+             /* Calculate the oscillator value for today. Each window contributes only
+              * when it holds a true range; the totals are sums of non-negative terms
+              * and the reseed above removes their residue, so the test is exact.
+              */
+             output = 0.0;
+             if( sp.b1Total > 0.0 ) {
+                output += 4.0 * (sp.a1Total / sp.b1Total);
+             }
+             if( sp.b2Total > 0.0 ) {
+                output += 2.0 * (sp.a2Total / sp.b2Total);
+             }
+             if( sp.b3Total > 0.0 ) {
+                output += sp.a3Total / sp.b3Total;
+             }
+             sp.a1Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos1];
+             sp.b1Total -= sp.cb_term_trueRange[sp.trailingPos1];
+             sp.a2Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos2];
+             sp.b2Total -= sp.cb_term_trueRange[sp.trailingPos2];
+             sp.a3Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos3];
+             sp.b3Total -= sp.cb_term_trueRange[sp.trailingPos3];
           }
-          /* Calculate the oscillator value for today. Each window contributes only
-           * when it holds a true range; the totals are sums of non-negative terms
-           * and the reseed above removes their residue, so the test is exact.
-           */
-          output = 0.0;
-          if( sp.b1Total > 0.0 ) {
-             output += 4.0 * (sp.a1Total / sp.b1Total);
-          }
-          if( sp.b2Total > 0.0 ) {
-             output += 2.0 * (sp.a2Total / sp.b2Total);
-          }
-          if( sp.b3Total > 0.0 ) {
-             output += sp.a3Total / sp.b3Total;
-          }
-          /* Remove the trailing terms to prepare for next day. Each was evaluated
-           * once, when its bar entered the ring.
-           */
-          sp.a1Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos1];
-          sp.b1Total -= sp.cb_term_trueRange[sp.trailingPos1];
           sp.trailingPos1 += 1;
           if( sp.trailingPos1 >= sp.optInTimePeriod3 ) {
              sp.trailingPos1 = 0;
           }
-          sp.a2Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos2];
-          sp.b2Total -= sp.cb_term_trueRange[sp.trailingPos2];
           sp.trailingPos2 += 1;
           if( sp.trailingPos2 >= sp.optInTimePeriod3 ) {
              sp.trailingPos2 = 0;
           }
-          sp.term_Idx = sp.term_Idx + 1;
-          if( sp.term_Idx > sp.maxIdx_term ) {
-             sp.term_Idx = 0;
+          sp.term_Idx = sp.trailingPos3;
+          sp.trailingPos3 += 1;
+          if( sp.trailingPos3 >= sp.optInTimePeriod3 ) {
+             sp.trailingPos3 = 0;
           }
-          sp.a3Total -= sp.cb_term_closeMinusTrueLow[sp.term_Idx];
-          sp.b3Total -= sp.cb_term_trueRange[sp.term_Idx];
-          /* Last operation is to write the output. Must
-           * be done after the trailing index have all been
-           * taken care of because the caller is allowed
-           * to have the input array to be also the output
-           * array.
+          /* Store only after this bar's last input read: the output array may be
+           * one of the input arrays.
            */
           sp.cur_outReal = 100.0 * (output / 7.0);
+          /* On well-formed bars every term is non-negative, so a total below zero
+           * is the residue a term far larger than the rest of its window left
+           * when it retired. Tested here, on the totals the next bar adds to, and
+           * not before the output: a non-negative total plus a non-negative term
+           * stays non-negative, and after the output nothing a peek returns
+           * depends on it. The rebuild sums each window's retained terms oldest
+           * first, the state a call starting at the next bar primes.
+           * Only the a-totals are tested: a negative b-total fails its division
+           * gate. A close below its low makes an a-term, and so a total,
+           * genuinely negative, and rebuilding it would run on every bar: negSlot
+           * remembers the newest negative term the last rebuild saw, and the
+           * rebuild is skipped while that retained slot still holds a negative
+           * term, which puts a close below its low in the next output's window.
+           * One compare of the smallest a-total, not three: a chain of three
+           * compiles to straight-line selects in Rust. The windows are nested,
+           * so a1 <= a2 <= a3 and either select stays predictable should a
+           * compiler emit it as a branch.
+           */
+          lowest = (sp.a1Total < sp.a2Total) ? sp.a1Total : sp.a2Total;
+          lowest = (sp.a3Total < lowest) ? sp.a3Total : lowest;
+          if( (lowest < 0.0) && (sp.negSlot == sp.term_Idx || sp.cb_term_closeMinusTrueLow[sp.negSlot] >= 0.0) ) {
+             sp.a1Total = 0.0;
+             sp.b1Total = 0.0;
+             sp.a2Total = 0.0;
+             sp.b2Total = 0.0;
+             sp.a3Total = 0.0;
+             sp.b3Total = 0.0;
+             for( i = 1; i < sp.optInTimePeriod3; i += 1 ) {
+                j = sp.term_Idx + i;
+                if( j >= sp.optInTimePeriod3 ) {
+                   j -= sp.optInTimePeriod3;
+                }
+                if( i > sp.optInTimePeriod3 - sp.optInTimePeriod1 ) {
+                   sp.a1Total += sp.cb_term_closeMinusTrueLow[j];
+                   sp.b1Total += sp.cb_term_trueRange[j];
+                }
+                if( i > sp.optInTimePeriod3 - sp.optInTimePeriod2 ) {
+                   sp.a2Total += sp.cb_term_closeMinusTrueLow[j];
+                   sp.b2Total += sp.cb_term_trueRange[j];
+                }
+                sp.a3Total += sp.cb_term_closeMinusTrueLow[j];
+                sp.b3Total += sp.cb_term_trueRange[j];
+                if( sp.cb_term_closeMinusTrueLow[j] < 0.0 ) {
+                   sp.negSlot = j;
+                }
+             }
+          }
           /* Increment indexes */
           sp.lag1_inClose = inClose;
        }
        private RetCode ultoscOpenImpl( UltoscStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
        {
           double a1Total = 0;
-          double a2Total = 0;
-          double a3Total = 0;
           double b1Total = 0;
+          double a2Total = 0;
           double b2Total = 0;
+          double a3Total = 0;
           double b3Total = 0;
           double trueLow = 0;
           double trueRange = 0;
@@ -226665,6 +226851,7 @@ class Core {
           double tempHT = 0;
           double tempLT = 0;
           double tempCY = 0;
+          double lowest = 0;
           int lookbackTotal = 0;
           int longestPeriod = 0;
           int longestIndex = 0;
@@ -226672,8 +226859,10 @@ class Core {
           int j = 0;
           int today = 0;
           int outIdx = 0;
+          int negSlot = 0;
           int trailingPos1 = 0;
           int trailingPos2 = 0;
+          int trailingPos3 = 0;
           int nullRun = 0;
           int live = 0;
           int[] usedFlag = new int[3];
@@ -226714,6 +226903,11 @@ class Core {
           /* The two per-bar terms the three moving sums are built from. Both are a
            * pure function of the bar, so each bar is evaluated once on entry and read
            * back when it leaves each of the three windows.
+           */
+          /* Keep each a-total declared beside its b-total, not beside the next
+           * a-total: the stream state takes this order, and a1 beside a2 lets gcc
+           * load the pair in one read that straddles the two stores the previous
+           * update made, a store-forwarding stall on every update.
            */
           /* One entry per bar of the longest window. Stays on the stack for every
            * period up to 32, which covers the 7/14/28 default.
@@ -226834,6 +227028,11 @@ class Core {
           if( trailingPos2 >= optInTimePeriod3 ) {
              trailingPos2 -= optInTimePeriod3;
           }
+          trailingPos3 = term_Idx + 1;
+          if( trailingPos3 >= optInTimePeriod3 ) {
+             trailingPos3 = 0;
+          }
+          negSlot = 0;
           while( today <= endIdx ) {
              /* Add on today's terms */
              tempLT = inLow[today];
@@ -226852,73 +227051,125 @@ class Core {
              }
              term_closeMinusTrueLow[term_Idx] = closeMinusTrueLow;
              term_trueRange[term_Idx] = trueRange;
-             a1Total += closeMinusTrueLow;
-             a2Total += closeMinusTrueLow;
-             a3Total += closeMinusTrueLow;
-             b1Total += trueRange;
-             b2Total += trueRange;
-             b3Total += trueRange;
+             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
+             nullRun = (nullRun + 1) & (live - 1);
              /* Once a whole window of no-contribution bars has gone by, every slot it
               * spans is 0.0, so its totals are known to be exactly zero and the
               * residue can be dropped. The periods are sorted shortest-first, so a
               * run long enough for a longer window is long enough for every shorter
-              * one.
+              * one. A run as long as the longest window skips the adds, the output
+              * and the retire, which would only add and remove zeros: held prices
+              * take this path on most bars.
               */
-             live = (trueRange + Math.abs(closeMinusTrueLow) <= 0.0) ? 0 : 1;
-             nullRun = (nullRun + 1) & (live - 1);
-             if( nullRun >= optInTimePeriod1 ) {
+             if( nullRun >= optInTimePeriod3 ) {
+                nullRun = optInTimePeriod3;
                 a1Total = 0.0;
                 b1Total = 0.0;
-                if( nullRun >= optInTimePeriod2 ) {
-                   a2Total = 0.0;
-                   b2Total = 0.0;
-                   if( nullRun >= optInTimePeriod3 ) {
-                      nullRun = optInTimePeriod3;
-                      a3Total = 0.0;
-                      b3Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                output = 0.0;
+             } else {
+                a1Total += closeMinusTrueLow;
+                a2Total += closeMinusTrueLow;
+                a3Total += closeMinusTrueLow;
+                b1Total += trueRange;
+                b2Total += trueRange;
+                b3Total += trueRange;
+                if( nullRun >= optInTimePeriod1 ) {
+                   a1Total = 0.0;
+                   b1Total = 0.0;
+                   if( nullRun >= optInTimePeriod2 ) {
+                      a2Total = 0.0;
+                      b2Total = 0.0;
                    }
                 }
+                /* Calculate the oscillator value for today. Each window contributes only
+                 * when it holds a true range; the totals are sums of non-negative terms
+                 * and the reseed above removes their residue, so the test is exact.
+                 */
+                output = 0.0;
+                if( b1Total > 0.0 ) {
+                   output += 4.0 * (a1Total / b1Total);
+                }
+                if( b2Total > 0.0 ) {
+                   output += 2.0 * (a2Total / b2Total);
+                }
+                if( b3Total > 0.0 ) {
+                   output += a3Total / b3Total;
+                }
+                a1Total -= term_closeMinusTrueLow[trailingPos1];
+                b1Total -= term_trueRange[trailingPos1];
+                a2Total -= term_closeMinusTrueLow[trailingPos2];
+                b2Total -= term_trueRange[trailingPos2];
+                a3Total -= term_closeMinusTrueLow[trailingPos3];
+                b3Total -= term_trueRange[trailingPos3];
              }
-             /* Calculate the oscillator value for today. Each window contributes only
-              * when it holds a true range; the totals are sums of non-negative terms
-              * and the reseed above removes their residue, so the test is exact.
-              */
-             output = 0.0;
-             if( b1Total > 0.0 ) {
-                output += 4.0 * (a1Total / b1Total);
-             }
-             if( b2Total > 0.0 ) {
-                output += 2.0 * (a2Total / b2Total);
-             }
-             if( b3Total > 0.0 ) {
-                output += a3Total / b3Total;
-             }
-             /* Remove the trailing terms to prepare for next day. Each was evaluated
-              * once, when its bar entered the ring.
-              */
-             a1Total -= term_closeMinusTrueLow[trailingPos1];
-             b1Total -= term_trueRange[trailingPos1];
              trailingPos1 += 1;
              if( trailingPos1 >= optInTimePeriod3 ) {
                 trailingPos1 = 0;
              }
-             a2Total -= term_closeMinusTrueLow[trailingPos2];
-             b2Total -= term_trueRange[trailingPos2];
              trailingPos2 += 1;
              if( trailingPos2 >= optInTimePeriod3 ) {
                 trailingPos2 = 0;
              }
-             term_Idx++;
-             if( term_Idx > maxIdx_term ) { term_Idx = 0; }
-             a3Total -= term_closeMinusTrueLow[term_Idx];
-             b3Total -= term_trueRange[term_Idx];
-             /* Last operation is to write the output. Must
-              * be done after the trailing index have all been
-              * taken care of because the caller is allowed
-              * to have the input array to be also the output
-              * array.
+             term_Idx = trailingPos3;
+             trailingPos3 += 1;
+             if( trailingPos3 >= optInTimePeriod3 ) {
+                trailingPos3 = 0;
+             }
+             /* Store only after this bar's last input read: the output array may be
+              * one of the input arrays.
               */
              outReal[outIdx * outStride] = 100.0 * (output / 7.0);
+             /* On well-formed bars every term is non-negative, so a total below zero
+              * is the residue a term far larger than the rest of its window left
+              * when it retired. Tested here, on the totals the next bar adds to, and
+              * not before the output: a non-negative total plus a non-negative term
+              * stays non-negative, and after the output nothing a peek returns
+              * depends on it. The rebuild sums each window's retained terms oldest
+              * first, the state a call starting at the next bar primes.
+              * Only the a-totals are tested: a negative b-total fails its division
+              * gate. A close below its low makes an a-term, and so a total,
+              * genuinely negative, and rebuilding it would run on every bar: negSlot
+              * remembers the newest negative term the last rebuild saw, and the
+              * rebuild is skipped while that retained slot still holds a negative
+              * term, which puts a close below its low in the next output's window.
+              * One compare of the smallest a-total, not three: a chain of three
+              * compiles to straight-line selects in Rust. The windows are nested,
+              * so a1 <= a2 <= a3 and either select stays predictable should a
+              * compiler emit it as a branch.
+              */
+             lowest = (a1Total < a2Total) ? a1Total : a2Total;
+             lowest = (a3Total < lowest) ? a3Total : lowest;
+             if( (lowest < 0.0) && (negSlot == term_Idx || term_closeMinusTrueLow[negSlot] >= 0.0) ) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                a2Total = 0.0;
+                b2Total = 0.0;
+                a3Total = 0.0;
+                b3Total = 0.0;
+                for( i = 1; i < optInTimePeriod3; i += 1 ) {
+                   j = term_Idx + i;
+                   if( j >= optInTimePeriod3 ) {
+                      j -= optInTimePeriod3;
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod1 ) {
+                      a1Total += term_closeMinusTrueLow[j];
+                      b1Total += term_trueRange[j];
+                   }
+                   if( i > optInTimePeriod3 - optInTimePeriod2 ) {
+                      a2Total += term_closeMinusTrueLow[j];
+                      b2Total += term_trueRange[j];
+                   }
+                   a3Total += term_closeMinusTrueLow[j];
+                   b3Total += term_trueRange[j];
+                   if( term_closeMinusTrueLow[j] < 0.0 ) {
+                      negSlot = j;
+                   }
+                }
+             }
              /* Increment indexes */
              outIdx += 1;
              today += 1;
@@ -226935,13 +227186,15 @@ class Core {
           sp.optInTimePeriod2 = optInTimePeriod2;
           sp.optInTimePeriod3 = optInTimePeriod3;
           sp.a1Total = a1Total;
-          sp.a2Total = a2Total;
-          sp.a3Total = a3Total;
           sp.b1Total = b1Total;
+          sp.a2Total = a2Total;
           sp.b2Total = b2Total;
+          sp.a3Total = a3Total;
           sp.b3Total = b3Total;
+          sp.negSlot = negSlot;
           sp.trailingPos1 = trailingPos1;
           sp.trailingPos2 = trailingPos2;
+          sp.trailingPos3 = trailingPos3;
           sp.nullRun = nullRun;
           sp.term_Idx = term_Idx;
           sp.maxIdx_term = maxIdx_term;
@@ -230109,6 +230362,9 @@ class Core {
      *  090626 KL     First version (issue #349).
      *  102326 MF,CC  #554 branch-free zero run, rare reset.
      *  102426 MF,CC  #554 zero-run test on the true range itself.
+     *  110926 KL     #588 rebuild a sum that comes out negative.
+     *  111026 MF,CC  #588 only a negative vortex sum can turn an output negative.
+     *  111126 MF,CC  #588 test after the outputs; rebuild from the trailing bars.
      */
 
        /**
@@ -230177,9 +230433,13 @@ class Core {
           int i = 0;
           int nullRun = 0;
           int live = 0;
+          int seeded = 0;
+          double prevHigh = 0;
+          double prevLow = 0;
+          double prevClose = 0;
           double sTR = 0;
-          double sVMP = 0;
           double sVMM = 0;
+          double sVMP = 0;
           double curTR = 0;
           double curVMP = 0;
           double curVMM = 0;
@@ -230202,6 +230462,10 @@ class Core {
           if( outPlusVI == outMinusVI ) {
              return RetCode.BAD_PARAM ;
           }
+          /* Keep sVMM declared before sVMP: the stream state takes this order, and
+           * the reverse lets gcc pair the previous bar's low and high in one load
+           * that straddles two stores, a store-forwarding stall on every update.
+           */
           /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
            * each a rolling sum of "vortex movement" normalized by the rolling sum
            * of true range over the same optInTimePeriod bars.
@@ -230345,6 +230609,47 @@ class Core {
                 outPlusVI[outIdx] = 0.0;
                 outMinusVI[outIdx] = 0.0;
              }
+             /* Every term is non-negative, so a sum below zero is the residue a
+              * term far larger than the rest of the window left when it retired.
+              * Tested on the sums the next bar adds to, not on the ones it outputs:
+              * a non-negative sum plus a non-negative term stays non-negative, and
+              * nothing a peek returns depends on it. The rebuild sums the retained
+              * terms oldest first, the state a call starting at the next bar primes.
+              * The first bar it reads only seeds the second, so an aliased output
+              * slot holding it changes nothing. Only the vortex sums are tested: a
+              * negative sTR fails the division gate and writes 0.0. Keep
+              * two compares rather than a min: the two sums have no order, and gcc
+              * may emit that select as a branch that mispredicts whenever they swap
+              * order.
+              */
+             if( sVMP < 0.0 || sVMM < 0.0 ) {
+                sTR = 0.0;
+                sVMP = 0.0;
+                sVMM = 0.0;
+                seeded = 0;
+                for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+                   if( seeded > 1 ) {
+                      tempLT = inLow[i];
+                      tempHT = inHigh[i];
+                      trueRange = tempHT - tempLT;
+                      tempDouble = Math.abs(prevClose - tempHT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      tempDouble = Math.abs(prevClose - tempLT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      sTR += trueRange;
+                      sVMP += Math.abs(tempHT - prevLow);
+                      sVMM += Math.abs(tempLT - prevHigh);
+                   }
+                   prevHigh = inHigh[i];
+                   prevLow = inLow[i];
+                   prevClose = inClose[i];
+                   seeded += 1;
+                }
+             }
              outIdx += 1;
              today += 1;
           }
@@ -230370,9 +230675,13 @@ class Core {
           int i = 0;
           int nullRun = 0;
           int live = 0;
+          int seeded = 0;
+          double prevHigh = 0;
+          double prevLow = 0;
+          double prevClose = 0;
           double sTR = 0;
-          double sVMP = 0;
           double sVMM = 0;
+          double sVMP = 0;
           double curTR = 0;
           double curVMP = 0;
           double curVMM = 0;
@@ -230477,6 +230786,34 @@ class Core {
              } else {
                 outPlusVI[outIdx] = 0.0;
                 outMinusVI[outIdx] = 0.0;
+             }
+             if( sVMP < 0.0 || sVMM < 0.0 ) {
+                sTR = 0.0;
+                sVMP = 0.0;
+                sVMM = 0.0;
+                seeded = 0;
+                for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+                   if( seeded > 1 ) {
+                      tempLT = (double)inLow[i];
+                      tempHT = (double)inHigh[i];
+                      trueRange = tempHT - tempLT;
+                      tempDouble = Math.abs(prevClose - tempHT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      tempDouble = Math.abs(prevClose - tempLT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      sTR += trueRange;
+                      sVMP += Math.abs(tempHT - prevLow);
+                      sVMM += Math.abs(tempLT - prevHigh);
+                   }
+                   prevHigh = (double)inHigh[i];
+                   prevLow = (double)inLow[i];
+                   prevClose = (double)inClose[i];
+                   seeded += 1;
+                }
              }
              outIdx += 1;
              today += 1;
@@ -230664,9 +231001,12 @@ class Core {
           private Core core;
           private int optInTimePeriod;
           private int nullRun;
+          private double prevHigh;
+          private double prevLow;
+          private double prevClose;
           private double sTR;
-          private double sVMP;
           private double sVMM;
+          private double sVMP;
           private double lag1_inHigh;
           private double lag1_inLow;
           private double lag1_inClose;
@@ -230721,9 +231061,12 @@ class Core {
              this.core = other.core;
              this.optInTimePeriod = other.optInTimePeriod;
              this.nullRun = other.nullRun;
+             this.prevHigh = other.prevHigh;
+             this.prevLow = other.prevLow;
+             this.prevClose = other.prevClose;
              this.sTR = other.sTR;
-             this.sVMP = other.sVMP;
              this.sVMM = other.sVMM;
+             this.sVMP = other.sVMP;
              this.lag1_inHigh = other.lag1_inHigh;
              this.lag1_inLow = other.lag1_inLow;
              this.lag1_inClose = other.lag1_inClose;
@@ -230947,7 +231290,9 @@ class Core {
        }
        private void vortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
        {
+          int i = 0;
           int live = 0;
+          int seeded = 0;
           double curTR = 0.0;
           double curVMP = 0.0;
           double curVMM = 0.0;
@@ -231042,6 +231387,47 @@ class Core {
              sp.cur_outPlusVI = 0.0;
              sp.cur_outMinusVI = 0.0;
           }
+          /* Every term is non-negative, so a sum below zero is the residue a
+           * term far larger than the rest of the window left when it retired.
+           * Tested on the sums the next bar adds to, not on the ones it outputs:
+           * a non-negative sum plus a non-negative term stays non-negative, and
+           * nothing a peek returns depends on it. The rebuild sums the retained
+           * terms oldest first, the state a call starting at the next bar primes.
+           * The first bar it reads only seeds the second, so an aliased output
+           * slot holding it changes nothing. Only the vortex sums are tested: a
+           * negative sTR fails the division gate and writes 0.0. Keep
+           * two compares rather than a min: the two sums have no order, and gcc
+           * may emit that select as a branch that mispredicts whenever they swap
+           * order.
+           */
+          if( sp.sVMP < 0.0 || sp.sVMM < 0.0 ) {
+             sp.sTR = 0.0;
+             sp.sVMP = 0.0;
+             sp.sVMM = 0.0;
+             seeded = 0;
+             for( i = sp.optInTimePeriod; i >= 0; i -= 1 ) {
+                if( seeded > 1 ) {
+                   tempLT = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+                   tempHT = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+                   trueRange = tempHT - tempLT;
+                   tempDouble = Math.abs(sp.prevClose - tempHT);
+                   if( tempDouble > trueRange ) {
+                      trueRange = tempDouble;
+                   }
+                   tempDouble = Math.abs(sp.prevClose - tempLT);
+                   if( tempDouble > trueRange ) {
+                      trueRange = tempDouble;
+                   }
+                   sp.sTR += trueRange;
+                   sp.sVMP += Math.abs(tempHT - sp.prevLow);
+                   sp.sVMM += Math.abs(tempLT - sp.prevHigh);
+                }
+                sp.prevHigh = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+                sp.prevLow = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+                sp.prevClose = sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i >= sp.ringCap_trailingIdx) ? sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx : sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i];
+                seeded += 1;
+             }
+          }
           sp.lag1_inHigh = inHigh;
           sp.lag1_inLow = inLow;
           sp.lag1_inClose = inClose;
@@ -231059,9 +231445,13 @@ class Core {
           int i = 0;
           int nullRun = 0;
           int live = 0;
+          int seeded = 0;
+          double prevHigh = 0;
+          double prevLow = 0;
+          double prevClose = 0;
           double sTR = 0;
-          double sVMP = 0;
           double sVMM = 0;
+          double sVMP = 0;
           double curTR = 0;
           double curVMP = 0;
           double curVMM = 0;
@@ -231088,6 +231478,10 @@ class Core {
              outNBElement.value = 0;
              return RetCode.INSUFFICIENT_HISTORY;
           }
+          /* Keep sVMM declared before sVMP: the stream state takes this order, and
+           * the reverse lets gcc pair the previous bar's low and high in one load
+           * that straddles two stores, a store-forwarding stall on every update.
+           */
           /* Vortex Indicator (Botes & Siepman, TASC 28:1, Jan 2010): two lines,
            * each a rolling sum of "vortex movement" normalized by the rolling sum
            * of true range over the same optInTimePeriod bars.
@@ -231231,6 +231625,47 @@ class Core {
                 outPlusVI[outIdx * outStride] = 0.0;
                 outMinusVI[outIdx * outStride] = 0.0;
              }
+             /* Every term is non-negative, so a sum below zero is the residue a
+              * term far larger than the rest of the window left when it retired.
+              * Tested on the sums the next bar adds to, not on the ones it outputs:
+              * a non-negative sum plus a non-negative term stays non-negative, and
+              * nothing a peek returns depends on it. The rebuild sums the retained
+              * terms oldest first, the state a call starting at the next bar primes.
+              * The first bar it reads only seeds the second, so an aliased output
+              * slot holding it changes nothing. Only the vortex sums are tested: a
+              * negative sTR fails the division gate and writes 0.0. Keep
+              * two compares rather than a min: the two sums have no order, and gcc
+              * may emit that select as a branch that mispredicts whenever they swap
+              * order.
+              */
+             if( sVMP < 0.0 || sVMM < 0.0 ) {
+                sTR = 0.0;
+                sVMP = 0.0;
+                sVMM = 0.0;
+                seeded = 0;
+                for( i = today - optInTimePeriod; i <= today; i += 1 ) {
+                   if( seeded > 1 ) {
+                      tempLT = inLow[i];
+                      tempHT = inHigh[i];
+                      trueRange = tempHT - tempLT;
+                      tempDouble = Math.abs(prevClose - tempHT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      tempDouble = Math.abs(prevClose - tempLT);
+                      if( tempDouble > trueRange ) {
+                         trueRange = tempDouble;
+                      }
+                      sTR += trueRange;
+                      sVMP += Math.abs(tempHT - prevLow);
+                      sVMM += Math.abs(tempLT - prevHigh);
+                   }
+                   prevHigh = inHigh[i];
+                   prevLow = inLow[i];
+                   prevClose = inClose[i];
+                   seeded += 1;
+                }
+             }
              outIdx += 1;
              today += 1;
           }
@@ -231240,6 +231675,9 @@ class Core {
           int capLag_trailingIdx = today - trailingIdx;
           int cap_trailingIdx = capLag_trailingIdx + 2;
           if( capLag_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+             return RetCode.INTERNAL_ERROR;
+          }
+          if( cap_trailingIdx < (int)(optInTimePeriod + 1) ) {
              return RetCode.INTERNAL_ERROR;
           }
           int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
@@ -231257,9 +231695,12 @@ class Core {
           }
           sp.optInTimePeriod = optInTimePeriod;
           sp.nullRun = nullRun;
+          sp.prevHigh = prevHigh;
+          sp.prevLow = prevLow;
+          sp.prevClose = prevClose;
           sp.sTR = sTR;
-          sp.sVMP = sVMP;
           sp.sVMM = sVMM;
+          sp.sVMP = sVMP;
           sp.lag1_inHigh = inHigh[historyLen - 1];
           sp.lag1_inLow = inLow[historyLen - 1];
           sp.lag1_inClose = inClose[historyLen - 1];
@@ -240260,7 +240701,7 @@ class Core {
 
 public class TaCodegenServe {
     static Core core = new Core();
-    static final String SPLICED_GENCODE_DIGEST = "3261904ab42b0593";
+    static final String SPLICED_GENCODE_DIGEST = "35bf2ad75d30a931";
     static final int MAX_ARRAY_SIZE = 200000;
     static double[] refOpen = new double[MAX_ARRAY_SIZE];
     static double[] refHigh = new double[MAX_ARRAY_SIZE];
@@ -240268,6 +240709,7 @@ public class TaCodegenServe {
     static double[] refClose = new double[MAX_ARRAY_SIZE];
     static double[] refVolume = new double[MAX_ARRAY_SIZE];
     static double[] refOI = new double[MAX_ARRAY_SIZE];
+    static double[] refPeriods = new double[MAX_ARRAY_SIZE];
     static int refN = 0;
 
     static int jsonInt(String json, String field) {
@@ -240546,247 +240988,247 @@ public class TaCodegenServe {
         ABSTRACT.put("CDL2CROWS", new AbsFunc("CDL2CROWS", "Pattern Recognition", "Two Crows", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDL3BLACKCROWS", new AbsFunc("CDL3BLACKCROWS", "Pattern Recognition", "Three Black Crows", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDL3INSIDE", new AbsFunc("CDL3INSIDE", "Pattern Recognition", "Three Inside Up/Down", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDL3LINESTRIKE", new AbsFunc("CDL3LINESTRIKE", "Pattern Recognition", "Three-Line Strike", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDL3OUTSIDE", new AbsFunc("CDL3OUTSIDE", "Pattern Recognition", "Three Outside Up/Down", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDL3STARSINSOUTH", new AbsFunc("CDL3STARSINSOUTH", "Pattern Recognition", "Three Stars In The South", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDL3WHITESOLDIERS", new AbsFunc("CDL3WHITESOLDIERS", "Pattern Recognition", "Three Advancing White Soldiers", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLABANDONEDBABY", new AbsFunc("CDLABANDONEDBABY", "Pattern Recognition", "Abandoned Baby", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.3, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLADVANCEBLOCK", new AbsFunc("CDLADVANCEBLOCK", "Pattern Recognition", "Advance Block", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLBELTHOLD", new AbsFunc("CDLBELTHOLD", "Pattern Recognition", "Belt-hold", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLBREAKAWAY", new AbsFunc("CDLBREAKAWAY", "Pattern Recognition", "Breakaway", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLCLOSINGMARUBOZU", new AbsFunc("CDLCLOSINGMARUBOZU", "Pattern Recognition", "Closing Marubozu", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLCONCEALBABYSWALL", new AbsFunc("CDLCONCEALBABYSWALL", "Pattern Recognition", "Concealing Baby Swallow", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLCOUNTERATTACK", new AbsFunc("CDLCOUNTERATTACK", "Pattern Recognition", "Counterattack", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLDARKCLOUDCOVER", new AbsFunc("CDLDARKCLOUDCOVER", "Pattern Recognition", "Dark Cloud Cover", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.5, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLDOJI", new AbsFunc("CDLDOJI", "Pattern Recognition", "Doji", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLDOJISTAR", new AbsFunc("CDLDOJISTAR", "Pattern Recognition", "Doji Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLDRAGONFLYDOJI", new AbsFunc("CDLDRAGONFLYDOJI", "Pattern Recognition", "Dragonfly Doji", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLENGULFING", new AbsFunc("CDLENGULFING", "Pattern Recognition", "Engulfing Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",34625) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",34624) }));
         ABSTRACT.put("CDLEVENINGDOJISTAR", new AbsFunc("CDLEVENINGDOJISTAR", "Pattern Recognition", "Evening Doji Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.3, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLEVENINGSTAR", new AbsFunc("CDLEVENINGSTAR", "Pattern Recognition", "Evening Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.3, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLGAPSIDESIDEWHITE", new AbsFunc("CDLGAPSIDESIDEWHITE", "Pattern Recognition", "Up/Down-gap side-by-side white lines", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLGRAVESTONEDOJI", new AbsFunc("CDLGRAVESTONEDOJI", "Pattern Recognition", "Gravestone Doji", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLHAMMER", new AbsFunc("CDLHAMMER", "Pattern Recognition", "Hammer", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLHANGINGMAN", new AbsFunc("CDLHANGINGMAN", "Pattern Recognition", "Hanging Man", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLHARAMI", new AbsFunc("CDLHARAMI", "Pattern Recognition", "Harami Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",34625) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",34624) }));
         ABSTRACT.put("CDLHARAMICROSS", new AbsFunc("CDLHARAMICROSS", "Pattern Recognition", "Harami Cross Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",34625) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",34624) }));
         ABSTRACT.put("CDLHIGHWAVE", new AbsFunc("CDLHIGHWAVE", "Pattern Recognition", "High-Wave Candle", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1793) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",263936) }));
         ABSTRACT.put("CDLHIKKAKE", new AbsFunc("CDLHIKKAKE", "Pattern Recognition", "Hikkake Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1985) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1984) }));
         ABSTRACT.put("CDLHIKKAKEMOD", new AbsFunc("CDLHIKKAKEMOD", "Pattern Recognition", "Modified Hikkake Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1985) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1984) }));
         ABSTRACT.put("CDLHOMINGPIGEON", new AbsFunc("CDLHOMINGPIGEON", "Pattern Recognition", "Homing Pigeon", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLIDENTICAL3CROWS", new AbsFunc("CDLIDENTICAL3CROWS", "Pattern Recognition", "Identical Three Crows", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLINNECK", new AbsFunc("CDLINNECK", "Pattern Recognition", "In-Neck Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLINVERTEDHAMMER", new AbsFunc("CDLINVERTEDHAMMER", "Pattern Recognition", "Inverted Hammer", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLKICKING", new AbsFunc("CDLKICKING", "Pattern Recognition", "Kicking", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLKICKINGBYLENGTH", new AbsFunc("CDLKICKINGBYLENGTH", "Pattern Recognition", "Kicking - bull/bear determined by the longer marubozu", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLLADDERBOTTOM", new AbsFunc("CDLLADDERBOTTOM", "Pattern Recognition", "Ladder Bottom", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLLONGLEGGEDDOJI", new AbsFunc("CDLLONGLEGGEDDOJI", "Pattern Recognition", "Long Legged Doji", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLLONGLINE", new AbsFunc("CDLLONGLINE", "Pattern Recognition", "Long Line Candle", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLMARUBOZU", new AbsFunc("CDLMARUBOZU", "Pattern Recognition", "Marubozu", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLMATCHINGLOW", new AbsFunc("CDLMATCHINGLOW", "Pattern Recognition", "Matching Low", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLMATHOLD", new AbsFunc("CDLMATHOLD", "Pattern Recognition", "Mat Hold", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.5, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLMORNINGDOJISTAR", new AbsFunc("CDLMORNINGDOJISTAR", "Pattern Recognition", "Morning Doji Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.3, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLMORNINGSTAR", new AbsFunc("CDLMORNINGSTAR", "Pattern Recognition", "Morning Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{ new AbsOpt(0,"optInPenetration",0,"Penetration","Percentage of penetration of a candle within another candle",0.3, 0.0,3e37,0,0.0,0.0,0.0, 0,0,0,0,0, null) },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLONNECK", new AbsFunc("CDLONNECK", "Pattern Recognition", "On-Neck Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLPIERCING", new AbsFunc("CDLPIERCING", "Pattern Recognition", "Piercing Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLRICKSHAWMAN", new AbsFunc("CDLRICKSHAWMAN", "Pattern Recognition", "Rickshaw Man", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLRISEFALL3METHODS", new AbsFunc("CDLRISEFALL3METHODS", "Pattern Recognition", "Rising/Falling Three Methods", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLSEPARATINGLINES", new AbsFunc("CDLSEPARATINGLINES", "Pattern Recognition", "Separating Lines", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLSHOOTINGSTAR", new AbsFunc("CDLSHOOTINGSTAR", "Pattern Recognition", "Shooting Star", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLSHORTLINE", new AbsFunc("CDLSHORTLINE", "Pattern Recognition", "Short Line Candle", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1793) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",263936) }));
         ABSTRACT.put("CDLSPINNINGTOP", new AbsFunc("CDLSPINNINGTOP", "Pattern Recognition", "Spinning Top", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1793) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",263936) }));
         ABSTRACT.put("CDLSTALLEDPATTERN", new AbsFunc("CDLSTALLEDPATTERN", "Pattern Recognition", "Stalled Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLSTICKSANDWICH", new AbsFunc("CDLSTICKSANDWICH", "Pattern Recognition", "Stick Sandwich", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLTAKURI", new AbsFunc("CDLTAKURI", "Pattern Recognition", "Takuri (Dragonfly Doji with very long lower shadow)", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1313) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1312) }));
         ABSTRACT.put("CDLTASUKIGAP", new AbsFunc("CDLTASUKIGAP", "Pattern Recognition", "Tasuki Gap", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLTHRUSTING", new AbsFunc("CDLTHRUSTING", "Pattern Recognition", "Thrusting Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLTRISTAR", new AbsFunc("CDLTRISTAR", "Pattern Recognition", "Tristar Pattern", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CDLUNIQUE3RIVER", new AbsFunc("CDLUNIQUE3RIVER", "Pattern Recognition", "Unique 3 River", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1345) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1344) }));
         ABSTRACT.put("CDLUPSIDEGAP2CROWS", new AbsFunc("CDLUPSIDEGAP2CROWS", "Pattern Recognition", "Upside Gap Two Crows", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1601) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1600) }));
         ABSTRACT.put("CDLXSIDEGAP3METHODS", new AbsFunc("CDLXSIDEGAP3METHODS", "Pattern Recognition", "Upside/Downside Gap Three Methods", 301989888,
             new AbsIn[]{ new AbsIn(0,"inPriceOHLC",15) },
             new AbsOpt[]{  },
-            new AbsOut[]{ new AbsOut(1,"outInteger",1857) }));
+            new AbsOut[]{ new AbsOut(1,"outInteger",1856) }));
         ABSTRACT.put("CE", new AbsFunc("CE", "Overlap Studies", "Chandelier Exit", 50331648,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","ATR and extreme window",22.0, 0,0,0,0,0,0, 2,100000,4,200,1, null), new AbsOpt(0,"optInMultiplier",0,"Multiplier","ATR multiplier",3.0, 0.0,3e37,2,1.0,5.0,0.5, 0,0,0,0,0, null) },
@@ -240918,7 +241360,7 @@ public class TaCodegenServe {
         ABSTRACT.put("FRACTAL", new AbsFunc("FRACTAL", "Momentum Indicators", "Williams Fractal", 33554434,
             new AbsIn[]{ new AbsIn(0,"inPriceHL",6) },
             new AbsOpt[]{ new AbsOpt(2,"optInLeftBars",0,"Left Bars","Number of bars required to be lower/higher before the pivot",2.0, 0,0,0,0,0,0, 1,100000,1,10,1, null), new AbsOpt(2,"optInRightBars",0,"Right Bars","Number of bars required to be lower/higher after the pivot",2.0, 0,0,0,0,0,0, 1,100000,1,10,1, null) },
-            new AbsOut[]{ new AbsOut(1,"outSwingHigh",17697), new AbsOut(1,"outSwingLow",17697) }));
+            new AbsOut[]{ new AbsOut(1,"outSwingHigh",17696), new AbsOut(1,"outSwingLow",17696) }));
         ABSTRACT.put("FRAMA", new AbsFunc("FRAMA", "Overlap Studies", "Fractal Adaptive Moving Average", 184549380,
             new AbsIn[]{ new AbsIn(0,"inPriceHL",6) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Number of bars, even; the window is split into two halves of optInTimePeriod/2 bars",16.0, 0,0,0,0,0,0, 2,100000,4,200,2, null) },
@@ -241362,7 +241804,7 @@ public class TaCodegenServe {
         ABSTRACT.put("ULTOSC", new AbsFunc("ULTOSC", "Momentum Indicators", "Ultimate Oscillator", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod1",0,"First Period","Number of bars for 1st period.",7.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInTimePeriod2",0,"Second Period","Number of bars fro 2nd period",14.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(2,"optInTimePeriod3",0,"Third Period","Number of bars for 3rd period",28.0, 0,0,0,0,0,0, 1,100000,1,200,1, null) },
-            new AbsOut[]{ new AbsOut(0,"outReal",1793) }));
+            new AbsOut[]{ new AbsOut(0,"outReal",1281) }));
         ABSTRACT.put("VAR", new AbsFunc("VAR", "Statistic Functions", "Variance", 33554432,
             new AbsIn[]{ new AbsIn(1,"inReal",0) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Time period",5.0, 0,0,0,0,0,0, 1,100000,1,200,1, null), new AbsOpt(0,"optInNbDev",0,"Deviations","Nb of deviations",1.0, -3e37,3e37,2,-2.0,2.0,0.2, 0,0,0,0,0, null) },
@@ -241378,7 +241820,7 @@ public class TaCodegenServe {
         ABSTRACT.put("VORTEX", new AbsFunc("VORTEX", "Momentum Indicators", "Vortex Indicator", 33554432,
             new AbsIn[]{ new AbsIn(0,"inPriceHLC",14) },
             new AbsOpt[]{ new AbsOpt(2,"optInTimePeriod",0,"Time Period","Number of bars in the rolling sums",14.0, 0,0,0,0,0,0, 1,100000,1,200,1, null) },
-            new AbsOut[]{ new AbsOut(0,"outPlusVI",1793), new AbsOut(0,"outMinusVI",1793) }));
+            new AbsOut[]{ new AbsOut(0,"outPlusVI",1281), new AbsOut(0,"outMinusVI",1281) }));
         ABSTRACT.put("VWAP", new AbsFunc("VWAP", "Volume Indicators", "Volume Weighted Average Price", 587202560,
             new AbsIn[]{ new AbsIn(0,"inPriceHLCV",30) },
             new AbsOpt[]{  },
@@ -242054,6 +242496,8 @@ public class TaCodegenServe {
             System.arraycopy(tmp, 0, refVolume, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));
             tmp = jsonDoubleArray(json, "openInterest");
             System.arraycopy(tmp, 0, refOI, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));
+            tmp = jsonDoubleArray(json, "periods");
+            System.arraycopy(tmp, 0, refPeriods, 0, Math.min(tmp.length, MAX_ARRAY_SIZE));
             return "{\"status\":\"ok\",\"n\":" + refN + "}";
         }
         else if (json.contains("\"stream_verify\"")) return handle_stream_verify(json);
@@ -266676,7 +267120,7 @@ public class TaCodegenServe {
             inReal0 = new double[MAX_ARRAY_SIZE];
             System.arraycopy(refClose, 0, inReal0, 0, refN);
             inReal1 = new double[MAX_ARRAY_SIZE];
-            System.arraycopy(refHigh, 0, inReal1, 0, refN);
+            System.arraycopy(refPeriods, 0, inReal1, 0, refN);
         } else {
             inReal0 = jsonDoubleArray(json, "inReal0");
             inReal1 = jsonDoubleArray(json, "inReal1");
