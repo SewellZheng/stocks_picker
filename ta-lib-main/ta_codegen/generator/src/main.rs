@@ -683,6 +683,11 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         backends::rust_phantom_io::generate(all_funcs, &enums, &out_base);
     }
 
+    // Whole-corpus, like the probe above: a `--func=X` run must not shrink it.
+    if backends_to_run.contains(&"rust") {
+        backends::wasm::generate(all_funcs, &enums, &root);
+    }
+
     // Generate Makefile.am and copy C library files when C is one of the backends
     if backends_to_run.contains(&"c") {
         backends::makefile_am::generate(all_funcs, &root.join("src/ta_func/Makefile.am"));
@@ -819,6 +824,8 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         backends::ts::generate_package_files(all_funcs, &root, &ts_lib);
         backends::ts_metadata::generate(all_funcs, &enums, &ts_lib.join("src/metadata"));
         backends::ts_doc::write_example_tests(all_funcs, &enums, &ts_lib.join("test/gen"));
+        backends::ts_engine::generate(all_funcs, &enums, &registry, &root, &ts_lib);
+        backends::ts_engine::generate_parity_test(all_funcs, &enums, &ts_lib.join("test"));
     }
 
     // Whole-corpus, like the Rust probe above: a `--func=X` run must not shrink it.
@@ -1480,6 +1487,19 @@ fn build_ts(out_base: &Path, bin_dir: &Path) -> Vec<BuildStep> {
             ts_out.to_str().unwrap(),
         ]),
     ));
+    if steps.last().is_some_and(|s| s.ok) {
+        // `--engine=wasm` loads the engine through the Node entry, which imports
+        // the bytes module from beside the compiled runtime.
+        let root = out_base.parent().and_then(Path::parent).expect("ta_codegen/output sits two levels below the root");
+        steps.push(run_build_step(
+            "TypeScript server's WASM bytes module from bin/ta_lib.wasm",
+            "node",
+            std::process::Command::new("node")
+                .arg(root.join("scripts/ts_wasm_bytes.mjs"))
+                .arg(ts_root.join("library"))
+                .arg(ts_out.join("library/src")),
+        ));
+    }
     steps
 }
 
@@ -1713,6 +1733,14 @@ fn build_ts_library(root: &Path, bin_dir: &Path) -> bool {
         std::process::Command::new(&tsc).arg("-p").arg(&lib_dir).arg("--emitDeclarationOnly"),
     );
     if !report(&declare, false) {
+        return false;
+    }
+    let bytes = run_build_step(
+        "Writing the WASM engine's bytes module into dist/ from bin/ta_lib.wasm",
+        "node",
+        std::process::Command::new("node").arg(root.join("scripts/ts_wasm_bytes.mjs")).arg(&lib_dir),
+    );
+    if !report(&bytes, true) {
         return false;
     }
     if !check_dist_comments(&lib_dir.join("dist")) {

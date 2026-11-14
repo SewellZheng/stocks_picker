@@ -1,5 +1,5 @@
-//! C's `max`, `min`, `floor` and `ceil`, bit for bit, inline where gcc inlines
-//! them.
+//! C's `max`, `min`, `floor`, `ceil` and candle colour bounds, bit for bit, inline
+//! where gcc inlines them.
 //!
 //! Hand-written, not generated: this file lives in
 //! `ta_codegen/generator/templates/rust/c_math.rs` and is copied verbatim into
@@ -14,6 +14,29 @@ pub(crate) fn c_max(a: f64, b: f64) -> f64 {
     core::hint::select_unpredictable(a > b, a, b)
 }
 
+/// `a * b + c`, rounded once. On wasm32 `f64::mul_add` is a software routine;
+/// `relaxed_madd` fuses only where the CPU has FMA, so a build enabling
+/// `relaxed-simd` must check for FMA at load, and must pass `-C no-vectorize-loops
+/// -C no-vectorize-slp`: with the feature on, LLVM turns vectorised float
+/// selects into relaxed min/max, whose NaN and signed-zero answers vary by engine.
+#[cfg(not(all(target_arch = "wasm32", target_feature = "relaxed-simd")))]
+macro_rules! fmadd {
+    ($a:expr, $b:expr, $c:expr) => {
+        ($a).mul_add($b, $c)
+    };
+}
+#[cfg(all(target_arch = "wasm32", target_feature = "relaxed-simd"))]
+macro_rules! fmadd {
+    ($a:expr, $b:expr, $c:expr) => {
+        core::arch::wasm32::f64x2_extract_lane::<0>(core::arch::wasm32::f64x2_relaxed_madd(
+            core::arch::wasm32::f64x2_splat($a),
+            core::arch::wasm32::f64x2_splat($b),
+            core::arch::wasm32::f64x2_splat($c),
+        ))
+    };
+}
+pub(crate) use fmadd;
+
 /// The else arm of a divisor guard (`if( d > 0.0 ) x += a/d;`). Without a
 /// call on a cold path LLVM if-converts the guarded division into a blend,
 /// silently slower than the predicted branch gcc keeps.
@@ -26,6 +49,38 @@ pub(crate) fn cold_arm() {}
 pub(crate) fn c_min(a: f64, b: f64) -> f64 {
     core::hint::select_unpredictable(a < b, a, b)
 }
+
+/// C's `TA_COLOR_MAX(c, o)` / `TA_COLOR_MIN(c, o)`: the select's operand order
+/// is load-bearing, answering as the `if` for every non-NaN pair, signed zeros
+/// included. Macros, not functions: a call changes how the enclosing body
+/// compiles, so each arm must expand to the inline text.
+#[cfg(target_arch = "x86_64")]
+macro_rules! c_color_max {
+    ($c:expr, $o:expr) => {
+        std::hint::select_unpredictable($o > $c, $o, $c)
+    };
+}
+#[cfg(not(target_arch = "x86_64"))]
+macro_rules! c_color_max {
+    ($c:expr, $o:expr) => {
+        if $c >= $o { $c } else { $o }
+    };
+}
+pub(crate) use c_color_max;
+
+#[cfg(target_arch = "x86_64")]
+macro_rules! c_color_min {
+    ($c:expr, $o:expr) => {
+        std::hint::select_unpredictable($c < $o, $c, $o)
+    };
+}
+#[cfg(not(target_arch = "x86_64"))]
+macro_rules! c_color_min {
+    ($c:expr, $o:expr) => {
+        if $c >= $o { $o } else { $c }
+    };
+}
+pub(crate) use c_color_min;
 
 /// Without SSE4.1 `f64::floor` is a libm call per element; gcc inlines it.
 #[inline(always)]
@@ -176,5 +231,17 @@ mod tests {
         assert_eq!(c_min(-0.0, 0.0).to_bits(), 0.0_f64.to_bits());
         assert_eq!(c_max(-2.0, 3.0), 3.0);
         assert_eq!(c_min(-2.0, 3.0), -2.0);
+    }
+
+    #[test]
+    fn color_bounds_answer_like_the_if() {
+        let v = [0.0, -0.0, 1.0, -1.0, 2.5, f64::MIN_POSITIVE, f64::MAX, f64::INFINITY, f64::NEG_INFINITY];
+        for c in v {
+            for o in v {
+                let (hi, lo) = if c >= o { (c, o) } else { (o, c) };
+                assert_eq!(c_color_max!(c, o).to_bits(), hi.to_bits(), "c_color_max!({c:e}, {o:e})");
+                assert_eq!(c_color_min!(c, o).to_bits(), lo.to_bits(), "c_color_min!({c:e}, {o:e})");
+            }
+        }
     }
 }

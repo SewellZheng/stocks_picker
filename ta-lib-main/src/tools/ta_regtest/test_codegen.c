@@ -51,8 +51,8 @@ static int  g_floatCapableLangTested = 0;
 /* ---- Language definitions ---- */
 
 typedef struct {
-    const char *name;           /* "rust", "c", "java", "csharp", "ts" */
-    const char *display;        /* "Rust", "C", "Java", "C#", "TypeScript" */
+    const char *name;           /* "rust", "c", "java", "csharp", "ts", "tswasm" */
+    const char *display;        /* "Rust", "C", "Java", "C#", "TypeScript", "TS-WASM" */
     const char *const *argv;    /* NULL-terminated command array */
 } CodegenLanguage;
 
@@ -61,12 +61,14 @@ static const char *const argv_c[]     = {"./ta_codegen_serve_c", NULL};
 static const char *const argv_java[]  = {"java", "-cp", "ta_codegen_java", "TaCodegenServe", NULL};
 static const char *const argv_csharp[]= {"dotnet", "ta_codegen_csharp/TaCodegenServe.dll", NULL};
 static const char *const argv_ts[]    = {"node", "ta_codegen_ts/tools/taCodegenServe.js", NULL};
+static const char *const argv_tswasm[]= {"node", "ta_codegen_ts/tools/taCodegenServe.js", "--engine=wasm", NULL};
 static const CodegenLanguage ALL_LANGUAGES[] = {
     {"c",      "C",            argv_c},
     {"rust",   "Rust",         argv_rust},
     {"java",   "Java",         argv_java},
     {"csharp", "C#",           argv_csharp},
     {"ts",     "TypeScript",   argv_ts},
+    {"tswasm", "TS-WASM",      argv_tswasm},
 };
 #define NUM_LANGUAGES (sizeof(ALL_LANGUAGES) / sizeof(ALL_LANGUAGES[0]))
 
@@ -137,7 +139,7 @@ double codegen_lang_transcendental_tol(const char *lang)
     if( !lang ) return 0.0;
     if( strcmp(lang, "java") == 0 || strcmp(lang, "csharp") == 0 )
         return CODEGEN_TRANSCENDENTAL_TOL;
-    if( strcmp(lang, "ts") == 0 )
+    if( strcmp(lang, "ts") == 0 || strcmp(lang, "tswasm") == 0 )
         return CODEGEN_TRANSCENDENTAL_TOL_TS;
     return 0.0;
 }
@@ -3543,6 +3545,8 @@ static int stream_flag(const char *resp, const char *key)
     return atoi(p + strlen(key));
 }
 
+#define STREAM_CANDLE_ROUNDS_MASK 0x1F
+
 static void stream_build_request(char *buf, const TA_FuncInfo *fi,
                                  const double *optVals,
                                  int shape, int seed, int n,
@@ -3554,7 +3558,9 @@ static void stream_build_request(char *buf, const TA_FuncInfo *fi,
         "\"unstablePeriod\":%d",
         fi->name, shape, seed, n, unstablePeriod);
     /* Candle functions: ask the server for the settings-variation rounds
-     * (avgPeriods bumped, then zeroed) on top of the default-settings legs. */
+     * (avgPeriods bumped, then zeroed; every range type Shadows; every range
+     * type the one that is neither its default nor Shadows) on top of the
+     * default-settings legs. */
     if( fi->flags & TA_FUNC_FLG_CANDLESTICK )
         pos = codegen_appendf(buf, JSON_BUF_SIZE, pos, ",\"candleLegs\":1");
     unsigned int i;
@@ -3959,6 +3965,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int rangeLegs = 0;     /* how many legs actually compared a handle's OutRange */
     int rangeSites = 0;    /* OR of the range-compare sites that fired */
     int rangeSitesAll = 0; /* the set the server says it has */
+    int roundMask = 0;     /* OR of the candle rounds that compared a leg */
     int cloneChecked = 0;  /* this function ran the fork leg */
     int valueChecked = 0;  /* this function probed its Value accessor */
     int valueLegs = 0;
@@ -4302,6 +4309,10 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 int l = stream_flag(ctx->responseBuf, "\"legs\":");
                 if( l > 0 ) legs += l;
                 if( l > 0 && v >= firstRangeMin ) rangeMinLegs += l;
+                {
+                    int rm = stream_flag(ctx->responseBuf, "\"round_mask\":");
+                    if( rm > 0 ) roundMask |= rm;
+                }
                 if( stream_flag(ctx->responseBuf, "\"unsupportedArm\":") == 1 )
                     rejArms++;
                 /* Cross-tier +0.0/-0.0 pairs the server chose not to fail on
@@ -4326,6 +4337,14 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     {
         printf("STREAM VACUOUS [TA_%s]: 0 verified legs (%d expected-reject "
                "probes)\n", funcInfo->name, rejArms);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    if( (funcInfo->flags & TA_FUNC_FLG_CANDLESTICK) && roundMask != STREAM_CANDLE_ROUNDS_MASK )
+    {
+        printf("STREAM CANDLE ROUND VACUOUS [TA_%s]: rounds that compared a leg = 0x%x, "
+               "expected 0x%x\n", funcInfo->name, roundMask, STREAM_CANDLE_ROUNDS_MASK);
         ctx->failed++;
         ctx->error = TA_CODEGEN_STREAM_MISMATCH;
         return;
@@ -5180,7 +5199,8 @@ static ErrorNumber test_codegen_for_language(
         if( strcmp(lang->name, "rust") == 0 )
             printf(" (is ./ta_codegen built?)");
         else
-            printf(" (run: ta_codegen build --backend=%s)", lang->name);
+            printf(" (run: ta_codegen build --backend=%s)",
+                   strcmp(lang->name, "tswasm") == 0 ? "ts" : lang->name);
         printf("\n");
         return errNb;
     }
@@ -5320,7 +5340,10 @@ static ErrorNumber test_codegen_for_language(
      * answers an unknown-function probe with "not_streamable"; anything
      * else (unknown method, loose foreign dispatch) would misfire on the
      * real requests, so the pass is skipped for that server. */
-    if( ctx.error == TA_TEST_PASS )
+    /* Streams are the ./js ones in both TypeScript entries; "ts" verifies them. */
+    if( ctx.error == TA_TEST_PASS && strcmp(lang->name, "tswasm") == 0 )
+        printf("  Stream verify: not run (the default entry's streams are ts's)\n");
+    else if( ctx.error == TA_TEST_PASS )
     {
         ErrorNumber probeErr;
         codegen_appendf(requestBuf, JSON_BUF_SIZE, 0,
@@ -9626,6 +9649,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
         {"java",   "Java",       argv_java,   0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
         {"csharp", "C#",         argv_csharp, 0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
         {"ts",     "TypeScript", argv_ts,     0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
+        {"tswasm", "TS-WASM",    argv_tswasm, 0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
     };
     int nsv = (int)(sizeof(servers)/sizeof(servers[0]));
 
@@ -9682,7 +9706,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     if( nrequested == 0 )
     {
         printf("FAIL — no language server matched --language=%s "
-               "(valid: rust, java, csharp, ts; C is the in-process golden).\n",
+               "(valid: rust, java, csharp, ts, tswasm; C is the in-process golden).\n",
                languageFilter ? languageFilter : "");
         free(ctx.reqBuf); free(ctx.respBuf);
         free(ctx.tierReqBuf); free(ctx.tierRespBuf);

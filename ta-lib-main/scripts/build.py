@@ -16,6 +16,7 @@
 #   scripts/build.py servers        Generate + compile JSON-RPC language servers (cargo),
 #                                   plus bin/ta_regtest so bin/ is runnable by hand
 #   scripts/build.py libraries      Build + test the publishable Java/C#/TypeScript libraries (cargo)
+#   scripts/build.py wasm           Build bin/ta_lib.wasm and check its instructions (cargo)
 #   scripts/build.py test           C reference regression tests
 #   scripts/build.py regtest        Full cross-language regression tests
 #   scripts/build.py clean          Remove build directory
@@ -162,6 +163,11 @@ def show_help():
                         the .NET SDK and/or Node with npm, narrowed by
                         --language. --node=22,24,26 (or all) runs the
                         TypeScript suite once per pinned Node major instead.
+    wasm                Build bin/ta_lib.wasm from the committed ta_codegen/output/wasm
+                        crate for wasm32-unknown-unknown, then fail unless it
+                        imports nothing and its only relaxed-SIMD instruction
+                        is f64x2.relaxed_madd. Generates nothing; needs the
+                        pinned toolchain's wasm32-unknown-unknown target.
     format              Re-indent the ta_codegen/input/ C source of truth
     format-check        Verify inputs are formatted (fails if not); writes nothing
     clippy              Lint both Rust crates as the dev nightly does
@@ -236,8 +242,10 @@ def show_help():
     --cmake-args="..."  Extra arguments passed to cmake configure
     --language=c,rust   For servers/regtest/xlang-hash: build only
                         these backends (c, rust, java, csharp, ts), and require
-                        only their toolchains. A machine with no JDK, .NET SDK
-                        or Node can still run `servers --language=c,rust`. Omit
+                        only their toolchains (tswasm builds ts and selects
+                        ta_regtest's WASM-engine run of its server). A machine
+                        with no JDK, .NET SDK or Node can still run
+                        `servers --language=c,rust`. Omit
                         it and every backend is built, which needs all three.
     --node=all          For libraries: run the TypeScript suite once per listed
                         Node major, each from scripts/node_toolchain.py (fetched
@@ -298,6 +306,9 @@ def build_servers(root_dir: str, lang_filter=None, alongside=None):
     backends = backends_for_languages(lang_filter)
     extra = [f'--backend={backends}'] if backends else []
     run_codegen(root_dir, 'run', '--release', '--', 'generate-servers', *extra)
+    # The TypeScript server's build refuses a stale bin/ta_lib.wasm.
+    if 'ts' in (backends or 'ts').split(',') and build_wasm(root_dir) != 0:
+        sys.exit(1)
     if alongside is None:
         run_codegen(root_dir, 'run', '--release', '--', 'build', *extra)
         return
@@ -329,6 +340,9 @@ def build_libraries(root_dir: str, lang_filter=None, node=None) -> int:
         print(f"Error: --language={lang_filter} selects no backend with a publishable "
               f"library (valid: {', '.join(LIBRARY_PREREQS)}).", flush=True)
         return 2
+    # The npm package carries bin/ta_lib.wasm, and its build refuses a stale one.
+    if 'ts' in picked and build_wasm(root_dir) != 0:
+        return 1
     if not node:
         run_codegen(root_dir, 'run', '--release', '--', 'build-libraries',
                     f'--backend={",".join(picked)}')
@@ -363,6 +377,42 @@ def build_libraries(root_dir: str, lang_filter=None, node=None) -> int:
         return 1
     return 0
     return 0
+
+WASM_TARGET = 'wasm32-unknown-unknown'
+# The no-vectorize flags are load-bearing for values, not a performance choice.
+WASM_RUSTFLAGS = ('-C target-feature=+simd128,+relaxed-simd '
+                  '-C no-vectorize-loops -C no-vectorize-slp')
+
+def build_wasm(root_dir: str) -> int:
+    """Builds bin/ta_lib.wasm from the committed crate and checks it."""
+    def target_installed():
+        sysroot = subprocess.run(['rustc', '--print', 'sysroot'], cwd=root_dir,
+                                 capture_output=True, text=True)
+        return sysroot.returncode == 0 and os.path.isdir(
+            os.path.join(sysroot.stdout.strip(), 'lib', 'rustlib', WASM_TARGET, 'lib'))
+    # A toolchain installed before rust-toolchain.toml listed the target lacks it.
+    if not target_installed() and shutil.which('rustup'):
+        subprocess.run(['rustup', 'target', 'add', WASM_TARGET], cwd=root_dir)
+    if not target_installed():
+        print(f"Error: the Rust target {WASM_TARGET} is not installed for the toolchain "
+              f"rust-toolchain.toml pins. Install it with 'rustup target add {WASM_TARGET}' "
+              f"from the repository root.", flush=True)
+        return 1
+    crate = os.path.join(root_dir, 'ta_codegen', 'output', 'wasm')
+    env = dict(JOBS.env, RUSTFLAGS=WASM_RUSTFLAGS)
+    try:
+        subprocess.run(['cargo', 'build', '--release', '--target', WASM_TARGET,
+                        '--manifest-path', os.path.join(crate, 'Cargo.toml')],
+                       env=env, pass_fds=JOBS.fds, check=True, cwd=root_dir)
+    except subprocess.CalledProcessError:
+        return 1
+    built = os.path.join(crate, 'target', WASM_TARGET, 'release', 'ta_lib_wasm.wasm')
+    out = os.path.join(root_dir, 'bin', 'ta_lib.wasm')
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    shutil.copyfile(built, out)
+    print(f"  {os.path.relpath(out, root_dir)}: {os.path.getsize(out)} bytes", flush=True)
+    return subprocess.run([sys.executable, os.path.join(root_dir, 'scripts', 'check_wasm_module.py'),
+                           out]).returncode
 
 def build_ref(root_dir: str, build_dir: str, jobs: int, versions, build_only: bool) -> int:
     """Builds the serve of every selected member of ta_ref/ (all by default),
@@ -476,14 +526,16 @@ def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) 
             if b in ('rust', 'java', 'csharp', 'ts')]
     if not rows:
         print(f"Error: --language={lang_filter} selects no xlang-hash row "
-              f"(valid: rust, java, csharp, ts; C is the in-process golden).", flush=True)
+              f"(valid: rust, java, csharp, ts, tswasm; C is the in-process golden).", flush=True)
         return 2
     backends = ','.join(rows)
+    servers = ','.join(t for t in dict.fromkeys(s.strip().lower() for s in (lang_filter or '').split(','))
+                       if t in ('rust', 'java', 'csharp', 'ts', 'tswasm'))
     if lang_filter:
         # flush: this script's stdout is block-buffered when CI captures it,
         # while the cargo/ta_regtest subprocesses write straight to the pipe —
         # without it these lines land after the output they are labelling.
-        print(f"=== xlang-hash limited to: {backends} ===", flush=True)
+        print(f"=== xlang-hash limited to: {servers} ===", flush=True)
     # 1. Generate + compile the language servers into bin/ — plus the C server
     #    for the array-transport leg (see the note above). --servers-only
     #    because the C backend arm otherwise also builds ta_bench_cg and
@@ -492,6 +544,8 @@ def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) 
     #    fail the parity nightly.
     built = backends if lang_filter else backends + ',c'
     run_codegen(root_dir, 'run', '--release', '--', 'generate-servers', f'--backend={built}')
+    if 'ts' in rows and build_wasm(root_dir) != 0:
+        return 1
     run_codegen(root_dir, 'run', '--release', '--', 'build', f'--backend={built}',
                 '--servers-only')
     # 2. The C test runner links the in-process C golden; stage it into bin/.
@@ -500,7 +554,7 @@ def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) 
     print("=== Running ta_regtest --xlang-hash ===", flush=True)
     cmd = [os.path.join(root_dir, "bin", "ta_regtest"), "--xlang-hash"]
     if lang_filter:
-        cmd.append(f"--language={backends}")
+        cmd.append(f"--language={servers}")
     return subprocess.run(cmd, cwd=os.path.join(root_dir, "bin")).returncode
 
 # The two cargo workspaces with a committed Cargo.lock. Both manifests are
@@ -673,6 +727,8 @@ REGEN_PROBE_FILES = (
     'ta_codegen/output/rust/library/src/ta_func/sma.rs',
     'ta_codegen/output/csharp/library/src/Core_SMA.cs',
     'ta_codegen/output/ts/library/src/func/sma.ts',
+    'ta_codegen/output/ts/library/src/engine/func/sma.ts',
+    'ta_codegen/output/wasm/src/lib.rs',
     'ta_codegen/output/c/tools/ta_codegen_serve.c',
     'ta_codegen/output/java/tools/TaCodegenServe.java',
     'ta_codegen/output/csharp/tools/TaCodegenServe.cs',
@@ -851,7 +907,7 @@ def regen_check(root_dir: str) -> int:
 
 # Rust targets run cargo directly (no CMake).
 CARGO_TARGETS = {'ta_codegen', 'generate', 'format', 'format-check', 'clippy',
-                 'regen-check', 'libraries'}
+                 'regen-check', 'libraries', 'wasm'}
 
 # C targets map to a cmake target.
 #
@@ -891,6 +947,7 @@ TARGET_PREREQS = {
     # Cargo only, deliberately: the point of this gate is that anyone can run
     # it. It builds nothing C, so cmake is not a prerequisite either.
     'regen-check':  [PREREQS_CARGO],
+    'wasm':         [PREREQS_CARGO],
     'format':       PREREQS_BUILD_CODEGEN,
     'format-check': PREREQS_BUILD_CODEGEN,
     'clippy':       PREREQS_BUILD_CODEGEN,
@@ -1039,6 +1096,8 @@ def main():
             sys.exit(build_libraries(root_dir, args.language, args.node))
         elif args.target == 'regen-check':
             sys.exit(regen_check(root_dir))
+        elif args.target == 'wasm':
+            sys.exit(build_wasm(root_dir))
         return
 
     ensure_configured(root_dir, build_dir, args.build_type, args.cmake_args)

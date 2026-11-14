@@ -162,6 +162,9 @@ pub struct RustRenderCtx {
     /// length is the ring's: the wrap tests against it, which lets LLVM drop
     /// the ring's own check. A batch CIRCBUF absent here has no cursor.
     pub circbuf_len_of: std::collections::HashMap<String, String>,
+    /// The body advances or peeks a stream by one bar, where a candle's colour
+    /// bound keeps the `if` form.
+    pub stream_step: bool,
 }
 
 /// Locals that carry an enum value, mapped to their Rust type.
@@ -283,6 +286,7 @@ impl RustRenderCtx {
             enum_vars: std::collections::HashMap::new(),
             circbuf_hybrid_static: std::collections::HashMap::new(),
             circbuf_len_of: std::collections::HashMap::new(),
+            stream_step: false,
         }
     }
 
@@ -480,18 +484,21 @@ fn gen_imports() -> String {
         .to_string()
 }
 
+/// Every fused site, and only a fused site, invokes the crate's `c_math::fmadd!`.
+pub const FMA_CALL: &str = "fmadd!(";
+
 /// Runtime FMA dispatch (issue #156). When a rendered batch variant contains
 /// fused multiply-adds, restructure it into the Rust analogue of the C
 /// backend's `TA_FMA_MULTIVERSION` (`target_clones("default","fma")`): the
 /// body moves verbatim to a private `{name}_scalar` (`#[inline(always)]`, so it
 /// compiles once per clone), `{name}_fma` is a `#[target_feature(enable =
-/// "fma")]` clone whose codegen turns every `mul_add` into a hardware
+/// "fma")]` clone whose codegen turns every fused site into a hardware
 /// `vfmadd`, and the public name becomes a dispatcher through
 /// `ta_lib_dispatch::dispatch_fma!` (one cached CPU check per call; both
 /// paths are correctly rounded, so which clone runs never changes bits).
 /// Lookback stays undispatched; the stream tier has its own pass.
 fn fma_dispatch_wrap(text: String, fn_name: &str, vis: &str) -> String {
-    if !fma::EMIT_FMA || !text.contains(".mul_add(") {
+    if !fma::EMIT_FMA || !text.contains(FMA_CALL) {
         return text;
     }
     // From here the variant fuses, so a signature-pattern mismatch must fail
@@ -509,9 +516,9 @@ fn fma_dispatch_wrap(text: String, fn_name: &str, vis: &str) -> String {
     let params_end = params_start + close_rel;
     let body_start = params_end + sig_close.len();
     // Only the *body* decides (site selection lives in fma::fuse_operands;
-    // `.mul_add(` in the rendered body is its footprint) — a mention in the
+    // `FMA_CALL` in the rendered body is its footprint) — a mention in the
     // doc comment alone must not dispatch.
-    if !text[body_start..].contains(".mul_add(") {
+    if !text[body_start..].contains(FMA_CALL) {
         return text;
     }
 
@@ -680,6 +687,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         enum_vars,
         circbuf_hybrid_static: collect_circbuf_static(&func.body),
         circbuf_len_of: collect_circbuf_len_of(&func.body),
+        stream_step: false,
     };
 
     // `_private` holds the algorithm for the functions that declare one (Rust has
@@ -1113,6 +1121,7 @@ fn gen_guarded_func(
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
             circbuf_len_of: collect_circbuf_len_of(&func.body),
+            stream_step: false,
         };
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
         let g_var_inits: std::collections::HashMap<String, &Expr> = func
@@ -1218,6 +1227,7 @@ fn gen_guarded_func(
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
             circbuf_len_of: collect_circbuf_len_of(&func.body),
+            stream_step: false,
         };
 
         // Use the same full rendering as the `_private` body
@@ -1358,19 +1368,33 @@ fn gen_guarded_func(
             out.push_str(&reslice);
         }
         let mut past_reslice = at_entry;
-        for stmt in &func.body {
-            if matches!(stmt, Statement::VarDecl { .. }) {
-                continue;
+        let mut render_top = |stmts: &[Statement], indent: usize, out: &mut String| {
+            for stmt in stmts {
+                if matches!(stmt, Statement::VarDecl { .. }) {
+                    continue;
+                }
+                let ctx = if past_reslice { &resliced } else { &g_ctx };
+                out.push_str(&render_statement(
+                    stmt, indent, ctx, &g_for_loop_vars, &g_var_inits,
+                    &g_output_names, &g_opt_real_params, enums, registry, helpers, &g_inline_counter,
+                ));
+                if !past_reslice && is_empty_range_exit(stmt) {
+                    out.push_str(&reslice);
+                    past_reslice = true;
+                }
             }
-            let ctx = if past_reslice { &resliced } else { &g_ctx };
-            out.push_str(&render_statement(
-                stmt, 8, ctx, &g_for_loop_vars, &g_var_inits,
-                &g_output_names, &g_opt_real_params, enums, registry, helpers, &g_inline_counter,
-            ));
-            if !past_reslice && is_empty_range_exit(stmt) {
-                out.push_str(&reslice);
-                past_reslice = true;
+        };
+        if let Some(copies) = range_type_copies(&func.body, func) {
+            render_top(&copies.head, 8, &mut out);
+            let count = g_inline_counter.get();
+            for (k, arm) in copies.arms.iter().enumerate() {
+                g_inline_counter.set(count);
+                out.push_str(&open_range_type_arm(k, arm, "        "));
+                render_top(&arm.body, 12, &mut out);
             }
+            out.push_str("        }\n");
+        } else {
+            render_top(&func.body, 8, &mut out);
         }
     }
     out.push_str("    }\n");
@@ -4547,8 +4571,8 @@ impl ExprEmitter for RustExpr<'_> {
 /// Every cast [`render_binop`] emits from an *operand* goes through here —
 /// including the `as f64` ones, which already wrapped and so are unchanged — so
 /// the invariant is one function rather than a rule each site has to re-derive.
-/// The one cast it does not cover is the FMA fusion's `({a} as f64).mul_add(..)`,
-/// which returns immediately and whose cast is followed by `)` by construction.
+/// The one cast it does not cover is the FMA fusion's `fmadd!({a} as f64, ..)`,
+/// which returns immediately and whose cast is followed by `,` by construction.
 /// Issue #159.
 fn wrap_cast(operand: &str, ty: &str) -> String {
     format!("(({operand}) as {ty})")
@@ -4568,7 +4592,7 @@ fn render_binop(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
-    // Fused multiply-add: (a * b) + c → (a as f64).mul_add(b, c). Emits ARM
+    // Fused multiply-add: (a * b) + c → fmadd!(a as f64, b, c). Emits ARM
     // fmadd (1 FP op) vs fmul+fadd (2 FP ops), IEEE-754 correctly-rounded so it
     // matches the C `fma()` / Java `Math.fma` the other backends emit at the same
     // sites (site selection lives in `fma::fuse_operands`, shared by all backends).
@@ -4583,7 +4607,7 @@ fn render_binop(
             let a_str = render_expr(a, ctx, opt_real_params, registry, helpers);
             let b_str = render_expr(b, ctx, opt_real_params, registry, helpers);
             let c_str = render_expr(c, ctx, opt_real_params, registry, helpers);
-            return format!("({a_str} as f64).mul_add({b_str}, {c_str})");
+            return format!("{FMA_CALL}{a_str} as f64, {b_str}, {c_str})");
         }
     }
     // C pointer-identity buffer comparisons (BBANDS' `inReal == outRealUpperBand`,
@@ -5301,12 +5325,6 @@ fn decompose_rust_array_ref(
     }
 }
 
-// NOTE: Candle range types (rangeType 0=RealBody, 1=HighLow, 2=Shadows)
-// are configurable at runtime via candle settings, so we cannot
-// constant-propagate them at code-generation time. The codegen emits
-// runtime method calls (`self.ta_candlerange` / `self.ta_candleaverage`)
-// which dispatch on the actual rangeType value.
-
 /// Helpers rendered by [`render_func_call`] rather than hoisted from their C
 /// body: the C divides `ta_candleaverage` by a selected 2.0 or 1.0, which LLVM
 /// keeps as a DIVSD, where the inline rendering multiplies.
@@ -5326,21 +5344,91 @@ pub(crate) const KEPT_INLINE: &[&str] = &["ta_candleaverage"];
 /// is `0.0` for the same reason: `TA_CANDLERANGE`'s innermost ternary falls
 /// through to `0`, so folding it into the Shadows arm would answer an
 /// out-of-range rangeType differently than C does.
-fn candle_range_arms(open: &str, high: &str, low: &str, close: &str) -> String {
-    let [real_body, high_low, shadows] = candle_range_arm_exprs(open, high, low, close);
+fn candle_range_arms(open: &str, high: &str, low: &str, close: &str, select: bool) -> String {
+    let [real_body, high_low, shadows] = candle_range_arm_exprs(open, high, low, close, select);
     format!("0 => {real_body}, 1 => {high_low}, 2 => {shadows}, _ => 0.0")
 }
 
+/// The value [`candle_range_arms`] keys `t` on.
+fn range_type_code(t: super::range_type_copy::RangeType) -> i64 {
+    use super::range_type_copy::RangeType;
+    match t {
+        RangeType::RealBody => 0,
+        RangeType::HighLow => 1,
+        RangeType::Shadows => 2,
+    }
+}
+
+/// `body`'s range-type copies, each folded type a literal so the `match` on it
+/// resolves at compile time.
+pub(crate) fn range_type_copies(body: &[Statement], func: &FuncDef) -> Option<super::range_type_copy::Copies> {
+    super::range_type_copy::split(body, &func.opt_outs, &|t| Expr::IntLiteral(range_type_code(t)))
+}
+
+/// The line that opens arm `k` at `pad`, closing the one before; the caller
+/// closes the last with `{pad}}`.
+pub(crate) fn open_range_type_arm(k: usize, arm: &super::range_type_copy::Arm, pad: &str) -> String {
+    let Some(guard) = &arm.guard else { return format!("{pad}}} else {{\n") };
+    let cond: Vec<String> = guard
+        .iter()
+        .map(|(s, t)| format!("{} == {}", super::range_type_copy::range_type_var(s), range_type_code(*t)))
+        .collect();
+    let close = if k == 0 { "" } else { "} else " };
+    format!("{pad}{close}if {} {{\n", cond.join(" && "))
+}
+
 /// The RealBody, HighLow and Shadows arms of [`candle_range_arms`].
-fn candle_range_arm_exprs(open: &str, high: &str, low: &str, close: &str) -> [String; 3] {
-    [
-        format!("(({close}) - ({open})).abs()"),
-        format!("({high}) - ({low})"),
+fn candle_range_arm_exprs(open: &str, high: &str, low: &str, close: &str, select: bool) -> [String; 3] {
+    let shadows = if select {
+        let (c, o) = (format!("({close})"), format!("({open})"));
+        format!(
+            "(({high}) - {}) + ({} - ({low}))",
+            colour_select(&c, &o, true),
+            colour_select(&c, &o, false)
+        )
+    } else {
         format!(
             "(({high}) - (if ({close}) >= ({open}) {{ ({close}) }} else {{ ({open}) }})) \
             + ((if ({close}) >= ({open}) {{ ({open}) }} else {{ ({close}) }}) - ({low}))"
-        ),
-    ]
+        )
+    };
+    [format!("(({close}) - ({open})).abs()"), format!("({high}) - ({low})"), shadows]
+}
+
+/// Pseudo-calls for a candle's upper and lower colour bound, `(close, open)`.
+const COLOUR_MAX: &str = "ta_colour_max";
+const COLOUR_MIN: &str = "ta_colour_min";
+
+/// The crate's `c_color_max!` / `c_color_min!` (`c_math.rs`), C's
+/// `TA_COLOR_MAX` / `TA_COLOR_MIN`.
+fn colour_select(c: &str, o: &str, max: bool) -> String {
+    if max {
+        format!("c_color_max!({c}, {o})")
+    } else {
+        format!("c_color_min!({c}, {o})")
+    }
+}
+
+/// An inlined shadow helper with each `c >= o ? c : o` / `c >= o ? o : c`
+/// bound as a [`COLOUR_MAX`] / [`COLOUR_MIN`] call.
+fn colour_bound_calls(e: Expr) -> Expr {
+    use crate::streaming::exprs_equal;
+    match e {
+        Expr::BinOp(l, op, r) => Expr::BinOp(Box::new(colour_bound_calls(*l)), op, Box::new(colour_bound_calls(*r))),
+        Expr::Ternary(cond, t, f) => {
+            if let Expr::BinOp(c, BinOp::GreaterEq, o) = cond.as_ref() {
+                let call = |n: &str| Expr::FuncCall(n.to_string(), vec![(**c).clone(), (**o).clone()]);
+                if exprs_equal(&t, c) && exprs_equal(&f, o) {
+                    return call(COLOUR_MAX);
+                }
+                if exprs_equal(&t, o) && exprs_equal(&f, c) {
+                    return call(COLOUR_MIN);
+                }
+            }
+            Expr::Ternary(cond, t, f)
+        }
+        other => other,
+    }
 }
 
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
@@ -5352,9 +5440,16 @@ fn render_func_call(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> String {
+    if let (COLOUR_MAX | COLOUR_MIN, [c, o]) = (fname, args) {
+        let [c, o] = [c, o].map(|e| render_expr(e, ctx, opt_real_params, registry, helpers));
+        return colour_select(&c, &o, fname == COLOUR_MAX);
+    }
     // Check if this is a call to a helper function that can be inlined
     if let Some(helper) = helpers.get(fname) {
-        if let Some(inlined_expr) = try_inline_expr(helper, args) {
+        if let Some(mut inlined_expr) = try_inline_expr(helper, args) {
+            if !ctx.stream_step && matches!(fname, "ta_uppershadow" | "ta_lowershadow") {
+                inlined_expr = colour_bound_calls(inlined_expr);
+            }
             let rendered = render_expr(&inlined_expr, ctx, opt_real_params, registry, helpers);
             // Wrap inlined BinOp in parens to preserve precedence when the
             // FuncCall sits inside a higher-precedence operator (e.g., `f(a,b) / 2`
@@ -5479,8 +5574,8 @@ fn render_func_call(
         }
     } else if fname == super::rust_respell::CANDLE_RANGE_DIFF && args.len() == 9 {
         let r: Vec<String> = args.iter().map(|a| render_expr(a, ctx, opt_real_params, registry, helpers)).collect();
-        let a = candle_range_arm_exprs(&r[1], &r[2], &r[3], &r[4]);
-        let b = candle_range_arm_exprs(&r[5], &r[6], &r[7], &r[8]);
+        let a = candle_range_arm_exprs(&r[1], &r[2], &r[3], &r[4], !ctx.stream_step);
+        let b = candle_range_arm_exprs(&r[5], &r[6], &r[7], &r[8], !ctx.stream_step);
         // `_`: C's range is 0 for an unknown type, and 0 - 0 is +0.0.
         format!(
             "(match {} {{ 0 => ({}) - ({}), 1 => ({}) - ({}), 2 => ({}) - ({}), _ => 0.0 }})",
@@ -5650,7 +5745,7 @@ fn render_func_call(
             .map(|a| render_expr(a, ctx, opt_real_params, registry, helpers))
             .collect();
         let (rt, open, high, low, close) = (&r[0], &r[1], &r[2], &r[3], &r[4]);
-        format!("(match {rt} {{ {} }})", candle_range_arms(open, high, low, close))
+        format!("(match {rt} {{ {} }})", candle_range_arms(open, high, low, close, !ctx.stream_step))
     } else if fname == "ta_candleaverage" && args.len() == 8 {
         // Inline as a single nested expression (no let bindings) matching C's ternary structure.
         // This enables LLVM loop unswitching on the invariant rangeType checks.
@@ -5666,7 +5761,7 @@ fn render_func_call(
             "(({factor}) * (if ({ap}) != 0 {{ ({sum}) / ({ap} as f64) }} else {{ \
              match {rt} {{ {} }} \
              }}) * (if ({rt}) == 2 {{ 0.5 }} else {{ 1.0 }}))",
-            candle_range_arms(open, high, low, close)
+            candle_range_arms(open, high, low, close, !ctx.stream_step)
         )
     } else if registry.contains(fname) || fname.ends_with("_private") {
         // Cross-indicator call: use registry to resolve the function name.
@@ -7001,7 +7096,7 @@ fn gen_footer() -> String {
         .to_string()
 }
 
-fn int_param_names(func: &FuncDef) -> std::collections::HashSet<String> {
+pub(crate) fn int_param_names(func: &FuncDef) -> std::collections::HashSet<String> {
     func.optional_inputs
         .iter()
         .filter(|o| o.param_type == ParamType::Integer)

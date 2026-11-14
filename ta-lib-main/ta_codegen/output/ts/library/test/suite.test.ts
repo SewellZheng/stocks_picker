@@ -58,6 +58,11 @@ import { FuncFlags, Functions } from '../src/metadata/index.ts';
 const TESTS: Record<string, number> = {
   'batchArgs.test.ts': 10,
   'batchContract.test.ts': 10,
+  'engineBytes.test.ts': 2,
+  'engineContract.test.ts': 15,
+  'engineLoader.test.ts': 4,
+  'engineParity.test.ts': 2,
+  'engineTraps.test.ts': 3,
   'inputForms.test.ts': 1,
   'mavpBank.test.ts': 2,
   'metadata.test.ts': 12,

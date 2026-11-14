@@ -30,7 +30,7 @@ of a property of library output; it moves with FMA dispatch, libm and compiler.
 |------|-------------|
 | `--function=CSV` | Substring filter matched against the **group tag** in `DO_TEST`, not the function name — a function absent from its group's tag is unreachable by it, which is why the composite groups spell their members out. A tag element ending in `*` is a prefix claim (`CDL*`). `--codegen` also matches each entry against real function names; `--xlang-hash` and `--ref` match only those. An entry that matches nothing at all is `TA_REGTEST_FILTER_MATCHED_NOTHING`, even beside entries that matched. |
 | `--codegen` | Codegen verification after the C reference tests |
-| `--language=CSV` | Narrow it (`c,rust,java,csharp,ts`) |
+| `--language=CSV` | Narrow it (`c,rust,java,csharp,ts,tswasm`) |
 | `--ref=X_Y_Z` | Differential fuzz vs one frozen release. **Self-contained** |
 | `--xlang-hash` | Cross-language bitwise parity gate. **Self-contained** |
 
@@ -348,6 +348,37 @@ legitimate zero.
 the request-shaping flags, the timing accumulators. Skipping that only appears to
 work while it is the last statement of `sweep_run_variant`.
 
+## The WASM engine run — `tswasm`
+
+`tswasm` is the TypeScript server started with `--engine=wasm`: its batch
+correctness calls go through the default entry with the engine forced, and with
+no output buffer, since the default entry routes no call that passes one. It runs
+in `--codegen` and `--xlang-hash`; the stream legs, the abstract block and
+`server_verify` leave it out because what they reach is the `./js` code `ts`
+already drives, and a `"timed":1` request answers `unsupported_mode`.
+
+A fall-through still answers correctly from TypeScript, so values prove nothing
+here: the transport (`engine_scan`) holds every batch reply of a pipe launched
+with `--engine=wasm`, on every pass, to the `engine_*` evidence the server adds,
+and `main()` fails the run on a defect, a batch reply without evidence, an export
+the server reports differently from `TA_FUNC_FLG_USES_TRANSCENDENTAL`, or an
+exported function that answered successfully and never ran in WASM.
+
+- **Ran in WASM** means the module's own count of batch calls, which only the
+  exports advance, moved by exactly one across the call. The router's
+  fall-through counter is never proof: glue that answers from `./js` without
+  calling the module makes no fall-through.
+- **Expected fall-throughs** are decided in one place, the server's
+  `expectedFallThrough`, and only where the call's own facts explain them:
+  `budget` only when the call's bytes exceed the runtime's own budget constant,
+  never a copy of it. A trap, a throw in the glue, a load state, or a reason it
+  does not know is a defect, even on a call `./js` rejects. Never add a waiver on
+  this side.
+- **The exit status is evidence.** At close the WASM-engine server gets 10 s to
+  exit before SIGTERM, and a non-zero exit (it exits 1 when the engine did not
+  load) or a death by any signal but that SIGTERM fails the run. Other servers
+  keep the 100 ms bound.
+
 ## Transport
 
 `codegen_pipe_call` reads responses in 256KB chunks into a per-pipe buffer that
@@ -397,7 +428,7 @@ standard basis matches nothing. Call `fuzz_hash_init()`; never retype the number
 
 Servers launch from `bin/`: `java -cp ta_codegen_java TaCodegenServe`,
 `dotnet ta_codegen_csharp/TaCodegenServe.dll` and
-`node ta_codegen_ts/tools/taCodegenServe.js`.
+`node ta_codegen_ts/tools/taCodegenServe.js` (`--engine=wasm` for `tswasm`).
 
 ## Building
 
