@@ -46,13 +46,14 @@ static int  g_floatCapableLangTested = 0;
 #include "ta_utility.h"  /* TA_IS_ZERO / TA_IS_ZERO_SCALED / TA_IS_ZERO_OR_NEG (predicate parity truth) */
 #include "fuzz_data.h"   /* shared, byte-identical input generator + output hasher */
 #include "ta_stream_frame.h"  /* in-process Open/OpenAndFill/Close dispatch (issue #256) */
+#include "ta_runtime_info_keys.h"
 #include "../ta_alloc_check.h"
 
 /* ---- Language definitions ---- */
 
 typedef struct {
-    const char *name;           /* "rust", "c", "java", "csharp", "ts", "tswasm" */
-    const char *display;        /* "Rust", "C", "Java", "C#", "TypeScript", "TS-WASM" */
+    const char *name;           /* "rust", "c", "java", "csharp", "ts", "tswasm", "go" */
+    const char *display;        /* "Rust", "C", "Java", "C#", "TypeScript", "TS-WASM", "Go" */
     const char *const *argv;    /* NULL-terminated command array */
 } CodegenLanguage;
 
@@ -62,6 +63,7 @@ static const char *const argv_java[]  = {"java", "-cp", "ta_codegen_java", "TaCo
 static const char *const argv_csharp[]= {"dotnet", "ta_codegen_csharp/TaCodegenServe.dll", NULL};
 static const char *const argv_ts[]    = {"node", "ta_codegen_ts/tools/taCodegenServe.js", NULL};
 static const char *const argv_tswasm[]= {"node", "ta_codegen_ts/tools/taCodegenServe.js", "--engine=wasm", NULL};
+static const char *const argv_go[]    = {"./ta_codegen_serve_go", NULL};
 static const CodegenLanguage ALL_LANGUAGES[] = {
     {"c",      "C",            argv_c},
     {"rust",   "Rust",         argv_rust},
@@ -69,6 +71,7 @@ static const CodegenLanguage ALL_LANGUAGES[] = {
     {"csharp", "C#",           argv_csharp},
     {"ts",     "TypeScript",   argv_ts},
     {"tswasm", "TS-WASM",      argv_tswasm},
+    {"go",     "Go",           argv_go},
 };
 #define NUM_LANGUAGES (sizeof(ALL_LANGUAGES) / sizeof(ALL_LANGUAGES[0]))
 
@@ -133,7 +136,9 @@ static int codegen_lang_has_peek_probe(const char *lang)
  *       difference. A bitwise claim verified on one machine is a claim about
  *       that machine.
  * TS:   a JS engine's `Math.*` is neither correctly rounded nor glibc, and can
- *       differ between engines and engine versions. */
+ *       differ between engines and engine versions.
+ * Go:   the math package is Go's own, not libm, and its bits move with GOARCH
+ *       and GOAMD64, which decide where its own polynomials fuse. */
 double codegen_lang_transcendental_tol(const char *lang)
 {
     if( !lang ) return 0.0;
@@ -141,7 +146,21 @@ double codegen_lang_transcendental_tol(const char *lang)
         return CODEGEN_TRANSCENDENTAL_TOL;
     if( strcmp(lang, "ts") == 0 || strcmp(lang, "tswasm") == 0 )
         return CODEGEN_TRANSCENDENTAL_TOL_TS;
+    if( strcmp(lang, "go") == 0 )
+        return CODEGEN_TRANSCENDENTAL_TOL_GO;
     return 0.0;
+}
+
+/* Go has no metadata tier yet. */
+int codegen_lang_has_abstract(const char *lang)
+{
+    return !(lang && strcmp(lang, "go") == 0);
+}
+
+/* Rust and Go are concrete f64. */
+int codegen_lang_serves_float(const char *lang)
+{
+    return !(lang && (strcmp(lang, "rust") == 0 || strcmp(lang, "go") == 0));
 }
 
 int codegen_call_needs_vmath_tol(const char *lang, const char *funcName)
@@ -481,9 +500,9 @@ static int              g_numTimingResults = 0;
  * only symptom is a zero's sign is green in the stream gate, absent from
  * --xlang-hash (batch only), and invisible in the nightly.
  *
- * Compared JAVA vs C# and JAVA vs TS, and not against C: C counts candidate
+ * Compared JAVA vs C#, TS and Go, and not against C: C counts candidate
  * prefixes rather than successful opens, so its `legs` is on a different
- * accounting entirely. C#'s max()/min() keep the C macro's tie rule and Java's
+ * accounting entirely. C#'s and Go's max()/min() keep the C macro's tie rule and Java's
  * rank -0.0 below +0.0, which moves `benign` only where a batch and a stream
  * tier bring max()/min() differently signed zeros. */
 typedef struct {
@@ -577,7 +596,8 @@ static int check_stream_counter_pair( const char *a, const char *b )
 static int check_stream_counter_parity( void )
 {
     return check_stream_counter_pair("java", "csharp")
-         + check_stream_counter_pair("java", "ts");
+         + check_stream_counter_pair("java", "ts")
+         + check_stream_counter_pair("java", "go");
 }
 
 /* ---- Constants ---- */
@@ -751,6 +771,13 @@ static int json_get_int_array(const char *json, const char *field,
 static int json_is_error(const char *json)
 {
     return strstr(json, "\"error\"") != NULL;
+}
+
+/* json_get_int reads an absent retCode as 0, which is TA_SUCCESS. */
+static int json_lacks_retcode(const char *json)
+{
+    int len;
+    return json_is_error(json) || !json_find_field(json, "retCode", &len);
 }
 
 /* The only error responses a `call` may legitimately answer: a name this
@@ -2251,7 +2278,7 @@ ErrorNumber test_func_unstable_shift( TA_History *history )
                ctx.flatMinimum, ctx.flatList);
         return TA_UNSTABLE_SHIFT_VACUOUS;
     }
-    if( server_verify_active() && server_verify_lookback_values() == serverLookbacks )
+    if( server_verify_lookback_pipes() > 0 && server_verify_lookback_values() == serverLookbacks )
     {
         printf("\nUNSTABLE SHIFT: no lookback was compared with any language server\n");
         return TA_UNSTABLE_SHIFT_VACUOUS;
@@ -2812,7 +2839,7 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      *
      * C, Java and C# all ship a float surface (TA_S_<N>, the float[] overload of
      * the Java core, the float[] overload of the C# core).
-     * Rust is concrete f64 and has none, so it is the only exclusion.
+     * Rust and Go are concrete f64 and have none.
      *
      * This ran C-only until the Java and C# servers gained a float path. While
      * it did, a k-factor defect sat in all three float surfaces and only C's was
@@ -2822,9 +2849,9 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * the default-parameter sentinel has to be sent (issue #170). It runs after
      * the timing snapshot above, so the extra calls do not skew the reported ns.
      */
-    if( strcmp(ctx->lang->name, "rust") != 0 )
+    if( codegen_lang_serves_float(ctx->lang->name) )
         g_floatCapableLangTested = 1;
-    if( params.codegenError == TA_TEST_PASS && strcmp(ctx->lang->name, "rust") != 0 )
+    if( params.codegenError == TA_TEST_PASS && codegen_lang_serves_float(ctx->lang->name) )
         run_float_leg(&params, 1);
 
     /* ---- Large-period pass (Task 10) ----
@@ -5128,50 +5155,97 @@ static ErrorNumber codegen_check_gencode_digest( CodegenPipe *cp, const CodegenL
 /* What each language's library reports about itself, asked before any function
  * request: afterwards the C server's loops have loaded their own routines.
  *
- * The values are stated here per language. Rust, Java and C# have no kernel and
- * no TA_Initialize; the C server is this library in another process, which has
- * called TA_Initialize once, and ta_regtest held its own kernel answer to the
- * platform before any function ran.
+ * A common key is asked of every server, against values stated here per
+ * language. Rust, Java and C# have no kernel and no TA_Initialize; the C server
+ * is this library in another process, which has called TA_Initialize once, and
+ * ta_regtest held its own kernel answer to the platform before any function ran.
+ * A backend's own key is asked of that backend alone, and held to 0..max.
  */
 static long g_runtimeInfoChecked = 0;
 
+static const char *codegen_backend_name( const char *langName )
+{
+   return strcmp( langName, "tswasm" ) == 0 ? "ts" : langName;
+}
+
+/* 0 for a common key this check states no C value for. */
+static int codegen_runtime_info_want( const char *key, int isC, int *want )
+{
+   *want = 0;
+   if( !isC ) return 1;
+   if( strcmp( key, "vmath.transcendental" ) == 0 ) return TA_GetRuntimeInfo( key, want ) == TA_SUCCESS;
+   if( strcmp( key, "count.initialize" ) == 0 ) { *want = 1; return 1; }
+   return strcmp( key, "count.shutdown" ) == 0;
+}
+
+static ErrorNumber codegen_ask_runtime_info( CodegenPipe *cp, const CodegenLanguage *lang, const char *key,
+                                             int wantCode, int minValue, int maxValue )
+{
+   char req[128], resp[256];
+   ErrorNumber errNb;
+   int value;
+
+   (void)snprintf( req, sizeof(req), "{\"method\":\"TA_GetRuntimeInfo\",\"params\":{\"key\":\"%s\"}}", key );
+   errNb = codegen_pipe_call( cp, req, resp, (int)sizeof(resp) );
+   if( errNb != TA_TEST_PASS )
+   {
+      printf( "\nCODEGEN FAILED: the %s server did not answer TA_GetRuntimeInfo( \"%s\" )\n",
+              lang->display, key );
+      return errNb;
+   }
+   value = json_get_int( resp, "value" );
+   if( !strstr( resp, "\"retCode\":" ) || !strstr( resp, "\"value\":" )
+       || json_get_int( resp, "retCode" ) != wantCode
+       || value < minValue || value > maxValue )
+   {
+      printf( "\nCODEGEN FAILED: the %s server answers TA_GetRuntimeInfo( \"%s\" ) with\n"
+              "  %s\n  want retCode %d and a value in %d..%d\n",
+              lang->display, key, resp, wantCode, minValue, maxValue );
+      return TA_CODEGEN_RUNTIME_INFO;
+   }
+   return TA_TEST_PASS;
+}
+
 static ErrorNumber codegen_check_runtime_info( CodegenPipe *cp, const CodegenLanguage *lang )
 {
-   static const char *const key[] = { "vmath.transcendental", "count.initialize", "count.shutdown", "vmath" };
    const int isC = strcmp( lang->name, "c" ) == 0;
-   int want[4] = { 0, 0, 0, 0 };
-   unsigned int i;
+   const char *backend = codegen_backend_name( lang->name );
+   unsigned int i, j;
+   ErrorNumber errNb;
 
-   if( isC )
+   for( i = 0; i < sizeof(TA_RUNTIME_INFO_KEYS)/sizeof(TA_RUNTIME_INFO_KEYS[0]); i++ )
    {
-      if( TA_GetRuntimeInfo( key[0], &want[0] ) != TA_SUCCESS ) return TA_CODEGEN_RUNTIME_INFO;
-      want[1] = 1;
+      const RuntimeInfoKeyRow *row = &TA_RUNTIME_INFO_KEYS[i];
+      int want;
+
+      if( row->backend[0] == '\0' )
+      {
+         if( !codegen_runtime_info_want( row->key, isC, &want ) )
+         {
+            printf( "\nCODEGEN FAILED: no value is stated here for the common key \"%s\" in %s\n",
+                    row->key, lang->display );
+            return TA_CODEGEN_RUNTIME_INFO;
+         }
+         errNb = codegen_ask_runtime_info( cp, lang, row->key, (int)TA_SUCCESS, want, want );
+      }
+      else
+      {
+         for( j = 0; j < NUM_LANGUAGES; j++ )
+            if( strcmp( codegen_backend_name( ALL_LANGUAGES[j].name ), row->backend ) == 0 ) break;
+         if( j == NUM_LANGUAGES )
+         {
+            printf( "\nCODEGEN FAILED: the runtime info key \"%s\" belongs to \"%s\", which no server is\n",
+                    row->key, row->backend );
+            return TA_CODEGEN_RUNTIME_INFO;
+         }
+         if( strcmp( row->backend, backend ) != 0 ) continue;
+         errNb = codegen_ask_runtime_info( cp, lang, row->key, (int)TA_SUCCESS, 0, row->max );
+      }
+      if( errNb != TA_TEST_PASS ) return errNb;
    }
 
-   for( i = 0; i < sizeof(key)/sizeof(key[0]); i++ )
-   {
-      const int wantCode = i < 3 ? (int)TA_SUCCESS : (int)TA_BAD_PARAM;
-      char req[128], resp[256];
-      ErrorNumber errNb;
-
-      (void)snprintf( req, sizeof(req), "{\"method\":\"TA_GetRuntimeInfo\",\"params\":{\"key\":\"%s\"}}", key[i] );
-      errNb = codegen_pipe_call( cp, req, resp, (int)sizeof(resp) );
-      if( errNb != TA_TEST_PASS )
-      {
-         printf( "\nCODEGEN FAILED: the %s server did not answer TA_GetRuntimeInfo( \"%s\" )\n",
-                 lang->display, key[i] );
-         return errNb;
-      }
-      if( !strstr( resp, "\"retCode\":" ) || !strstr( resp, "\"value\":" )
-          || json_get_int( resp, "retCode" ) != wantCode
-          || json_get_int( resp, "value" ) != want[i] )
-      {
-         printf( "\nCODEGEN FAILED: the %s server answers TA_GetRuntimeInfo( \"%s\" ) with\n"
-                 "  %s\n  want retCode %d and value %d\n",
-                 lang->display, key[i], resp, wantCode, want[i] );
-         return TA_CODEGEN_RUNTIME_INFO;
-      }
-   }
+   errNb = codegen_ask_runtime_info( cp, lang, "vmath", (int)TA_BAD_PARAM, 0, 0 );
+   if( errNb != TA_TEST_PASS ) return errNb;
 
    g_runtimeInfoChecked++;
    return TA_TEST_PASS;
@@ -5199,8 +5273,7 @@ static ErrorNumber test_codegen_for_language(
         if( strcmp(lang->name, "rust") == 0 )
             printf(" (is ./ta_codegen built?)");
         else
-            printf(" (run: ta_codegen build --backend=%s)",
-                   strcmp(lang->name, "tswasm") == 0 ? "ts" : lang->name);
+            printf(" (run: ta_codegen build --backend=%s)", codegen_backend_name(lang->name));
         printf("\n");
         return errNb;
     }
@@ -5696,7 +5769,9 @@ static ErrorNumber test_codegen_for_language(
         }
         else if( probeErr == TA_TEST_PASS )
         {
-            printf("  Stream verify: not supported by this server (stage 1 is C-only)\n");
+            printf("STREAM PROBE FAILED: the %s server declares a streaming tier but did "
+                   "not answer the stream probe: %.160s\n", lang->display, responseBuf);
+            ctx.error = TA_CODEGEN_STREAM_MISMATCH;
         }
         else
         {
@@ -6167,15 +6242,18 @@ static unsigned long long fuzz_hash_local(const CodegenRangeTestParam *p, int nb
 
 /* Build an abstract_call request that generates its inputs from (shape,seed,n).
  * hash mode unless fullOutput. */
-static void fuzz_build_request(char *buf, const TA_FuncInfo *fi,
-                               int s, int e, int shape, int seed, int n,
-                               const double *optVals, int fullOutput, int unst)
+static void fuzz_build_request_as(char *buf, int perFunction, const TA_FuncInfo *fi,
+                                  int s, int e, int shape, int seed, int n,
+                                  const double *optVals, int fullOutput, int unst)
 {
-    int pos = codegen_appendf(buf, JSON_BUF_SIZE, 0,
-        "{\"method\":\"abstract_call\",\"params\":{\"funcName\":\"%s\","
+    int pos = perFunction
+        ? codegen_appendf(buf, JSON_BUF_SIZE, 0, "{\"method\":\"TA_%s\",\"params\":{", fi->name)
+        : codegen_appendf(buf, JSON_BUF_SIZE, 0,
+                          "{\"method\":\"abstract_call\",\"params\":{\"funcName\":\"%s\",", fi->name);
+    pos = codegen_appendf(buf, JSON_BUF_SIZE, pos,
         "\"startIdx\":%d,\"endIdx\":%d,"
         "\"gen_present\":1,\"gen_shape\":%d,\"gen_seed\":%d,\"gen_n\":%d",
-        fi->name, s, e, shape, seed, n);
+        s, e, shape, seed, n);
     if( fullOutput )
         pos = codegen_appendf(buf, JSON_BUF_SIZE, pos, ",\"full_output\":1");
     for( unsigned int i = 0; i < fi->nbOptInput; i++ )
@@ -6190,6 +6268,13 @@ static void fuzz_build_request(char *buf, const TA_FuncInfo *fi,
     if( fi->flags & TA_FUNC_FLG_UNST_PER )
         pos = codegen_appendf(buf, JSON_BUF_SIZE, pos, ",\"unstablePeriod\":%d", unst);
     codegen_appendf(buf, JSON_BUF_SIZE, pos, "}}");
+}
+
+static void fuzz_build_request(char *buf, const TA_FuncInfo *fi,
+                               int s, int e, int shape, int seed, int n,
+                               const double *optVals, int fullOutput, int unst)
+{
+    fuzz_build_request_as(buf, 0, fi, s, e, shape, seed, n, optVals, fullOutput, unst);
 }
 
 static unsigned long long fuzz_parse_hash(const char *resp)
@@ -7467,7 +7552,8 @@ CTolVerdict codegen_compare_tol(const char *resp,
     CTolDetail local;
     if( !detail ) detail = &local;
     memset(detail, 0, sizeof(*detail));
-    detail->rc        = json_get_int(resp, "retCode");
+    /* -1 equals no TA_RetCode, so such a reply is a retCode mismatch. */
+    detail->rc        = json_lacks_retcode(resp) ? -1 : json_get_int(resp, "retCode");
     detail->begIdx    = json_get_int(resp, "outBegIdx");
     detail->nbElement = json_get_int(resp, "outNBElement");
     if( detail->rc != (int)goldRc )   return CTOL_RETCODE;
@@ -7637,6 +7723,71 @@ static int xlang_illcond(const char *name, int shape)
     return shape == FUZZ_CONSTANT &&
            (strcmp(name, "HT_DCPHASE") == 0 || strcmp(name, "HT_SINE") == 0 ||
             strcmp(name, "HT_TRENDMODE") == 0);
+}
+
+/* A tolerance-lane call is held to its language's bound unless a row names its
+ * language, function and shape: no wildcard, and a call matching no row is not
+ * loosened. A bound is about 3x the largest deviation measured, and a row that
+ * held nothing on an unfiltered run is deleted. A row belongs to the C library
+ * it was measured against, since the golden's libm decides whether a call needs
+ * it: on any other host it neither loosens nor counts as dead. */
+#if defined(__GLIBC__) && defined(__x86_64__)
+#define XLANG_HOST_GLIBC_X86_64 1
+#else
+#define XLANG_HOST_GLIBC_X86_64 0
+#endif
+
+typedef struct
+{
+    int         host;    /* an XLANG_HOST_* value: non-zero on the row's host */
+    const char *lang;
+    const char *func;
+    int         shape;
+    double      tol;
+    long long   held;    /* calls over the language's bound, within the row's */
+    double      maxDev;  /* largest deviation among the row's calls */
+} XlangTolRow;
+
+static XlangTolRow g_xlangTolRows[] = {
+    /* A ROC of +/-3e37 bars cancels to 1e-16 of its operands, so the 1 ULP by
+     * which Go's exp differs from glibc on some ALMA weights moves the output. */
+    { XLANG_HOST_GLIBC_X86_64, "go", "KSTEXT", FUZZ_DOMAIN_MAX, 4e-3, 0, 0.0 }, /* measured 1.296e-3 */
+};
+#define NB_XLANG_TOL_ROWS ((int)(sizeof(g_xlangTolRows)/sizeof(g_xlangTolRows[0])))
+
+static XlangTolRow *xlang_tol_row(const char *lang, const char *func, int shape)
+{
+    for( int i = 0; i < NB_XLANG_TOL_ROWS; i++ )
+        if( g_xlangTolRows[i].host && g_xlangTolRows[i].shape == shape &&
+            strcmp(g_xlangTolRows[i].lang, lang) == 0 &&
+            strcmp(g_xlangTolRows[i].func, func) == 0 )
+            return &g_xlangTolRows[i];
+    return NULL;
+}
+
+/* 0 when every row has a key of its own and loosens its language's bound. */
+static int xlang_tol_rows_invalid(void)
+{
+    int bad = 0;
+    for( int i = 0; i < NB_XLANG_TOL_ROWS; i++ )
+    {
+        const XlangTolRow *r = &g_xlangTolRows[i];
+        if( !r->host ) continue;
+        double bound = codegen_lang_transcendental_tol(r->lang);
+        if( !(bound > 0.0) || !(r->tol > bound) )
+        {
+            printf("FAIL — TOL ROW [%s] TA_%s shape %d: bound %g does not loosen the "
+                   "language's %g.\n", r->lang, r->func, r->shape, r->tol, bound);
+            bad++;
+        }
+        if( xlang_tol_row(r->lang, r->func, r->shape) != r )
+        {
+            printf("FAIL — TOL ROW [%s] TA_%s shape %d is listed twice.\n",
+                   r->lang, r->func, r->shape);
+            bad++;
+        }
+    }
+    return bad;
 }
 
 /* Build a per-function TA_<name> request with LOSSLESS hex-bits inputs (the
@@ -8074,6 +8225,22 @@ typedef struct {
     int        haveOaf;
 } XlangTierResults;
 
+static int xlang_tier_reply_ok(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
+                               const double *optVals, XlangServer *sv, const char *leg)
+{
+    if( !json_lacks_retcode(ctx->tierRespBuf) ) return 1;
+    sv->mism++;
+    if( ctx->reportedThisFunc < 3 )
+    {
+        ctx->reportedThisFunc++;
+        printf("  XLANG TIER NO RETCODE TA_%s  %s on %s: %.160s  params:",
+               funcInfo->name, leg, sv->display, ctx->tierRespBuf);
+        xlang_print_params(funcInfo, optVals);
+        printf("\n");
+    }
+    return 0;
+}
+
 /* Same-backend tier agreement (issue #256's L2, B3+S5): calls batch/Open/
  * OpenAndFill on `sv` for `optVals`, and checks each retCode against
  * `lookbackVerdict` — THIS SAME backend's own lookback-tier answer (>= 0
@@ -8098,7 +8265,8 @@ static void xlang_tier_self_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
     int streamRejected = rejected || (lookbackVerdict >= LB_TIER_N);
 
     xlang_build_tier_request(ctx->tierReqBuf, funcInfo, optVals, 0);
-    if( xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf) )
+    int called = xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf);
+    if( called && xlang_tier_reply_ok(ctx, funcInfo, optVals, sv, "BATCH") )
     {
         xlang_tier_parse(funcInfo, ctx->tierRespBuf, &out->batchR);
         out->haveBatch = 1;
@@ -8121,7 +8289,7 @@ static void xlang_tier_self_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
             }
         }
     }
-    else if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
+    else if( !called && ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
 
     /* Open/OpenAndFill exist only for streamable functions — every function
      * today, but read from the metadata rather than assume it, since it is a
@@ -8129,7 +8297,8 @@ static void xlang_tier_self_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
     if( funcInfo->flags & TA_FUNC_FLG_STREAM )
     {
         xlang_build_tier_request(ctx->tierReqBuf, funcInfo, optVals, 1);
-        if( xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf) )
+        called = xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf);
+        if( called && xlang_tier_reply_ok(ctx, funcInfo, optVals, sv, "OPEN") )
         {
             /* Open's own value never reaches a JSON field (every backend's
              * bench_mode==1 arm computes it and discards it — server_gen.rs's
@@ -8157,10 +8326,11 @@ static void xlang_tier_self_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
                 }
             }
         }
-        else if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
+        else if( !called && ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
 
         xlang_build_tier_request(ctx->tierReqBuf, funcInfo, optVals, 2);
-        if( xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf) )
+        called = xlang_call(sv, ctx->tierReqBuf, ctx->tierRespBuf);
+        if( called && xlang_tier_reply_ok(ctx, funcInfo, optVals, sv, "OPENANDFILL") )
         {
             xlang_tier_parse(funcInfo, ctx->tierRespBuf, &out->oafR);
             out->haveOaf = 1;
@@ -8185,7 +8355,7 @@ static void xlang_tier_self_check(XlangCtx *ctx, const TA_FuncInfo *funcInfo,
                 }
             }
         }
-        else if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
+        else if( !called && ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
 
         /* Data-match bonus: whenever this vector was ACCEPTED, batch and
          * OpenAndFill both produced a real array over the same fixed buffer —
@@ -8927,52 +9097,58 @@ static void xlang_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
              * value: Java's MAType.values()[Integer.MIN_VALUE] throws out of an
              * uncaught handler and takes the subprocess with it. */
             if( enumSent && !sv->enumSentinel ) { ctx->sentEnumSkipped++; continue; }
-            if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
+            /* A server with no metadata tier has no lookback RPC; its batch tier is
+             * held to C's verdict below instead of to its own. */
+            long long srv = gold;
+            if( codegen_lang_has_abstract(sv->name) )
             {
-                if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
-                sv->mism++;
-                continue;
-            }
-            int present = 0;
-            long long srv = xlang_lookback_norm(ctx->respBuf, &present);
-            sv->cases++;
-            ctx->lbCases++;
-            if( kind[k] == FUZZ_VEC_REJECT )   ctx->lbOorCases++;
-            if( kind[k] == FUZZ_VEC_SENTINEL ) ctx->lbSentCases++;
-            if( enumSent )                     ctx->lbSentEnumCases++;
-
-            if( !present )
-            {
-                printf("  XLANG LOOKBACK PROTOCOL MISSING [%s] TA_%s: response has no "
-                       "lookback field (%.120s)\n", sv->display, funcInfo->name, ctx->respBuf);
-                if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
-                sv->mism++;
-                continue;
-            }
-            if( srv != gold )
-            {
-                sv->mism++;
-                if( ctx->reportedThisFunc < 3 )
+                if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
                 {
-                    ctx->reportedThisFunc++;
-                    printf("  XLANG LOOKBACK MISMATCH TA_%s  C(golden) vs %s%s  params:",
-                           funcInfo->name, sv->display,
-                           kind[k] == FUZZ_VEC_REJECT
-                               ? "  [out-of-range vector: both tiers must REJECT]"
-                           : kind[k] == FUZZ_VEC_SENTINEL
-                               ? "  [sentinel vector: both tiers must resolve it to the default]"
-                               : "");
-                    xlang_print_params(funcInfo, vec[k]);
-                    printf("\n    lookback %lld/%lld (golden/%s; -1 = parameters rejected)\n",
-                           gold, srv, sv->display);
+                    if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
+                    sv->mism++;
+                    continue;
+                }
+                int present = 0;
+                srv = xlang_lookback_norm(ctx->respBuf, &present);
+                sv->cases++;
+                ctx->lbCases++;
+                if( kind[k] == FUZZ_VEC_REJECT )   ctx->lbOorCases++;
+                if( kind[k] == FUZZ_VEC_SENTINEL ) ctx->lbSentCases++;
+                if( enumSent )                     ctx->lbSentEnumCases++;
+
+                if( !present )
+                {
+                    printf("  XLANG LOOKBACK PROTOCOL MISSING [%s] TA_%s: response has no "
+                           "lookback field (%.120s)\n", sv->display, funcInfo->name, ctx->respBuf);
+                    if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_OUTPUT_MISMATCH;
+                    sv->mism++;
+                    continue;
+                }
+                if( srv != gold )
+                {
+                    sv->mism++;
+                    if( ctx->reportedThisFunc < 3 )
+                    {
+                        ctx->reportedThisFunc++;
+                        printf("  XLANG LOOKBACK MISMATCH TA_%s  C(golden) vs %s%s  params:",
+                               funcInfo->name, sv->display,
+                               kind[k] == FUZZ_VEC_REJECT
+                                   ? "  [out-of-range vector: both tiers must REJECT]"
+                               : kind[k] == FUZZ_VEC_SENTINEL
+                                   ? "  [sentinel vector: both tiers must resolve it to the default]"
+                                   : "");
+                        xlang_print_params(funcInfo, vec[k]);
+                        printf("\n    lookback %lld/%lld (golden/%s; -1 = parameters rejected)\n",
+                               gold, srv, sv->display);
+                    }
                 }
             }
 
             /* ---- Same-backend tier agreement (issue #256's L2) ----
-             * `srv` (this server's OWN lookback verdict, just parsed above) is
-             * the reference here — not `gold`. No cross-language comparison in
-             * this half: a backend validating its own params differently from
-             * C is server_verify()'s explicitly-declined question
+             * `srv` is the reference here: this server's own lookback verdict,
+             * or `gold` for a server without a metadata tier. A backend with
+             * one that validates its own params differently from C is
+             * server_verify()'s explicitly-declined question
              * (server_verify.c), not this one. */
             XlangTierResults r;
             xlang_tier_self_check(ctx, funcInfo, vec[k], sv, srv, &r);
@@ -9047,7 +9223,7 @@ static void xlang_auto_lookback_leg(const TA_FuncInfo *funcInfo, XlangCtx *ctx,
             for( int sIdx = 0; sIdx < ctx->nsv; sIdx++ )
             {
                 XlangServer *sv = &ctx->sv[sIdx];
-                if( !sv->open ) continue;
+                if( !sv->open || !codegen_lang_has_abstract(sv->name) ) continue;
                 if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
                 {
                     if( ctx->error == TA_TEST_PASS ) ctx->error = TA_CODEGEN_PIPE_READ_FAILED;
@@ -9108,7 +9284,8 @@ static int xlang_hash_call(XlangCtx *ctx, XlangServer *sv, const TA_FuncInfo *fi
      * hardcodes the right id in its generated handler, so the unstable legs
      * take the hex transport on every server. */
     if( sv->usesSeed && unstPeriod == 0 && xlang_period_selector(fi) == 0 )
-        fuzz_build_request(ctx->reqBuf, fi, s, e, shape, seed, n, optVals, 0, 0);
+        fuzz_build_request_as(ctx->reqBuf, !codegen_lang_has_abstract(sv->name), fi, s, e,
+                              shape, seed, n, optVals, 0, 0);
     else
         xlang_build_hex_request(ctx->reqBuf, fi, hist, n, s, e, optVals, unstPeriod, 1);
 
@@ -9490,45 +9667,43 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                     }
 
                     /* Each server's request follows its transport. Seed servers
-                     * (Rust) regenerate inputs from (shape,seed,n) via
+                     * (Rust, Go) regenerate inputs from (shape,seed,n) via
                      * gen_present; hex servers (Java, C# — no fuzz_gen port) get
                      * the driver's exact arrays losslessly. The tolerance lane is
                      * a SEPARATE per-server flag, not implied by the transport:
-                     * only Java (tolTranscendental) drops a transcendental-using
-                     * call to the element compare — C# stays bitwise on all of
-                     * them. */
-                    int tolPath = 0;
+                     * every server but Rust (tolTranscendental) drops a
+                     * transcendental-using call to the element compare. */
                     /* A hash cannot be held within a tolerance, so such a call
                      * leaves the seed transport for the arrays. */
                     int vm = kind[k] != FUZZ_VEC_REJECT &&
                              codegen_call_needs_vmath_tol(sv->name, funcInfo->name);
-                    /* curUnst != 0 forces the hex transport even for a seed
-                     * server — see xlang_hash_call for why abstract_call cannot
-                     * carry an unstable period. */
-                    if( sv->usesSeed && curUnst == 0 && !rampPeriods && !vm )
-                        fuzz_build_request(ctx->reqBuf, funcInfo, s, e, shape, seeds[si], n, vec[k], 0, 0);
-                    else
-                    {
-                        /* A rejected vector stays on the hash path even on a
-                         * transcendental: want_hash returns right after the call,
-                         * whereas the tolerance path serialises the outputs, and
-                         * sending a rejected vector down that path killed the Java
-                         * server. */
-                        tolPath = vm ||
+                    /* A rejected vector stays on the hash path even on a
+                     * transcendental: want_hash returns right after the call,
+                     * whereas the tolerance path serialises the outputs, and
+                     * sending a rejected vector down that path killed the Java
+                     * server. */
+                    int tolPath = vm ||
                                   ( sv->tolTranscendental > 0.0 &&
                                     kind[k] != FUZZ_VEC_REJECT &&
                                     codegen_call_is_transcendental(funcInfo->handle, vec[k],
                                                                    (int)funcInfo->nbOptInput) );
-                        /* Chaotic phase of a null signal — not comparable across
-                         * libms. Gated on tolPath, so exactly the servers that
-                         * cannot be held bitwise on transcendentals skip it
-                         * (Java, and C# since run 30776189041). Rust and the C
-                         * golden stay bitwise there. */
-                        if( tolPath && xlang_illcond(funcInfo->name, shape) )
-                        { ctx->illcondSkipped++; continue; }
+                    /* Chaotic phase of a null signal — not comparable across
+                     * libms. Gated on tolPath, so exactly the servers that
+                     * cannot be held bitwise on transcendentals skip it
+                     * (Java, and C# since run 30776189041). Rust and the C
+                     * golden stay bitwise there. */
+                    if( tolPath && xlang_illcond(funcInfo->name, shape) )
+                    { ctx->illcondSkipped++; continue; }
+                    /* curUnst != 0 forces the hex transport even for a seed
+                     * server — see xlang_hash_call for why abstract_call cannot
+                     * carry an unstable period. A server with no abstract_call
+                     * takes the seed on its per-function method. */
+                    if( sv->usesSeed && curUnst == 0 && !rampPeriods && !tolPath )
+                        fuzz_build_request_as(ctx->reqBuf, !codegen_lang_has_abstract(sv->name),
+                                              funcInfo, s, e, shape, seeds[si], n, vec[k], 0, 0);
+                    else
                         xlang_build_hex_request(ctx->reqBuf, funcInfo, &hist, n, s, e, vec[k],
                                                 curUnst, !tolPath);
-                    }
 
                     if( !xlang_call(sv, ctx->reqBuf, ctx->respBuf) )
                     {
@@ -9545,15 +9720,27 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                     if( tolPath )
                     {
                         CTolDetail d;
+                        XlangTolRow *row = vm ? NULL
+                                              : xlang_tol_row(sv->name, funcInfo->name, shape);
+                        double callTol = vm ? CODEGEN_TOL_VMATH
+                                            : row ? row->tol : sv->tolTranscendental;
                         CTolVerdict cv = codegen_compare_tol(ctx->respBuf, funcInfo->nbOutput,
                                                              p.outputIsInteger, goldBufs,
-                                                             curRc, curBeg, curNb,
-                                                             vm ? CODEGEN_TOL_VMATH
-                                                                : sv->tolTranscendental, &d);
+                                                             curRc, curBeg, curNb, callTol, &d);
                         if( d.nbNear > 0 ) ctx->vmathCases++;
                         if( !vm && cv != CTOL_RETCODE && cv != CTOL_SHAPE && cv != CTOL_COUNT
                             && curRc == TA_SUCCESS && curNb > 0 )
-                            codegen_transcendental_note(sv->name, funcInfo->name, d.maxDev);
+                        {
+                            /* A row's excess stays out of the function's maximum,
+                             * which is held to the language's bound. */
+                            if( row && !(d.maxDev <= sv->tolTranscendental) )
+                            {
+                                row->held++;
+                                if( !(d.maxDev <= row->maxDev) ) row->maxDev = d.maxDev;
+                            }
+                            else
+                                codegen_transcendental_note(sv->name, funcInfo->name, d.maxDev);
+                        }
                         if( cv != CTOL_MATCH )
                         {
                             sv->mism++;
@@ -9576,8 +9763,7 @@ static void xlang_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                                            "scaled diff=%.3g (tol %g)",
                                            d.output, d.element, d.cReal, d.cReal,
                                            d.sReal, d.sReal,
-                                           codegen_scaled_dev(d.cReal, d.sReal),
-                                           sv->tolTranscendental);
+                                           codegen_scaled_dev(d.cReal, d.sReal), callTol);
                                 else if( cv == CTOL_VALUE )
                                     printf("  int out%d[%d] C=%d server=%d",
                                            d.output, d.element, d.cInt, d.sInt);
@@ -9637,12 +9823,14 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
 
     if( !xlang_tier_series_fits() )
         return TA_CODEGEN_TIER_SERIES_TOO_SHORT;
+    if( xlang_tol_rows_invalid() )
+        return TA_CODEGEN_OUTPUT_MISMATCH;
 
     /* Each generated language server, diffed against the in-process C golden (C
-     * is the golden, not a server row). Rust uses the seed transport
+     * is the golden, not a server row). Rust and Go use the seed transport
      * (gen_present + fuzz_in_hash); Java, the managed C# and TS use the
-     * lossless hex-bits transport (usesSeed=0). Java, C# and TS relax their transcendental-using calls to an element
-     * compare at their language's bound: none of their `Math.*` is guaranteed
+     * lossless hex-bits transport (usesSeed=0). Java, C#, TS and Go relax their transcendental-using calls to an element
+     * compare at their language's bound: none of their math libraries is guaranteed
      * to be the platform libm. Every non-transcendental call stays bitwise. */
     static XlangServer servers[] = {
         {"rust",   "Rust",       argv_rust,   1, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
@@ -9650,6 +9838,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
         {"csharp", "C#",         argv_csharp, 0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
         {"ts",     "TypeScript", argv_ts,     0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
         {"tswasm", "TS-WASM",    argv_tswasm, 0, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
+        {"go",     "Go",         argv_go,     1, 0, 0, {0}, 0, 0, 0, 0, 0, 0},
     };
     int nsv = (int)(sizeof(servers)/sizeof(servers[0]));
 
@@ -9706,7 +9895,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     if( nrequested == 0 )
     {
         printf("FAIL — no language server matched --language=%s "
-               "(valid: rust, java, csharp, ts, tswasm; C is the in-process golden).\n",
+               "(valid: rust, java, csharp, ts, tswasm, go; C is the in-process golden).\n",
                languageFilter ? languageFilter : "");
         free(ctx.reqBuf); free(ctx.respBuf);
         free(ctx.tierReqBuf); free(ctx.tierRespBuf);
@@ -9793,6 +9982,12 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
                "across the tolerance-lane servers: atan2 phase of a null signal, "
                "ill-conditioned across libms — C and Rust bitwise there)\n",
                ctx.illcondSkipped);
+    for( int i = 0; i < NB_XLANG_TOL_ROWS; i++ )
+        if( g_xlangTolRows[i].held > 0 )
+            printf("TOL ROW [%s] TA_%s shape %d: %lld call(s) over the language's bound, "
+                   "max %.3e of %g\n", g_xlangTolRows[i].lang, g_xlangTolRows[i].func,
+                   g_xlangTolRows[i].shape, g_xlangTolRows[i].held,
+                   g_xlangTolRows[i].maxDev, g_xlangTolRows[i].tol);
     printf("unstable period (#116): %lld case(s) at unstable %d across %lld function(s)\n",
            ctx.unstCases, XLANG_UNST_PERIOD, ctx.unstFuncs);
     printf("param contract (#148): reject %lld batch + %lld lookback, sentinel %lld batch "
@@ -9860,9 +10055,12 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     /* Non-vacuity: with no rejected and no sentinel vector this gate is back to
      * what it was before #148 — asserting only that VALUES agree. Unfiltered runs
      * only; --function= can select functions with no range-typed param at all. */
+    int abstractOpen = 0;
+    for( int s = 0; s < nsv; s++ )
+        if( servers[s].open && codegen_lang_has_abstract(servers[s].name) ) abstractOpen = 1;
     if( !functionFilter && ctx.comparisons > 0 &&
-        (ctx.oorCases == 0 || ctx.lbOorCases == 0 ||
-         ctx.sentCases == 0 || ctx.lbSentCases == 0) )
+        (ctx.oorCases == 0 || ctx.sentCases == 0 ||
+         (abstractOpen && (ctx.lbOorCases == 0 || ctx.lbSentCases == 0))) )
     {
         printf("FAIL — VACUOUS CONTRACT LEG: reject %lld batch / %lld lookback, sentinel "
                "%lld batch / %lld lookback — no vector any language had to reject or "
@@ -9872,7 +10070,7 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
     }
     printf("auto levels (#492): %lld lookback case(s), %lld of them lengthened by the level\n",
            ctx.autoLbCases, ctx.autoLbMoved);
-    if( !functionFilter && ctx.comparisons > 0 && ctx.autoLbMoved < 1000 )
+    if( !functionFilter && abstractOpen && ctx.comparisons > 0 && ctx.autoLbMoved < 1000 )
     {
         printf("FAIL — VACUOUS AUTO LOOKBACK LEG: %lld case(s), %lld lengthened by a level.\n",
                ctx.autoLbCases, ctx.autoLbMoved);
@@ -9908,6 +10106,19 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
             printf("FAIL — TRANSCENDENTAL LANE: %s compared %lld of its %lld eligible case(s) "
                    "at its bound instead of bitwise; the lane must carry some, never all.\n",
                    servers[s].display, servers[s].tolCases, servers[s].laneEligible);
+            return TA_CODEGEN_OUTPUT_MISMATCH;
+        }
+    }
+    for( int i = 0; i < NB_XLANG_TOL_ROWS && !functionFilter; i++ )
+    {
+        int ran = 0;
+        for( int s = 0; s < nsv; s++ )
+            if( servers[s].open && strcmp(servers[s].name, g_xlangTolRows[i].lang) == 0 ) ran = 1;
+        if( ran && g_xlangTolRows[i].host && g_xlangTolRows[i].held == 0 )
+        {
+            printf("FAIL — DEAD TOL ROW [%s] TA_%s shape %d: no call went over the "
+                   "language's bound; delete the row.\n", g_xlangTolRows[i].lang,
+                   g_xlangTolRows[i].func, g_xlangTolRows[i].shape);
             return TA_CODEGEN_OUTPUT_MISMATCH;
         }
     }
@@ -9958,11 +10169,15 @@ ErrorNumber xlang_hash(const char *functionFilter, const char *languageFilter)
      * this leg excluded the guard above stays green — which is how #162 survived.
      * Requiring an enum-capable server to be open keeps `--language=java`, whose
      * skip is legitimate, from tripping it. */
-    int enumCapableOpen = 0;
+    int enumCapableOpen = 0, enumLookbackOpen = 0;
     for( int s = 0; s < nsv; s++ )
+    {
         if( servers[s].open && servers[s].enumSentinel ) enumCapableOpen = 1;
+        if( servers[s].open && servers[s].enumSentinel && codegen_lang_has_abstract(servers[s].name) )
+            enumLookbackOpen = 1;
+    }
     if( !functionFilter && enumCapableOpen && ctx.comparisons > 0 &&
-        (ctx.sentEnumCases == 0 || ctx.lbSentEnumCases == 0) )
+        (ctx.sentEnumCases == 0 || (enumLookbackOpen && ctx.lbSentEnumCases == 0)) )
     {
         printf("FAIL — VACUOUS CHOICE-LIST SENTINEL LEG: %lld batch / %lld lookback case(s) "
                "put TA_INTEGER_DEFAULT on an enum:MAType parameter. That leg is what gates "
@@ -10804,7 +11019,7 @@ ErrorNumber test_codegen(const TA_History *history,
         }
         else
             printf("All %d language(s) passed codegen verification (no float leg: "
-                   "Rust has no single-precision surface)\n", langsTested);
+                   "no language with a single-precision surface ran)\n", langsTested);
         printf("=============================================\n");
     }
 
