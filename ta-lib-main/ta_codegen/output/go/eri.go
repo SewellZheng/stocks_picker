@@ -153,6 +153,25 @@ func (c *Core) ERILookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// ERIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.ERI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ERI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ERILookback] rejects or an index that names no output.
+func (c *Core) ERIDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.ERILookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ERI computes the Elder Ray Index (Bull Power / Bear Power) over bars startIdx
 // through endIdx.
 //
@@ -188,7 +207,8 @@ func (c *Core) ERILookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ERI(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outBullPower, outBearPower []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -271,11 +291,28 @@ func (sp *ERIStream) Update(inHigh, inLow, inClose float64) (float64, float64, e
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	eriStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	if sp.optInTimePeriod == 1 {
+		var tempReal float64
+		var tempHT float64
+		var tempLT float64
+		tempHT = inHigh
+		tempLT = inLow
+		tempReal = inClose
+		sp.cur_outBullPower = tempHT - tempReal
+		sp.cur_outBearPower = tempLT - tempReal
+	} else {
+		var tempHT float64
+		var tempLT float64
+		sp.prevMA = math.FMA(sp.beta, sp.prevMA, float64(sp.k*inClose))
+		tempHT = inHigh
+		tempLT = inLow
+		sp.cur_outBullPower = tempHT - sp.prevMA
+		sp.cur_outBearPower = tempLT - sp.prevMA
+	}
 	return sp.cur_outBullPower, sp.cur_outBearPower, nil
 }
 
@@ -283,7 +320,7 @@ func (sp *ERIStream) Update(inHigh, inLow, inClose float64) (float64, float64, e
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *ERIStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
 	var cur_outBullPower float64
@@ -321,27 +358,6 @@ func (sp *ERIStream) Value() (float64, float64) {
 func (sp *ERIStream) Clone() *ERIStream {
 	cl := *sp
 	return &cl
-}
-
-func eriStepImpl(sp *ERIStream, inHigh, inLow, inClose float64) {
-	if sp.optInTimePeriod == 1 {
-		var tempReal float64
-		var tempHT float64
-		var tempLT float64
-		tempHT = inHigh
-		tempLT = inLow
-		tempReal = inClose
-		sp.cur_outBullPower = tempHT - tempReal
-		sp.cur_outBearPower = tempLT - tempReal
-	} else {
-		var tempHT float64
-		var tempLT float64
-		sp.prevMA = math.FMA(sp.beta, sp.prevMA, float64(sp.k*inClose))
-		tempHT = inHigh
-		tempLT = inLow
-		sp.cur_outBullPower = tempHT - sp.prevMA
-		sp.cur_outBearPower = tempLT - sp.prevMA
-	}
 }
 
 func (c *Core) eriOpenImpl(sp *ERIStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outBullPower, outBearPower []float64, outStride int32) RetCode {
@@ -496,8 +512,9 @@ func (c *Core) eriOpenInternal(inHigh, inLow, inClose []float64, startIdx, optIn
 // are those of [Core.ERI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ERILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ERILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ERIOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*ERIStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -517,7 +534,8 @@ func (c *Core) ERIOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*
 // no memory with an input or another output.
 //
 // The errors are those of [Core.ERIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ERIOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outBullPower, outBearPower []float64) (*ERIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

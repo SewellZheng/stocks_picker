@@ -152,6 +152,25 @@ func (c *Core) WMALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// WMADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.WMA]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.WMA] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.WMALookback] rejects or an index that names no output.
+func (c *Core) WMADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.WMALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // WMA computes the Weighted Moving Average over bars startIdx through endIdx.
 //
 // Linearly weighted moving average: each of the last N prices is weighted by
@@ -181,7 +200,8 @@ func (c *Core) WMALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) WMA(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -262,23 +282,88 @@ func (sp *WMAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	wmaStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var j int32
+	var rw int32
+	var tempReal float64
+	var ringPosL_trailingIdx int32
+	var ringCapL_trailingIdx int32
+	var lookbackWin int32
+	var periodSub float64
+	var periodSum float64
+	var winCap_j int32
+	var winPos_j int32
+	var win_j_inReal []float64
+	if sp.optInTimePeriod == 1 {
+		sp.cur_outReal = inReal
+		return sp.cur_outReal, nil
+	}
+	sp.win_j_inReal[sp.winPos_j] = inReal
+	tempReal = inReal
+	sp.periodSub += tempReal
+	sp.periodSub -= sp.trailingValue
+	sp.periodSum += float64(tempReal * float64(sp.optInTimePeriod))
+	sp.barsSinceReseed -= 1
+	if sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = 8 * sp.optInTimePeriod
+		sp.periodSub = 0.0
+		sp.periodSum = 0.0
+		rw = 1
+		lookbackWin = sp.lookbackWin
+		periodSub = sp.periodSub
+		periodSum = sp.periodSum
+		winCap_j = sp.winCap_j
+		winPos_j = sp.winPos_j
+		win_j_inReal = sp.win_j_inReal
+		for j = lookbackWin; j >= 0; j -= 1 {
+			var _T3 int32
+			if winPos_j+winCap_j-j >= winCap_j {
+				_T3 = winPos_j + winCap_j - j - winCap_j
+			} else {
+				_T3 = winPos_j + winCap_j - j
+			}
+			tempReal = win_j_inReal[_T3]
+			periodSub += tempReal
+			periodSum += float64(tempReal * float64(rw))
+			rw += 1
+		}
+		sp.periodSub = periodSub
+		sp.periodSum = periodSum
+	}
+	sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+	sp.cur_outReal = sp.periodSum / sp.divider
+	sp.periodSum -= sp.periodSub
+	ringCapL_trailingIdx = sp.ringCap_trailingIdx
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	sp.winPos_j = sp.winPos_j + 1
+	if sp.winPos_j >= sp.winCap_j {
+		sp.winPos_j = 0
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *WMAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var j int32
 	var rw int32
 	var tempReal float64
+	var lookbackWin int32
+	var winCap_j int32
+	var winPos_j int32
+	var win_j_inReal []float64
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
 	periodSum := sp.periodSum
@@ -297,22 +382,26 @@ func (sp *WMAStream) Peek(inReal float64) (float64, error) {
 		barsSinceReseed = 8 * sp.optInTimePeriod
 		periodSum = 0.0
 		rw = 1
-		for j = sp.lookbackWin; j >= 0; j -= 1 {
+		lookbackWin = sp.lookbackWin
+		winCap_j = sp.winCap_j
+		winPos_j = sp.winPos_j
+		win_j_inReal = sp.win_j_inReal
+		for j = lookbackWin; j >= 0; j -= 1 {
 			var _T0 int32
-			if sp.winPos_j+sp.winCap_j-j >= sp.winCap_j {
-				_T0 = sp.winPos_j + sp.winCap_j - j - sp.winCap_j
+			if winPos_j+winCap_j-j >= winCap_j {
+				_T0 = winPos_j + winCap_j - j - winCap_j
 			} else {
-				_T0 = sp.winPos_j + sp.winCap_j - j
+				_T0 = winPos_j + winCap_j - j
 			}
 			var _T2 float64
 			if _T0 != pkSlot0 {
 				var _T1 int32
-				if sp.winPos_j+sp.winCap_j-j >= sp.winCap_j {
-					_T1 = sp.winPos_j + sp.winCap_j - j - sp.winCap_j
+				if winPos_j+winCap_j-j >= winCap_j {
+					_T1 = winPos_j + winCap_j - j - winCap_j
 				} else {
-					_T1 = sp.winPos_j + sp.winCap_j - j
+					_T1 = winPos_j + winCap_j - j
 				}
-				_T2 = sp.win_j_inReal[_T1]
+				_T2 = win_j_inReal[_T1]
 			} else {
 				_T2 = pkVal0
 			}
@@ -337,57 +426,6 @@ func (sp *WMAStream) Clone() *WMAStream {
 	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
 	cl.win_j_inReal = append(sp.win_j_inReal[:0:0], sp.win_j_inReal...)
 	return &cl
-}
-
-func wmaStepImpl(sp *WMAStream, inReal float64) {
-	var j int32
-	var rw int32
-	var tempReal float64
-	var ringPosL_trailingIdx int32
-	var ringCapL_trailingIdx int32
-	if sp.optInTimePeriod == 1 {
-		sp.cur_outReal = inReal
-		return
-	}
-	sp.win_j_inReal[sp.winPos_j] = inReal
-	tempReal = inReal
-	sp.periodSub += tempReal
-	sp.periodSub -= sp.trailingValue
-	sp.periodSum += float64(tempReal * float64(sp.optInTimePeriod))
-	sp.barsSinceReseed -= 1
-	if sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = 8 * sp.optInTimePeriod
-		sp.periodSub = 0.0
-		sp.periodSum = 0.0
-		rw = 1
-		for j = sp.lookbackWin; j >= 0; j -= 1 {
-			var _T3 int32
-			if sp.winPos_j+sp.winCap_j-j >= sp.winCap_j {
-				_T3 = sp.winPos_j + sp.winCap_j - j - sp.winCap_j
-			} else {
-				_T3 = sp.winPos_j + sp.winCap_j - j
-			}
-			tempReal = sp.win_j_inReal[_T3]
-			sp.periodSub += tempReal
-			sp.periodSum += float64(tempReal * float64(rw))
-			rw += 1
-		}
-	}
-	sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-	sp.cur_outReal = sp.periodSum / sp.divider
-	sp.periodSum -= sp.periodSub
-	ringCapL_trailingIdx = sp.ringCap_trailingIdx
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
-	sp.winPos_j = sp.winPos_j + 1
-	if sp.winPos_j >= sp.winCap_j {
-		sp.winPos_j = 0
-	}
 }
 
 func (c *Core) wmaOpenImpl(sp *WMAStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -564,7 +602,8 @@ func (c *Core) wmaOpenInternal(inReal []float64, startIdx, optInTimePeriod int32
 // inReal is the history; the parameters are those of [Core.WMA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.WMALookback] bars, and [BadParam] for a parameter out of range.
+// [Core.WMALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) WMAOpen(inReal []float64, optInTimePeriod int) (*WMAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -584,7 +623,8 @@ func (c *Core) WMAOpen(inReal []float64, optInTimePeriod int) (*WMAStream, float
 // no memory with an input or another output.
 //
 // The errors are those of [Core.WMAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) WMAOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*WMAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam
@@ -618,6 +658,9 @@ func wmaStepTape(sp *WMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 	var j int32
 	var rw int32
 	var tempReal float64
+	var lookbackWin int32
+	var periodSub float64
+	var periodSum float64
 	tempReal = inReal
 	sp.periodSub += tempReal
 	sp.periodSub -= sp.trailingValue
@@ -628,12 +671,17 @@ func wmaStepTape(sp *WMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		sp.periodSub = 0.0
 		sp.periodSum = 0.0
 		rw = 1
-		for j = sp.lookbackWin; j >= 0; j -= 1 {
+		lookbackWin = sp.lookbackWin
+		periodSub = sp.periodSub
+		periodSum = sp.periodSum
+		for j = lookbackWin; j >= 0; j -= 1 {
 			tempReal = tape[(tapeBase-j)&tapeMask]
-			sp.periodSub += tempReal
-			sp.periodSum += float64(tempReal * float64(rw))
+			periodSub += tempReal
+			periodSum += float64(tempReal * float64(rw))
 			rw += 1
 		}
+		sp.periodSub = periodSub
+		sp.periodSum = periodSum
 	}
 	sp.trailingValue = tape[(tapeBase-sp.ringCap_trailingIdx)&tapeMask]
 	sp.cur_outReal = sp.periodSum / sp.divider
@@ -646,6 +694,7 @@ func wmaPeekTape(sp *WMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 	var j int32
 	var rw int32
 	var tempReal float64
+	var lookbackWin int32
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
 	periodSum := sp.periodSum
@@ -660,7 +709,8 @@ func wmaPeekTape(sp *WMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		barsSinceReseed = 8 * sp.optInTimePeriod
 		periodSum = 0.0
 		rw = 1
-		for j = sp.lookbackWin; j >= 0; j -= 1 {
+		lookbackWin = sp.lookbackWin
+		for j = lookbackWin; j >= 0; j -= 1 {
 			var _T4 float64
 			if (tapeBase-j)&tapeMask != pkSlot0 {
 				_T4 = tape[(tapeBase-j)&tapeMask]

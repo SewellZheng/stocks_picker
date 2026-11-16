@@ -219,6 +219,25 @@ func (c *Core) MACDEXTLookback(optInFastPeriod int, optInFastMAType MAType, optI
 	return int(lookback), nil
 }
 
+// MACDEXTDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MACDEXT]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MACDEXT] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MACDEXTLookback] rejects or an index that names no output.
+func (c *Core) MACDEXTDisplayShift(optInFastPeriod int, optInFastMAType MAType, optInSlowPeriod int, optInSlowMAType MAType, optInSignalPeriod int, optInSignalMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.MACDEXTLookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MACDEXT computes the MACD with controllable MA type over bars startIdx
 // through endIdx.
 //
@@ -262,7 +281,8 @@ func (c *Core) MACDEXTLookback(optInFastPeriod int, optInFastMAType MAType, optI
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDEXT(startIdx, endIdx int, inReal []float64, optInFastPeriod int, optInFastMAType MAType, optInSlowPeriod int, optInSlowMAType MAType, optInSignalPeriod int, optInSignalMAType MAType, outMACD, outMACDSignal, outMACDHist []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -356,12 +376,31 @@ func (sp *MACDEXTStream) Update(inReal float64) (float64, float64, float64, erro
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
-	if err := macdextStepImpl(sp, inReal); err != nil {
-		return 0, 0, 0, err
+	var cur_slowMABuffer float64
+	var cur_fastMABuffer float64
+	var cur_outMACDSignal float64
+	var cur_outMACDHist float64
+	var subErr error
+	cur_slowMABuffer, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, 0, 0, subErr
 	}
+	cur_fastMABuffer, subErr = sp.sub1.Update(inReal)
+	if subErr != nil {
+		return 0, 0, 0, subErr
+	}
+	cur_fastMABuffer = cur_fastMABuffer - cur_slowMABuffer
+	cur_outMACDSignal, subErr = sp.sub2.Update(cur_fastMABuffer)
+	if subErr != nil {
+		return 0, 0, 0, subErr
+	}
+	cur_outMACDHist = cur_fastMABuffer - cur_outMACDSignal
+	sp.cur_outMACD = cur_fastMABuffer
+	sp.cur_outMACDSignal = cur_outMACDSignal
+	sp.cur_outMACDHist = cur_outMACDHist
 	sp.outRangeCount++
 	return sp.cur_outMACD, sp.cur_outMACDSignal, sp.cur_outMACDHist, nil
 }
@@ -369,7 +408,7 @@ func (sp *MACDEXTStream) Update(inReal float64) (float64, float64, float64, erro
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MACDEXTStream) Peek(inReal float64) (float64, float64, float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var cur_slowMABuffer float64
@@ -410,32 +449,6 @@ func (sp *MACDEXTStream) Clone() *MACDEXTStream {
 	cl.sub1 = sp.sub1.Clone()
 	cl.sub2 = sp.sub2.Clone()
 	return &cl
-}
-
-func macdextStepImpl(sp *MACDEXTStream, inReal float64) error {
-	var cur_slowMABuffer float64
-	var cur_fastMABuffer float64
-	var cur_outMACDSignal float64
-	var cur_outMACDHist float64
-	var subErr error
-	cur_slowMABuffer, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_fastMABuffer, subErr = sp.sub1.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_fastMABuffer = cur_fastMABuffer - cur_slowMABuffer
-	cur_outMACDSignal, subErr = sp.sub2.Update(cur_fastMABuffer)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outMACDHist = cur_fastMABuffer - cur_outMACDSignal
-	sp.cur_outMACD = cur_fastMABuffer
-	sp.cur_outMACDSignal = cur_outMACDSignal
-	sp.cur_outMACDHist = cur_outMACDHist
-	return nil
 }
 
 func (c *Core) macdextOpenImpl(sp *MACDEXTStream, inReal []float64, startIdx, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType int32, outBegIdx, outNBElement *int32, outMACD, outMACDSignal, outMACDHist []float64, outStride int32) RetCode {
@@ -639,7 +652,8 @@ func (c *Core) macdextOpenInternal(inReal []float64, startIdx, optInFastPeriod, 
 // inReal is the history; the parameters are those of [Core.MACDEXT].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MACDEXTLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MACDEXTLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MACDEXTOpen(inReal []float64, optInFastPeriod int, optInFastMAType MAType, optInSlowPeriod int, optInSlowMAType MAType, optInSignalPeriod int, optInSignalMAType MAType) (*MACDEXTStream, float64, float64, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -665,7 +679,8 @@ func (c *Core) MACDEXTOpen(inReal []float64, optInFastPeriod int, optInFastMATyp
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MACDEXTOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDEXTOpenAndFill(inReal []float64, optInFastPeriod int, optInFastMAType MAType, optInSlowPeriod int, optInSlowMAType MAType, optInSignalPeriod int, optInSignalMAType MAType, outMACD, outMACDSignal, outMACDHist []float64) (*MACDEXTStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

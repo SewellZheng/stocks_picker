@@ -48,9 +48,13 @@ func (c *Core) fisherLookback(optInTimePeriod int32) int32 {
 
 func (c *Core) fisherImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outFisher, outTrigger []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var sufLowest []float64
+	var local_sufLowest [30]float64
 	var preLowest []float64
+	var local_preLowest [30]float64
 	var price float64
 	var highest float64
 	var lowest float64
@@ -104,19 +108,35 @@ func (c *Core) fisherImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufHighest = local_sufHighest[:optInTimePeriod]
+	} else {
+		sufHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preHighest = local_preHighest[:optInTimePeriod]
+	} else {
+		preHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufLowest = local_sufLowest[:optInTimePeriod]
+	} else {
+		sufLowest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preLowest = local_preLowest[:optInTimePeriod]
+	} else {
+		preLowest = make([]float64, optInTimePeriod)
+	}
 	for today <= endIdx {
 		i = today
 		tempHigh = inHigh[i]
@@ -231,6 +251,25 @@ func (c *Core) FISHERLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// FISHERDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.FISHER]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.FISHER] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.FISHERLookback] rejects or an index that names no output.
+func (c *Core) FISHERDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.FISHERLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // FISHER computes the Fisher Transform over bars startIdx through endIdx.
 //
 // Ehlers' Fisher Transform: an oscillator that reshapes the midpoint's position
@@ -266,7 +305,8 @@ func (c *Core) FISHERLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) FISHER(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outFisher, outTrigger []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -359,18 +399,120 @@ func (sp *FISHERStream) Update(inHigh, inLow float64) (float64, float64, error) 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
-	fisherStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var price float64
+	var ratio float64
+	var fish float64
+	var tempReal float64
+	var tempHigh float64
+	var tempLow float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var x_inLow []float64
+	var lowest float64
+	var lowestIdx int32
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	price = (sp.x_inHigh[sp.today&sp.xMask] + sp.x_inLow[sp.today&sp.xMask]) / 2.0
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		tempHigh = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		tempLow = sp.x_inLow[sp.highestIdx&sp.xMask]
+		sp.highest = (tempHigh + tempLow) / 2.0
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tempHigh = x_inHigh[i&xMask]
+			tempLow = x_inLow[i&xMask]
+			tempReal = (tempHigh + tempLow) / 2.0
+			if tempReal > highest {
+				highestIdx = i
+				highest = tempReal
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if price >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = price
+	}
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		tempHigh = sp.x_inHigh[sp.lowestIdx&sp.xMask]
+		tempLow = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.lowest = (tempHigh + tempLow) / 2.0
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tempHigh = x_inHigh[i&xMask]
+			tempLow = x_inLow[i&xMask]
+			tempReal = (tempHigh + tempLow) / 2.0
+			if tempReal < lowest {
+				lowestIdx = i
+				lowest = tempReal
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if price <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = price
+	}
+	tempReal = sp.highest - sp.lowest
+	if !isZeroScaled(tempReal, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
+		ratio = (price - sp.lowest) / tempReal
+	} else {
+		ratio = 0.5
+	}
+	sp.smoothed = math.FMA(0.67, sp.smoothed, float64(float64(float64(0.33)*float64(2.0))*(ratio-0.5)))
+	if sp.smoothed > 0.99 {
+		sp.smoothed = 0.999
+	}
+	if sp.smoothed < -0.99 {
+		sp.smoothed = -0.999
+	}
+	fish = math.FMA(0.5, math.Log((1.0+sp.smoothed)/(1.0-sp.smoothed)), float64(0.5*sp.prevFish))
+	sp.cur_outFisher = fish
+	sp.cur_outTrigger = sp.prevFish
+	sp.prevFish = fish
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outFisher, sp.cur_outTrigger, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
 	var price float64
@@ -379,6 +521,10 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 	var tempReal float64
 	var tempHigh float64
 	var tempLow float64
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var x_inLow []float64
 	var cur_outFisher float64
 	var cur_outTrigger float64
 	highest := sp.highest
@@ -426,21 +572,25 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		tempLow = _T3
 		highest = (tempHigh + tempLow) / 2.0
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T4 float64
-			if i&sp.xMask != pkSlot0 {
-				_T4 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T4 = x_inHigh[i&xMask]
 			} else {
 				_T4 = pkVal0
 			}
 			tempHigh = _T4
 			var _T5 float64
-			if i&sp.xMask != pkSlot1 {
-				_T5 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T5 = x_inLow[i&xMask]
 			} else {
 				_T5 = pkVal1
 			}
@@ -473,21 +623,25 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		tempLow = _T7
 		lowest = (tempHigh + tempLow) / 2.0
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T8 float64
-			if i&sp.xMask != pkSlot0 {
-				_T8 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T8 = x_inHigh[i&xMask]
 			} else {
 				_T8 = pkVal0
 			}
 			tempHigh = _T8
 			var _T9 float64
-			if i&sp.xMask != pkSlot1 {
-				_T9 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T9 = x_inLow[i&xMask]
 			} else {
 				_T9 = pkVal1
 			}
@@ -534,83 +688,6 @@ func (sp *FISHERStream) Clone() *FISHERStream {
 	cl.x_inHigh = append(sp.x_inHigh[:0:0], sp.x_inHigh...)
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	return &cl
-}
-
-func fisherStepImpl(sp *FISHERStream, inHigh, inLow float64) {
-	var price float64
-	var ratio float64
-	var fish float64
-	var tempReal float64
-	var tempHigh float64
-	var tempLow float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	price = (sp.x_inHigh[sp.today&sp.xMask] + sp.x_inLow[sp.today&sp.xMask]) / 2.0
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		tempHigh = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		tempLow = sp.x_inLow[sp.highestIdx&sp.xMask]
-		sp.highest = (tempHigh + tempLow) / 2.0
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tempHigh = sp.x_inHigh[sp.i&sp.xMask]
-			tempLow = sp.x_inLow[sp.i&sp.xMask]
-			tempReal = (tempHigh + tempLow) / 2.0
-			if tempReal > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tempReal
-			}
-		}
-	} else if price >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = price
-	}
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		tempHigh = sp.x_inHigh[sp.lowestIdx&sp.xMask]
-		tempLow = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.lowest = (tempHigh + tempLow) / 2.0
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tempHigh = sp.x_inHigh[sp.i&sp.xMask]
-			tempLow = sp.x_inLow[sp.i&sp.xMask]
-			tempReal = (tempHigh + tempLow) / 2.0
-			if tempReal < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tempReal
-			}
-		}
-	} else if price <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = price
-	}
-	tempReal = sp.highest - sp.lowest
-	if !isZeroScaled(tempReal, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
-		ratio = (price - sp.lowest) / tempReal
-	} else {
-		ratio = 0.5
-	}
-	sp.smoothed = math.FMA(0.67, sp.smoothed, float64(float64(float64(0.33)*float64(2.0))*(ratio-0.5)))
-	if sp.smoothed > 0.99 {
-		sp.smoothed = 0.999
-	}
-	if sp.smoothed < -0.99 {
-		sp.smoothed = -0.999
-	}
-	fish = math.FMA(0.5, math.Log((1.0+sp.smoothed)/(1.0-sp.smoothed)), float64(0.5*sp.prevFish))
-	sp.cur_outFisher = fish
-	sp.cur_outTrigger = sp.prevFish
-	sp.prevFish = fish
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) fisherOpenImpl(sp *FISHERStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outFisher, outTrigger []float64, outStride int32) RetCode {
@@ -807,8 +884,9 @@ func (c *Core) fisherOpenInternal(inHigh, inLow []float64, startIdx, optInTimePe
 // of [Core.FISHER].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.FISHERLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.FISHERLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) FISHEROpen(inHigh, inLow []float64, optInTimePeriod int) (*FISHERStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -828,7 +906,8 @@ func (c *Core) FISHEROpen(inHigh, inLow []float64, optInTimePeriod int) (*FISHER
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.FISHEROpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) FISHEROpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outFisher, outTrigger []float64) (*FISHERStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

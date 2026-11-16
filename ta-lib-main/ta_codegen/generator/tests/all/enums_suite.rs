@@ -601,7 +601,7 @@ fn ts_keys_follow_the_naming_rule() {
         backends::ts::assert_unique_keys(&func);
         keys += func.optional_inputs.len() + func.outputs.len();
     }
-    assert!(keys > 500, "only {keys} keys checked unique");
+    assert!(common::sweep_filtered() || keys > 500, "only {keys} keys checked unique");
 }
 
 #[test]
@@ -687,7 +687,11 @@ fn ts_fma_calls_fire_for_exactly_the_fusing_functions() {
         }
     }
     fused.sort();
-    let mut want: Vec<String> = backends::fma::FUSING_INVENTORY.iter().map(|s| (*s).to_string()).collect();
+    let mut want: Vec<String> = backends::fma::FUSING_INVENTORY
+        .iter()
+        .filter(|s| common::swept(s))
+        .map(|s| (*s).to_string())
+        .collect();
     want.sort();
     assert_eq!(fused, want);
 }
@@ -704,19 +708,9 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
     let fusing = backends::fma::FUSING_INVENTORY;
     let registry = make_registry();
     let helpers = make_helpers();
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let mut dispatched: Vec<String> = Vec::new();
     let mut checked = 0usize;
-    for entry in std::fs::read_dir(&base).expect("input dir") {
-        let entry = entry.expect("dir entry");
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        let dir = entry.path();
-        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
-            continue;
-        }
+    for name in discover_indicators() {
         let (func, enums) = load_indicator(&name);
         let out = backends::rust_lang::generate(&func, &enums, registry, helpers);
         checked += 1;
@@ -758,8 +752,15 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
         }
     }
     dispatched.sort();
-    assert_eq!(dispatched, fusing, "FMA dispatch inventory drifted");
-    assert!(checked >= 200, "expected the whole corpus, checked {checked}");
+    assert_eq!(
+        dispatched,
+        fusing.iter().copied().filter(|n| common::swept(n)).collect::<Vec<_>>(),
+        "FMA dispatch inventory drifted"
+    );
+    assert!(
+        common::sweep_filtered() || checked >= 200,
+        "expected the whole corpus, checked {checked}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -801,7 +802,7 @@ TA_RetCode max( int    startIdx,
    if( mask & 16 )
       return TA_INTERNAL_ERROR;
    if( (mask & 1) && (neg < 0) )
-      outIdx = 0;
+      return TA_BAD_PARAM;
    if( !(mask & 1) )
       return TA_INTERNAL_ERROR;
    while( mask & 1024 )
@@ -858,7 +859,7 @@ TA_RetCode max( int    startIdx,
     }
 
     for needle in [
-        "& !(1)",
+        "& !1",
         "mask |= 2;",
         "mask &= 15;",
         "mask ^= 1;",
@@ -932,7 +933,7 @@ fn rust_negative_capable_cast_gets_signed_local() {
         // assign the bounds directly and never narrow.
         "tempPeriod = inPeriods[startIdx + i];",
         "if !(tempPeriod >= minPeriodReal) {",  // NaN-catching spelling
-        "tempInt = (tempPeriod) as i32;",       // narrowed only once in range
+        "tempInt = tempPeriod as i32;",       // narrowed only once in range
         "if tempInt < 1 {",                     // clamps stay signed compares
     ] {
         assert!(out.rust.contains(needle), "MAVP Rust missing `{needle}`:\n{}", out.rust);

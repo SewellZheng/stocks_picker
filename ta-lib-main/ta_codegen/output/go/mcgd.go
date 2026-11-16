@@ -132,6 +132,25 @@ func (c *Core) MCGDLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MCGDDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MCGD].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MCGD] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MCGDLookback] rejects or an index that names no output.
+func (c *Core) MCGDDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MCGDLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MCGD computes the McGinley Dynamic over bars startIdx through endIdx.
 //
 // McGinley Dynamic (John R. McGinley, Jr.): a moving average whose speed
@@ -165,7 +184,8 @@ func (c *Core) MCGDLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MCGD(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -237,18 +257,27 @@ func (sp *MCGDStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	mcgdStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tempMD float64
+	var tempReal float64
+	var ratio float64
+	tempReal = inReal
+	ratio = tempReal / sp.prevMD
+	tempMD = sp.prevMD + (tempReal-sp.prevMD)/float64(sp.period*float64(float64(ratio*ratio)*float64(ratio*ratio)))
+	if isFinite(tempMD) {
+		sp.prevMD = tempMD
+	}
+	sp.cur_outReal = sp.prevMD
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MCGDStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tempMD float64
@@ -276,19 +305,6 @@ func (sp *MCGDStream) Value() float64 {
 func (sp *MCGDStream) Clone() *MCGDStream {
 	cl := *sp
 	return &cl
-}
-
-func mcgdStepImpl(sp *MCGDStream, inReal float64) {
-	var tempMD float64
-	var tempReal float64
-	var ratio float64
-	tempReal = inReal
-	ratio = tempReal / sp.prevMD
-	tempMD = sp.prevMD + (tempReal-sp.prevMD)/float64(sp.period*float64(float64(ratio*ratio)*float64(ratio*ratio)))
-	if isFinite(tempMD) {
-		sp.prevMD = tempMD
-	}
-	sp.cur_outReal = sp.prevMD
 }
 
 func (c *Core) mcgdOpenImpl(sp *MCGDStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -397,7 +413,8 @@ func (c *Core) mcgdOpenInternal(inReal []float64, startIdx, optInTimePeriod int3
 // inReal is the history; the parameters are those of [Core.MCGD].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MCGDLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MCGDLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MCGDOpen(inReal []float64, optInTimePeriod int) (*MCGDStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -417,7 +434,8 @@ func (c *Core) MCGDOpen(inReal []float64, optInTimePeriod int) (*MCGDStream, flo
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MCGDOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MCGDOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*MCGDStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

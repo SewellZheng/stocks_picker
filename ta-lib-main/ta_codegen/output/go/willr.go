@@ -48,9 +48,13 @@ func (c *Core) willrLookback(optInTimePeriod int32) int32 {
 
 func (c *Core) willrImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var sufLowest []float64
+	var local_sufLowest [30]float64
 	var preLowest []float64
+	var local_preLowest [30]float64
 	var lowest float64
 	var highest float64
 	var tmp float64
@@ -90,19 +94,35 @@ func (c *Core) willrImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float6
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufHighest = local_sufHighest[:optInTimePeriod]
+	} else {
+		sufHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preHighest = local_preHighest[:optInTimePeriod]
+	} else {
+		preHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufLowest = local_sufLowest[:optInTimePeriod]
+	} else {
+		sufLowest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preLowest = local_preLowest[:optInTimePeriod]
+	} else {
+		preLowest = make([]float64, optInTimePeriod)
+	}
 	blockStart = trailingIdx
 	for today <= endIdx {
 		i = blockStart + optInTimePeriod - 1
@@ -217,6 +237,25 @@ func (c *Core) WILLRLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// WILLRDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.WILLR].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.WILLR] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.WILLRLookback] rejects or an index that names no output.
+func (c *Core) WILLRDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.WILLRLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // WILLR computes the Williams' %R over bars startIdx through endIdx.
 //
 // Williams' %R momentum oscillator over a rolling period, bounded in [-100, 0].
@@ -249,7 +288,8 @@ func (c *Core) WILLRLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) WILLR(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -339,11 +379,95 @@ func (sp *WILLRStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	willrStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tmp float64
+	var tempReal float64
+	var i int32
+	var lowest float64
+	var lowestIdx int32
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var highest float64
+	var highestIdx int32
+	var x_inHigh []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	sp.x_inClose[sp.today&sp.xMask] = inClose
+	tmp = sp.x_inLow[sp.today&sp.xMask]
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inLow[i&xMask]
+			if tmp < lowest {
+				lowestIdx = i
+				lowest = tmp
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmp <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmp
+	}
+	tmp = sp.x_inHigh[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inHigh[i&xMask]
+			if tmp > highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	if !isZeroScaled(sp.highest-sp.lowest, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
+		tempReal = float64((sp.highest - sp.x_inClose[sp.today&sp.xMask]) / (sp.highest - sp.lowest) * -100.0)
+		if tempReal > 0.0 {
+			tempReal = 0.0
+		} else if tempReal < -100.0 {
+			tempReal = -100.0
+		}
+		sp.cur_outReal = tempReal
+	} else {
+		sp.cur_outReal = 0.0
+	}
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outReal, nil
 }
 
@@ -351,11 +475,15 @@ func (sp *WILLRStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *WILLRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tmp float64
 	var tempReal float64
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var x_inHigh []float64
 	var cur_outReal float64
 	highest := sp.highest
 	highestIdx := sp.highestIdx
@@ -391,14 +519,17 @@ func (sp *WILLRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		}
 		lowest = _T1
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot1 {
-				_T2 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T2 = x_inLow[i&xMask]
 			} else {
 				_T2 = pkVal1
 			}
@@ -429,14 +560,17 @@ func (sp *WILLRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		}
 		highest = _T4
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot0 {
-				_T5 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T5 = x_inHigh[i&xMask]
 			} else {
 				_T5 = pkVal0
 			}
@@ -483,67 +617,6 @@ func (sp *WILLRStream) Clone() *WILLRStream {
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	cl.x_inClose = append(sp.x_inClose[:0:0], sp.x_inClose...)
 	return &cl
-}
-
-func willrStepImpl(sp *WILLRStream, inHigh, inLow, inClose float64) {
-	var tmp float64
-	var tempReal float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	sp.x_inClose[sp.today&sp.xMask] = inClose
-	tmp = sp.x_inLow[sp.today&sp.xMask]
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inLow[sp.i&sp.xMask]
-			if tmp < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmp
-			}
-		}
-	} else if tmp <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmp
-	}
-	tmp = sp.x_inHigh[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inHigh[sp.i&sp.xMask]
-			if tmp > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	if !isZeroScaled(sp.highest-sp.lowest, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
-		tempReal = float64((sp.highest - sp.x_inClose[sp.today&sp.xMask]) / (sp.highest - sp.lowest) * -100.0)
-		if tempReal > 0.0 {
-			tempReal = 0.0
-		} else if tempReal < -100.0 {
-			tempReal = -100.0
-		}
-		sp.cur_outReal = tempReal
-	} else {
-		sp.cur_outReal = 0.0
-	}
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) willrOpenImpl(sp *WILLRStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -713,8 +786,9 @@ func (c *Core) willrOpenInternal(inHigh, inLow, inClose []float64, startIdx, opt
 // are those of [Core.WILLR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.WILLRLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.WILLRLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) WILLROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*WILLRStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -734,7 +808,8 @@ func (c *Core) WILLROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) 
 // no memory with an input or another output.
 //
 // The errors are those of [Core.WILLROpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) WILLROpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (*WILLRStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

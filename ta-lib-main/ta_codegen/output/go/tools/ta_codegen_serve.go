@@ -44,11 +44,14 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	talib "ta-lib.github.io/go"
+	"ta-lib.github.io/go/metadata"
 )
 
 const maxArraySize = 200000
@@ -60,16 +63,50 @@ const tailI32 = 0x5eadbeef
 
 type params map[string]json.RawMessage
 
-func (p params) i64(name string, def int64) int64 {
-	if v, err := strconv.ParseInt(string(p[name]), 10, 64); err == nil {
-		return v
+// intText is what the C server's strtoll reads from a present value: its
+// leading integer, and 0 when it has none. Only an absent field is a default.
+func intText(raw json.RawMessage) string {
+	n := 0
+	if n < len(raw) && raw[n] == '-' {
+		n++
 	}
-	return def
+	digits := n
+	for n < len(raw) && raw[n] >= '0' && raw[n] <= '9' {
+		n++
+	}
+	if n == digits {
+		return "0"
+	}
+	return string(raw[:n])
+}
+
+func (p params) i64(name string, def int64) int64 {
+	raw, ok := p[name]
+	if !ok {
+		return def
+	}
+	v, _ := strconv.ParseInt(intText(raw), 10, 64)
+	return v
+}
+
+// A value outside int32 saturates, as the C server's does. Never down to
+// MinInt32: that is IntegerDefault, and would turn the request into "use the
+// default".
+func (p params) i32(name string, def int32) int32 {
+	raw, ok := p[name]
+	if !ok {
+		return def
+	}
+	v, err := strconv.ParseInt(intText(raw), 10, 32)
+	if err != nil {
+		return max(int32(v), math.MinInt32+1)
+	}
+	return int32(v)
 }
 
 // integer reads an optional parameter: absent is the default sentinel.
 func (p params) integer(name string) int {
-	return int(p.i64(name, talib.IntegerDefault))
+	return int(p.i32(name, talib.IntegerDefault))
 }
 
 func (p params) real(name string) float64 {
@@ -190,7 +227,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 	in := make([][]float64, len(slots))
 	switch {
 	case p.i64("gen_present", 0) != 0:
-		n := int(p.i64("gen_n", 0))
+		n := int(p.i32("gen_n", 0))
 		if n < 0 {
 			n = 0
 		}
@@ -198,7 +235,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 		for k := range series {
 			series[k] = make([]float64, n)
 		}
-		fuzzGen(int32(p.i64("gen_shape", 0)), int32(p.i64("gen_seed", 0)), n,
+		fuzzGen(p.i32("gen_shape", 0), p.i32("gen_seed", 0), n,
 			series[0], series[1], series[2], series[3], series[4], series[5])
 		for k, slot := range slots {
 			in[k] = series[slot.fuzz]
@@ -219,7 +256,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 // previous setting, as C's TA_SetUnstablePeriod does.
 func (s *server) pin(p params, id talib.FuncUnstId) {
 	if _, ok := p["unstablePeriod"]; ok {
-		_ = s.core.SetUnstablePeriod(id, int(p.i64("unstablePeriod", 0)))
+		_ = s.core.SetUnstablePeriod(id, int(p.i32("unstablePeriod", 0)))
 	}
 }
 
@@ -229,7 +266,7 @@ func (s *server) pin(p params, id talib.FuncUnstId) {
 func (s *server) batch(p params, ins []inSlot, outs []outSlot, lookback func() (int, error),
 	run func(c *call) (talib.OutRange, error), open func(in [][]float64) error,
 	fill func(in [][]float64, c *call) (talib.OutRange, error), ride func(c *call) string) string {
-	c := &call{start: int(p.i64("startIdx", 0)), end: int(p.i64("endIdx", 0))}
+	c := &call{start: int(p.i32("startIdx", 0)), end: int(p.i32("endIdx", 0))}
 	c.in = s.inputs(p, ins)
 	mode := p.i64("bench_mode", 0)
 	if mode < 0 || mode > 2 || mode != 0 && open == nil {
@@ -246,7 +283,7 @@ func (s *server) batch(p params, ins []inSlot, outs []outSlot, lookback func() (
 	if lb, err := lookback(); err == nil && max(c.start, lb) <= c.end {
 		size = c.end - max(c.start, lb) + 1
 	}
-	size += int(p.i64("out_pad", 0))
+	size += int(p.i32("out_pad", 0))
 	for _, o := range outs {
 		if o.isInt {
 			buf := make([]int32, size)
@@ -388,23 +425,19 @@ func errorReply(msg string) string {
 }
 
 func (s *server) setUnstablePeriod(p params) string {
-	id := p.i64("id", 99)
-	if id < 0 || id > math.MaxInt32 {
+	id := p.i32("id", 99)
+	if id < 0 {
 		return errorReply("Invalid unstable period id")
 	}
-	if s.core.SetUnstablePeriod(talib.FuncUnstId(id), int(p.i64("period", 0))) != nil {
+	if s.core.SetUnstablePeriod(talib.FuncUnstId(id), int(p.i32("period", 0))) != nil {
 		return errorReply("Invalid unstable period")
 	}
 	return `{"status":"ok"}`
 }
 
-func fitsInt32(v int64) bool {
-	return v >= math.MinInt32 && v <= math.MaxInt32
-}
-
 func (s *server) setCandleSettings(p params) string {
-	st, rt, ap := p.i64("settingType", -1), p.i64("rangeType", -1), p.i64("avgPeriod", 0)
-	if !fitsInt32(st) || !fitsInt32(rt) || s.core.SetCandleSetting(talib.CandleSettingType(st),
+	st, rt, ap := p.i32("settingType", -1), p.i32("rangeType", -1), p.i32("avgPeriod", 0)
+	if s.core.SetCandleSetting(talib.CandleSettingType(st),
 		talib.RangeType(rt), int(ap), p.f64Bits("factorBits", 1.0)) != nil {
 		return errorReply("Invalid candle setting")
 	}
@@ -412,20 +445,20 @@ func (s *server) setCandleSettings(p params) string {
 }
 
 func (s *server) restoreCandleDefaultSettings(p params) string {
-	st := p.i64("settingType", -1)
-	if !fitsInt32(st) || s.core.RestoreCandleDefault(talib.CandleSettingType(st)) != nil {
+	st := p.i32("settingType", -1)
+	if s.core.RestoreCandleDefault(talib.CandleSettingType(st)) != nil {
 		return errorReply("Invalid candle setting type")
 	}
 	return `{"status":"ok"}`
 }
 
 func fuzzInHash(p params) string {
-	n := max(int(p.i64("gen_n", 0)), 0)
+	n := max(int(p.i32("gen_n", 0)), 0)
 	var a [6][]float64
 	for k := range a {
 		a[k] = make([]float64, n)
 	}
-	fuzzGen(int32(p.i64("gen_shape", 0)), int32(p.i64("gen_seed", 0)), n, a[0], a[1], a[2], a[3], a[4], a[5])
+	fuzzGen(p.i32("gen_shape", 0), p.i32("gen_seed", 0), n, a[0], a[1], a[2], a[3], a[4], a[5])
 	h := fuzzHashInit()
 	for _, x := range a {
 		h = fuzzHashF64(h, x)
@@ -456,6 +489,9 @@ func (s *server) handle(line []byte) (reply string) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--bench-stream" {
+		os.Exit(benchStream(os.Args[2:]))
+	}
 	s := &server{core: talib.NewCore()}
 	for k := range s.ref {
 		s.ref[k] = make([]float64, maxArraySize)
@@ -481,11 +517,321 @@ func main() {
 }
 
 func runtimeInfo(p params) string {
-	switch p.str("key") {
-	case "vmath.transcendental", "count.initialize", "count.shutdown":
-		return `{"retCode":0,"value":0}`
+	v, err := metadata.RuntimeInfo(p.str("key"))
+	rc := 0
+	if err != nil {
+		rc = retCodeOf(err)
 	}
-	return `{"retCode":` + strconv.Itoa(int(talib.BadParam)) + `,"value":0}`
+	return `{"retCode":` + strconv.Itoa(rc) + `,"value":` + strconv.Itoa(v) + `}`
+}
+
+// jstr is s as a JSON string, with no HTML escaping.
+func jstr(s string) string {
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	e.SetEscapeHTML(false)
+	_ = e.Encode(s)
+	return string(bytes.TrimRight(b.Bytes(), "\n"))
+}
+
+func num(v float64) string {
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+const absNotFound = `{"retCode":2}`
+
+func absLookup(p params) (metadata.FuncInfo, bool) {
+	return metadata.Lookup(p.str("funcName"))
+}
+
+func absFuncInfo(p params) string {
+	f, ok := absLookup(p)
+	if !ok {
+		return absNotFound
+	}
+	return `{"name":` + jstr(f.Name()) + `,"group":` + jstr(f.Group().String()) + `,"hint":` + jstr(f.Hint()) +
+		`,"flags":` + strconv.FormatUint(uint64(f.Flags()), 10) + `,"nbInput":` + strconv.Itoa(len(f.Inputs())) +
+		`,"nbOptInput":` + strconv.Itoa(len(f.OptInputs())) + `,"nbOutput":` + strconv.Itoa(len(f.Outputs())) + `}`
+}
+
+func absFuncAttributes(p params) string {
+	f, ok := absLookup(p)
+	if !ok {
+		return absNotFound
+	}
+	return `{"attributes":` + jstr(f.Attributes()) + `}`
+}
+
+func absInputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.Inputs()) {
+		return absNotFound
+	}
+	x := f.Inputs()[i]
+	return `{"type":` + strconv.Itoa(int(x.Kind)) + `,"paramName":` + jstr(x.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(x.Components), 10) + `}`
+}
+
+func absOutputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.Outputs()) {
+		return absNotFound
+	}
+	x := f.Outputs()[i]
+	return `{"type":` + strconv.Itoa(int(x.Kind)) + `,"paramName":` + jstr(x.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(x.Flags), 10) + `}`
+}
+
+func absOptInputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.OptInputs()) {
+		return absNotFound
+	}
+	o := f.OptInputs()[i]
+	s := `{"type":` + strconv.Itoa(int(o.Kind)) + `,"paramName":` + jstr(o.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(o.Flags), 10) + `,"displayName":` + jstr(o.DisplayName) +
+		`,"hint":` + jstr(o.Hint) + `,"defaultValue":` + num(o.DefaultValue)
+	switch d := o.Domain.(type) {
+	case metadata.RealRange:
+		s += `,"min":` + num(d.Min) + `,"max":` + num(d.Max) + `,"precision":` + strconv.Itoa(d.Precision) +
+			`,"suggestedStart":` + num(d.SuggestedStart) + `,"suggestedEnd":` + num(d.SuggestedEnd) +
+			`,"suggestedIncrement":` + num(d.SuggestedIncrement)
+	case metadata.IntegerRange:
+		s += `,"min":` + strconv.Itoa(d.Min) + `,"max":` + strconv.Itoa(d.Max) +
+			`,"suggestedStart":` + strconv.Itoa(d.SuggestedStart) + `,"suggestedEnd":` + strconv.Itoa(d.SuggestedEnd) +
+			`,"suggestedIncrement":` + strconv.Itoa(d.SuggestedIncrement)
+	case metadata.IntegerList:
+		s += `,"valueList":` + jstr(d.ValueList())
+	case metadata.RealList:
+		s += `,"valueList":` + jstr(d.ValueList())
+	default:
+		panic(fmt.Sprintf("unhandled optional-parameter domain %T", d))
+	}
+	return s + `}`
+}
+
+func absForEachFunc() string {
+	b := []byte(`{"functions":[`)
+	for k, f := range metadata.All() {
+		if k > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, `{"name":`+jstr(f.Name())+`,"group":`+jstr(f.Group().String())+
+			`,"nbInput":`+strconv.Itoa(len(f.Inputs()))+`,"nbOptInput":`+strconv.Itoa(len(f.OptInputs()))+
+			`,"nbOutput":`+strconv.Itoa(len(f.Outputs()))+`}`...)
+	}
+	return string(append(b, "]}"...))
+}
+
+func absDescriptionXML() string {
+	xml := metadata.FunctionDescriptionXML()
+	var sum uint64
+	for i := 0; i < len(xml); i++ {
+		sum += uint64(xml[i])
+	}
+	return `{"length":` + strconv.Itoa(len(xml)) + `,"checksum":` + strconv.FormatUint(sum, 10) + `}`
+}
+
+// absBindOpts binds every optional parameter the request carries; an absent
+// one stays unset, which is its default. The first rejection is returned.
+func absBindOpts(f metadata.FuncInfo, h *metadata.ParamHolder, p params) error {
+	for k, o := range f.OptInputs() {
+		raw, ok := p[o.ParamName]
+		if !ok {
+			continue
+		}
+		var err error
+		switch o.Kind {
+		case metadata.OptRealRange, metadata.OptRealList:
+			v, perr := strconv.ParseFloat(string(raw), 64)
+			if perr != nil {
+				return talib.BadParam
+			}
+			err = h.SetOptInputReal(k, v)
+		default:
+			v, perr := strconv.ParseInt(string(raw), 10, 32)
+			if perr != nil {
+				return talib.BadParam
+			}
+			err = h.SetOptInputInteger(k, int(v))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *server) absHolder(p params) (*metadata.ParamHolder, bool) {
+	f, ok := absLookup(p)
+	if !ok {
+		return nil, false
+	}
+	h := f.NewCall(s.core)
+	if absBindOpts(f, h, p) != nil {
+		return nil, true
+	}
+	return h, true
+}
+
+func (s *server) absLookback(p params) string {
+	h, ok := s.absHolder(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	lb := -1
+	if h != nil {
+		if v, err := h.Lookback(); err == nil {
+			lb = v
+		}
+	}
+	return `{"lookback":` + strconv.Itoa(lb) + `}`
+}
+
+func (s *server) absDisplayShift(p params) string {
+	h, ok := s.absHolder(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	ds := math.MinInt32
+	if h != nil {
+		if v, err := h.DisplayShift(int(p.i32("outputIdx", 0))); err == nil {
+			ds = v
+		}
+	}
+	return `{"displayShift":` + strconv.Itoa(ds) + `}`
+}
+
+func (s *server) absCall(p params) string {
+	if p.i64("gen_present", 0) != 0 || p.i64("want_hash", 0) != 0 {
+		if fn := function("TA_" + p.str("funcName")); fn != nil {
+			return fn(s, p)
+		}
+	}
+	f, ok := absLookup(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	start, end := p.i32("startIdx", 0), p.i32("endIdx", 0)
+	early := func(rc talib.RetCode) string {
+		return `{"binder":1,"lookback":-1,"retCode":` + strconv.Itoa(int(rc)) + `,"outBegIdx":0,"outNBElement":0}`
+	}
+	if start < 0 || start > talib.IndexMax {
+		return early(talib.OutOfRangeStartIndex)
+	}
+	if end < 0 || end > talib.IndexMax || end < start {
+		return early(talib.OutOfRangeEndIndex)
+	}
+	// Capped, so a range the library rejects is answered with its code rather
+	// than with an allocation.
+	n := int(min(end-start+1, maxArraySize))
+	h := f.NewCall(s.core)
+	var bindErr error
+	note := func(err error) {
+		if bindErr == nil {
+			bindErr = err
+		}
+	}
+	inputs, outputs := f.Inputs(), f.Outputs()
+	skipIn, skipOut := int(p.i32("skipInput", 0)), int(p.i32("skipOutput", 0))
+	generic := 0
+	for _, in := range inputs {
+		if in.Kind != metadata.InputPrice {
+			generic++
+		}
+	}
+	gi := 0
+	for slot, in := range inputs {
+		key := "inReal"
+		if generic > 1 {
+			key = "inReal" + strconv.Itoa(gi)
+		}
+		if in.Kind != metadata.InputPrice {
+			gi++
+		}
+		if slot+1 == skipIn {
+			continue
+		}
+		switch in.Kind {
+		case metadata.InputPrice:
+			note(h.SetPriceInput(slot, metadata.PriceInput{
+				Open: p.f64Array("inOpen"), High: p.f64Array("inHigh"), Low: p.f64Array("inLow"),
+				Close: p.f64Array("inClose"), Volume: p.f64Array("inVolume"), OpenInterest: p.f64Array("inOpenInterest"),
+			}))
+		case metadata.InputReal:
+			note(h.SetInput(slot, p.f64Array(key)))
+		default:
+			src := p.f64Array(key)
+			ints := make([]int32, len(src))
+			for k, v := range src {
+				ints[k] = int32(v)
+			}
+			note(h.SetIntInput(slot, ints))
+		}
+	}
+	note(absBindOpts(f, h, p))
+	reals := make([][]float64, len(outputs))
+	ints := make([][]int32, len(outputs))
+	for k, o := range outputs {
+		if o.Kind == metadata.OutputReal {
+			reals[k] = make([]float64, n)
+			if k+1 != skipOut {
+				note(h.SetOutput(k, reals[k]))
+			}
+		} else {
+			ints[k] = make([]int32, n)
+			if k+1 != skipOut {
+				note(h.SetIntOutput(k, ints[k]))
+			}
+		}
+	}
+	lb := -1
+	if v, err := h.Lookback(); err == nil {
+		lb = v
+	}
+	rc, beg, nb := 0, 0, 0
+	if bindErr != nil {
+		rc = retCodeOf(bindErr)
+	} else if r, err := h.Call(int(start), int(end)); err != nil {
+		rc = retCodeOf(err)
+	} else {
+		beg, nb = r.BegIdx, r.NBElement
+	}
+	b := []byte(`{"binder":1,"lookback":` + strconv.Itoa(lb) + `,"retCode":` + strconv.Itoa(rc) +
+		`,"outBegIdx":` + strconv.Itoa(beg) + `,"outNBElement":` + strconv.Itoa(nb))
+	kr, ki := 0, 0
+	for k, o := range outputs {
+		if o.Kind == metadata.OutputReal {
+			b = append(b, `,"outReal`...)
+			if kr > 0 {
+				b = strconv.AppendInt(b, int64(kr), 10)
+			}
+			b = append(b, `":"`...)
+			for _, v := range reals[k][:nb] {
+				b = appendHex(b, math.Float64bits(v))
+			}
+			b = append(b, '"')
+			kr++
+		} else {
+			b = append(b, `,"outInteger`...)
+			if ki > 0 {
+				b = strconv.AppendInt(b, int64(ki), 10)
+			}
+			b = append(b, `":[`...)
+			for j, v := range ints[k][:nb] {
+				if j > 0 {
+					b = append(b, ',')
+				}
+				b = strconv.AppendInt(b, int64(v), 10)
+			}
+			b = append(b, ']')
+			ki++
+		}
+	}
+	return string(append(b, '}'))
 }
 
 func evalPredicate(p params) string {
@@ -541,6 +887,26 @@ func (s *server) dispatch(method string, p params) string {
 		return runtimeInfo(p)
 	case "fuzz_in_hash":
 		return fuzzInHash(p)
+	case "abstract_call":
+		return s.absCall(p)
+	case "abstract_get_lookback":
+		return s.absLookback(p)
+	case "abstract_get_display_shift":
+		return s.absDisplayShift(p)
+	case "abstract_for_each_func":
+		return absForEachFunc()
+	case "TA_GetFuncInfo":
+		return absFuncInfo(p)
+	case "TA_GetFuncAttributes":
+		return absFuncAttributes(p)
+	case "TA_GetInputParameterInfo":
+		return absInputInfo(p)
+	case "TA_GetOptInputParameterInfo":
+		return absOptInputInfo(p)
+	case "TA_GetOutputParameterInfo":
+		return absOutputInfo(p)
+	case "TA_FunctionDescriptionXML":
+		return absDescriptionXML()
 	case "stream_verify":
 		return s.streamVerify(p)
 	}
@@ -5828,12 +6194,12 @@ func (s *server) streamVerify(p params) string {
 }
 
 func svAC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInFastPeriod := int(p.i64("optInFastPeriod", 5))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 34))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInFastPeriod := int(p.i32("optInFastPeriod", 5))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 34))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 5))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -6170,10 +6536,10 @@ func svAC(s *server, p params) string {
 }
 
 func svACCBANDS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -6677,9 +7043,9 @@ func svACCBANDS(s *server, p params) string {
 }
 
 func svACOS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -7016,9 +7382,9 @@ func svACOS(s *server, p params) string {
 }
 
 func svAD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -7355,9 +7721,9 @@ func svAD(s *server, p params) string {
 }
 
 func svADD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -7694,12 +8060,12 @@ func svADD(s *server, p params) string {
 }
 
 func svADOSC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 3))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 3))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -8039,10 +8405,10 @@ func svADOSC(s *server, p params) string {
 }
 
 func svADR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -8379,11 +8745,11 @@ func svADR(s *server, p params) string {
 }
 
 func svADX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -8723,11 +9089,11 @@ func svADX(s *server, p params) string {
 }
 
 func svADXR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -9067,16 +9433,16 @@ func svADXR(s *server, p params) string {
 }
 
 func svALLIGATOR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInJawPeriod := int(p.i64("optInJawPeriod", 13))
-	optInJawShift := int(p.i64("optInJawShift", 8))
-	optInTeethPeriod := int(p.i64("optInTeethPeriod", 8))
-	optInTeethShift := int(p.i64("optInTeethShift", 5))
-	optInLipsPeriod := int(p.i64("optInLipsPeriod", 5))
-	optInLipsShift := int(p.i64("optInLipsShift", 3))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInJawPeriod := int(p.i32("optInJawPeriod", 13))
+	optInJawShift := int(p.i32("optInJawShift", 8))
+	optInTeethPeriod := int(p.i32("optInTeethPeriod", 8))
+	optInTeethShift := int(p.i32("optInTeethShift", 5))
+	optInLipsPeriod := int(p.i32("optInLipsPeriod", 5))
+	optInLipsShift := int(p.i32("optInLipsShift", 3))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -9583,10 +9949,10 @@ func svALLIGATOR(s *server, p params) string {
 }
 
 func svALMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 9))
 	optInSigma := p.realOr("optInSigma", 6.0)
 	optInOffset := p.realOr("optInOffset", 0.85)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -9925,11 +10291,11 @@ func svALMA(s *server, p params) string {
 }
 
 func svAO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInFastPeriod := int(p.i64("optInFastPeriod", 5))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 34))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInFastPeriod := int(p.i32("optInFastPeriod", 5))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 34))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -10266,13 +10632,13 @@ func svAO(s *server, p params) string {
 }
 
 func svAPO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -10627,10 +10993,10 @@ func svAPO(s *server, p params) string {
 }
 
 func svAROON(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -11052,10 +11418,10 @@ func svAROON(s *server, p params) string {
 }
 
 func svAROONOSC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -11392,9 +11758,9 @@ func svAROONOSC(s *server, p params) string {
 }
 
 func svASI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	optInLimitMove := p.realOr("optInLimitMove", 3.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -11732,9 +12098,9 @@ func svASI(s *server, p params) string {
 }
 
 func svASIN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -12071,9 +12437,9 @@ func svASIN(s *server, p params) string {
 }
 
 func svATAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -12410,11 +12776,11 @@ func svATAN(s *server, p params) string {
 }
 
 func svATR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -12754,10 +13120,10 @@ func svATR(s *server, p params) string {
 }
 
 func svAVGDEV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -13094,9 +13460,9 @@ func svAVGDEV(s *server, p params) string {
 }
 
 func svAVGPRICE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -13433,14 +13799,14 @@ func svAVGPRICE(s *server, p params) string {
 }
 
 func svBBANDS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInNbDevUp := p.realOr("optInNbDevUp", 2.0)
 	optInNbDevDn := p.realOr("optInNbDevDn", 2.0)
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -13962,14 +14328,14 @@ func svBBANDS(s *server, p params) string {
 }
 
 func svBBW(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInNbDevUp := p.realOr("optInNbDevUp", 2.0)
 	optInNbDevDn := p.realOr("optInNbDevDn", 2.0)
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -14324,10 +14690,10 @@ func svBBW(s *server, p params) string {
 }
 
 func svBETA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 5))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -14664,9 +15030,9 @@ func svBETA(s *server, p params) string {
 }
 
 func svBOP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -15003,10 +15369,10 @@ func svBOP(s *server, p params) string {
 }
 
 func svCCI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -15343,9 +15709,9 @@ func svCCI(s *server, p params) string {
 }
 
 func svCDL2CROWS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -15690,9 +16056,9 @@ func svCDL2CROWS(s *server, p params) string {
 }
 
 func svCDL3BLACKCROWS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -16037,9 +16403,9 @@ func svCDL3BLACKCROWS(s *server, p params) string {
 }
 
 func svCDL3INSIDE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -16384,9 +16750,9 @@ func svCDL3INSIDE(s *server, p params) string {
 }
 
 func svCDL3LINESTRIKE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -16731,9 +17097,9 @@ func svCDL3LINESTRIKE(s *server, p params) string {
 }
 
 func svCDL3OUTSIDE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -17078,9 +17444,9 @@ func svCDL3OUTSIDE(s *server, p params) string {
 }
 
 func svCDL3STARSINSOUTH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -17425,9 +17791,9 @@ func svCDL3STARSINSOUTH(s *server, p params) string {
 }
 
 func svCDL3WHITESOLDIERS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -17772,9 +18138,9 @@ func svCDL3WHITESOLDIERS(s *server, p params) string {
 }
 
 func svCDLABANDONEDBABY(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.3)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -18120,9 +18486,9 @@ func svCDLABANDONEDBABY(s *server, p params) string {
 }
 
 func svCDLADVANCEBLOCK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -18467,9 +18833,9 @@ func svCDLADVANCEBLOCK(s *server, p params) string {
 }
 
 func svCDLBELTHOLD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -18814,9 +19180,9 @@ func svCDLBELTHOLD(s *server, p params) string {
 }
 
 func svCDLBREAKAWAY(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -19161,9 +19527,9 @@ func svCDLBREAKAWAY(s *server, p params) string {
 }
 
 func svCDLCLOSINGMARUBOZU(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -19508,9 +19874,9 @@ func svCDLCLOSINGMARUBOZU(s *server, p params) string {
 }
 
 func svCDLCONCEALBABYSWALL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -19855,9 +20221,9 @@ func svCDLCONCEALBABYSWALL(s *server, p params) string {
 }
 
 func svCDLCOUNTERATTACK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -20202,9 +20568,9 @@ func svCDLCOUNTERATTACK(s *server, p params) string {
 }
 
 func svCDLDARKCLOUDCOVER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.5)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -20550,9 +20916,9 @@ func svCDLDARKCLOUDCOVER(s *server, p params) string {
 }
 
 func svCDLDOJI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -20897,9 +21263,9 @@ func svCDLDOJI(s *server, p params) string {
 }
 
 func svCDLDOJISTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -21244,9 +21610,9 @@ func svCDLDOJISTAR(s *server, p params) string {
 }
 
 func svCDLDRAGONFLYDOJI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -21591,9 +21957,9 @@ func svCDLDRAGONFLYDOJI(s *server, p params) string {
 }
 
 func svCDLENGULFING(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -21938,9 +22304,9 @@ func svCDLENGULFING(s *server, p params) string {
 }
 
 func svCDLEVENINGDOJISTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.3)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -22286,9 +22652,9 @@ func svCDLEVENINGDOJISTAR(s *server, p params) string {
 }
 
 func svCDLEVENINGSTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.3)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -22634,9 +23000,9 @@ func svCDLEVENINGSTAR(s *server, p params) string {
 }
 
 func svCDLGAPSIDESIDEWHITE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -22981,9 +23347,9 @@ func svCDLGAPSIDESIDEWHITE(s *server, p params) string {
 }
 
 func svCDLGRAVESTONEDOJI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -23328,9 +23694,9 @@ func svCDLGRAVESTONEDOJI(s *server, p params) string {
 }
 
 func svCDLHAMMER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -23675,9 +24041,9 @@ func svCDLHAMMER(s *server, p params) string {
 }
 
 func svCDLHANGINGMAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -24022,9 +24388,9 @@ func svCDLHANGINGMAN(s *server, p params) string {
 }
 
 func svCDLHARAMI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -24369,9 +24735,9 @@ func svCDLHARAMI(s *server, p params) string {
 }
 
 func svCDLHARAMICROSS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -24716,9 +25082,9 @@ func svCDLHARAMICROSS(s *server, p params) string {
 }
 
 func svCDLHIGHWAVE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -25063,9 +25429,9 @@ func svCDLHIGHWAVE(s *server, p params) string {
 }
 
 func svCDLHIKKAKE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -25410,9 +25776,9 @@ func svCDLHIKKAKE(s *server, p params) string {
 }
 
 func svCDLHIKKAKEMOD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -25757,9 +26123,9 @@ func svCDLHIKKAKEMOD(s *server, p params) string {
 }
 
 func svCDLHOMINGPIGEON(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -26104,9 +26470,9 @@ func svCDLHOMINGPIGEON(s *server, p params) string {
 }
 
 func svCDLIDENTICAL3CROWS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -26451,9 +26817,9 @@ func svCDLIDENTICAL3CROWS(s *server, p params) string {
 }
 
 func svCDLINNECK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -26798,9 +27164,9 @@ func svCDLINNECK(s *server, p params) string {
 }
 
 func svCDLINVERTEDHAMMER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -27145,9 +27511,9 @@ func svCDLINVERTEDHAMMER(s *server, p params) string {
 }
 
 func svCDLKICKING(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -27492,9 +27858,9 @@ func svCDLKICKING(s *server, p params) string {
 }
 
 func svCDLKICKINGBYLENGTH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -27839,9 +28205,9 @@ func svCDLKICKINGBYLENGTH(s *server, p params) string {
 }
 
 func svCDLLADDERBOTTOM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -28186,9 +28552,9 @@ func svCDLLADDERBOTTOM(s *server, p params) string {
 }
 
 func svCDLLONGLEGGEDDOJI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -28533,9 +28899,9 @@ func svCDLLONGLEGGEDDOJI(s *server, p params) string {
 }
 
 func svCDLLONGLINE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -28880,9 +29246,9 @@ func svCDLLONGLINE(s *server, p params) string {
 }
 
 func svCDLMARUBOZU(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -29227,9 +29593,9 @@ func svCDLMARUBOZU(s *server, p params) string {
 }
 
 func svCDLMATCHINGLOW(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -29574,9 +29940,9 @@ func svCDLMATCHINGLOW(s *server, p params) string {
 }
 
 func svCDLMATHOLD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.5)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -29922,9 +30288,9 @@ func svCDLMATHOLD(s *server, p params) string {
 }
 
 func svCDLMORNINGDOJISTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.3)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -30270,9 +30636,9 @@ func svCDLMORNINGDOJISTAR(s *server, p params) string {
 }
 
 func svCDLMORNINGSTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	optInPenetration := p.realOr("optInPenetration", 0.3)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -30618,9 +30984,9 @@ func svCDLMORNINGSTAR(s *server, p params) string {
 }
 
 func svCDLONNECK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -30965,9 +31331,9 @@ func svCDLONNECK(s *server, p params) string {
 }
 
 func svCDLPIERCING(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -31312,9 +31678,9 @@ func svCDLPIERCING(s *server, p params) string {
 }
 
 func svCDLRICKSHAWMAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -31659,9 +32025,9 @@ func svCDLRICKSHAWMAN(s *server, p params) string {
 }
 
 func svCDLRISEFALL3METHODS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -32006,9 +32372,9 @@ func svCDLRISEFALL3METHODS(s *server, p params) string {
 }
 
 func svCDLSEPARATINGLINES(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -32353,9 +32719,9 @@ func svCDLSEPARATINGLINES(s *server, p params) string {
 }
 
 func svCDLSHOOTINGSTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -32700,9 +33066,9 @@ func svCDLSHOOTINGSTAR(s *server, p params) string {
 }
 
 func svCDLSHORTLINE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -33047,9 +33413,9 @@ func svCDLSHORTLINE(s *server, p params) string {
 }
 
 func svCDLSPINNINGTOP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -33394,9 +33760,9 @@ func svCDLSPINNINGTOP(s *server, p params) string {
 }
 
 func svCDLSTALLEDPATTERN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -33741,9 +34107,9 @@ func svCDLSTALLEDPATTERN(s *server, p params) string {
 }
 
 func svCDLSTICKSANDWICH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -34088,9 +34454,9 @@ func svCDLSTICKSANDWICH(s *server, p params) string {
 }
 
 func svCDLTAKURI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -34435,9 +34801,9 @@ func svCDLTAKURI(s *server, p params) string {
 }
 
 func svCDLTASUKIGAP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -34782,9 +35148,9 @@ func svCDLTASUKIGAP(s *server, p params) string {
 }
 
 func svCDLTHRUSTING(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -35129,9 +35495,9 @@ func svCDLTHRUSTING(s *server, p params) string {
 }
 
 func svCDLTRISTAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -35476,9 +35842,9 @@ func svCDLTRISTAR(s *server, p params) string {
 }
 
 func svCDLUNIQUE3RIVER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -35823,9 +36189,9 @@ func svCDLUNIQUE3RIVER(s *server, p params) string {
 }
 
 func svCDLUPSIDEGAP2CROWS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -36170,9 +36536,9 @@ func svCDLUPSIDEGAP2CROWS(s *server, p params) string {
 }
 
 func svCDLXSIDEGAP3METHODS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	candleLegs := p.i64("candleLegs", 0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -36517,11 +36883,11 @@ func svCDLXSIDEGAP3METHODS(s *server, p params) string {
 }
 
 func svCE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 22))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 22))
 	optInMultiplier := p.realOr("optInMultiplier", 3.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -36947,9 +37313,9 @@ func svCE(s *server, p params) string {
 }
 
 func svCEIL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -37286,10 +37652,10 @@ func svCEIL(s *server, p params) string {
 }
 
 func svCG(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -37626,10 +37992,10 @@ func svCG(s *server, p params) string {
 }
 
 func svCHOP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -37966,10 +38332,10 @@ func svCHOP(s *server, p params) string {
 }
 
 func svCHOPTR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -38306,13 +38672,13 @@ func svCHOPTR(s *server, p params) string {
 }
 
 func svCKSP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	optInMultiplier := p.realOr("optInMultiplier", 1.0)
-	optInStopPeriod := int(p.i64("optInStopPeriod", 9))
+	optInStopPeriod := int(p.i32("optInStopPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -38737,10 +39103,10 @@ func svCKSP(s *server, p params) string {
 }
 
 func svCMF(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -39077,11 +39443,11 @@ func svCMF(s *server, p params) string {
 }
 
 func svCMO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -39421,10 +39787,10 @@ func svCMO(s *server, p params) string {
 }
 
 func svCMOU(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -39761,12 +40127,12 @@ func svCMOU(s *server, p params) string {
 }
 
 func svCOPPOCK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInWMAPeriod := int(p.i64("optInWMAPeriod", 10))
-	optInROC1Period := int(p.i64("optInROC1Period", 11))
-	optInROC2Period := int(p.i64("optInROC2Period", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInWMAPeriod := int(p.i32("optInWMAPeriod", 10))
+	optInROC1Period := int(p.i32("optInROC1Period", 11))
+	optInROC2Period := int(p.i32("optInROC2Period", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -40103,10 +40469,10 @@ func svCOPPOCK(s *server, p params) string {
 }
 
 func svCORREL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -40443,9 +40809,9 @@ func svCORREL(s *server, p params) string {
 }
 
 func svCOS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -40782,9 +41148,9 @@ func svCOS(s *server, p params) string {
 }
 
 func svCOSH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -41121,13 +41487,13 @@ func svCOSH(s *server, p params) string {
 }
 
 func svCRSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 3))
-	optInStreakPeriod := int(p.i64("optInStreakPeriod", 2))
-	optInRankPeriod := int(p.i64("optInRankPeriod", 100))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 3))
+	optInStreakPeriod := int(p.i32("optInStreakPeriod", 2))
+	optInRankPeriod := int(p.i32("optInRankPeriod", 100))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -41467,10 +41833,10 @@ func svCRSI(s *server, p params) string {
 }
 
 func svCTI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -41807,9 +42173,9 @@ func svCTI(s *server, p params) string {
 }
 
 func svCUMSUM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -42146,12 +42512,12 @@ func svCUMSUM(s *server, p params) string {
 }
 
 func svCVI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
-	optInROCPeriod := int(p.i64("optInROCPeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
+	optInROCPeriod := int(p.i32("optInROCPeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -42491,11 +42857,11 @@ func svCVI(s *server, p params) string {
 }
 
 func svDEMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -42835,9 +43201,9 @@ func svDEMA(s *server, p params) string {
 }
 
 func svDIV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -43174,10 +43540,10 @@ func svDIV(s *server, p params) string {
 }
 
 func svDONCHIAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -43681,14 +44047,14 @@ func svDONCHIAN(s *server, p params) string {
 }
 
 func svDOSC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
-	optInFirstPeriod := int(p.i64("optInFirstPeriod", 5))
-	optInSecondPeriod := int(p.i64("optInSecondPeriod", 3))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
+	optInFirstPeriod := int(p.i32("optInFirstPeriod", 5))
+	optInSecondPeriod := int(p.i32("optInSecondPeriod", 3))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -44031,10 +44397,10 @@ func svDOSC(s *server, p params) string {
 }
 
 func svDPO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -44371,11 +44737,11 @@ func svDPO(s *server, p params) string {
 }
 
 func svDX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -44715,11 +45081,11 @@ func svDX(s *server, p params) string {
 }
 
 func svEFI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 13))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 13))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -45059,11 +45425,11 @@ func svEFI(s *server, p params) string {
 }
 
 func svEMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -45403,10 +45769,10 @@ func svEMA(s *server, p params) string {
 }
 
 func svEMV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	optInVolumeDivisor := p.realOr("optInVolumeDivisor", 10000.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -45744,10 +46110,10 @@ func svEMV(s *server, p params) string {
 }
 
 func svER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -46084,11 +46450,11 @@ func svER(s *server, p params) string {
 }
 
 func svERI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 13))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 13))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -46513,9 +46879,9 @@ func svERI(s *server, p params) string {
 }
 
 func svEXP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -46852,11 +47218,11 @@ func svEXP(s *server, p params) string {
 }
 
 func svFISHER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -47281,9 +47647,9 @@ func svFISHER(s *server, p params) string {
 }
 
 func svFLOOR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -47620,10 +47986,10 @@ func svFLOOR(s *server, p params) string {
 }
 
 func svFOSC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 5))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -47960,11 +48326,11 @@ func svFOSC(s *server, p params) string {
 }
 
 func svFRACTAL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInLeftBars := int(p.i64("optInLeftBars", 2))
-	optInRightBars := int(p.i64("optInRightBars", 2))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInLeftBars := int(p.i32("optInLeftBars", 2))
+	optInRightBars := int(p.i32("optInRightBars", 2))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]int32, svN)
@@ -48380,11 +48746,11 @@ func svFRACTAL(s *server, p params) string {
 }
 
 func svFRAMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 16))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 16))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -48724,16 +49090,16 @@ func svFRAMA(s *server, p params) string {
 }
 
 func svGATOR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInJawPeriod := int(p.i64("optInJawPeriod", 13))
-	optInJawShift := int(p.i64("optInJawShift", 8))
-	optInTeethPeriod := int(p.i64("optInTeethPeriod", 8))
-	optInTeethShift := int(p.i64("optInTeethShift", 5))
-	optInLipsPeriod := int(p.i64("optInLipsPeriod", 5))
-	optInLipsShift := int(p.i64("optInLipsShift", 3))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInJawPeriod := int(p.i32("optInJawPeriod", 13))
+	optInJawShift := int(p.i32("optInJawShift", 8))
+	optInTeethPeriod := int(p.i32("optInTeethPeriod", 8))
+	optInTeethShift := int(p.i32("optInTeethShift", 5))
+	optInLipsPeriod := int(p.i32("optInLipsPeriod", 5))
+	optInLipsShift := int(p.i32("optInLipsShift", 3))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -49158,10 +49524,10 @@ func svGATOR(s *server, p params) string {
 }
 
 func svHA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -49750,10 +50116,10 @@ func svHA(s *server, p params) string {
 }
 
 func svHMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -50090,10 +50456,10 @@ func svHMA(s *server, p params) string {
 }
 
 func svHT_DCPERIOD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -50433,10 +50799,10 @@ func svHT_DCPERIOD(s *server, p params) string {
 }
 
 func svHT_DCPHASE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -50776,10 +51142,10 @@ func svHT_DCPHASE(s *server, p params) string {
 }
 
 func svHT_PHASOR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -51204,10 +51570,10 @@ func svHT_PHASOR(s *server, p params) string {
 }
 
 func svHT_SINE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -51632,10 +51998,10 @@ func svHT_SINE(s *server, p params) string {
 }
 
 func svHT_TRENDLINE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -51975,10 +52341,10 @@ func svHT_TRENDLINE(s *server, p params) string {
 }
 
 func svHT_TRENDMODE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]int32, svN)
@@ -52315,9 +52681,9 @@ func svHT_TRENDMODE(s *server, p params) string {
 }
 
 func svIBS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -52654,12 +53020,12 @@ func svIBS(s *server, p params) string {
 }
 
 func svICHIMOKU(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTenkanPeriod := int(p.i64("optInTenkanPeriod", 9))
-	optInKijunPeriod := int(p.i64("optInKijunPeriod", 26))
-	optInSenkouBPeriod := int(p.i64("optInSenkouBPeriod", 52))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTenkanPeriod := int(p.i32("optInTenkanPeriod", 9))
+	optInKijunPeriod := int(p.i32("optInKijunPeriod", 26))
+	optInSenkouBPeriod := int(p.i32("optInSenkouBPeriod", 52))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -53245,10 +53611,10 @@ func svICHIMOKU(s *server, p params) string {
 }
 
 func svIMI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -53585,11 +53951,11 @@ func svIMI(s *server, p params) string {
 }
 
 func svKAMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -53929,12 +54295,12 @@ func svKAMA(s *server, p params) string {
 }
 
 func svKC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
-	optInATRPeriod := int(p.i64("optInATRPeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
+	optInATRPeriod := int(p.i32("optInATRPeriod", 10))
 	optInNbDev := p.realOr("optInNbDev", 2.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -54445,15 +54811,15 @@ func svKC(s *server, p params) string {
 }
 
 func svKDJ(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastK_Period := int(p.i64("optInFastK_Period", 9))
-	optInSlowK_Period := int(p.i64("optInSlowK_Period", 3))
-	optInSlowK_MAType := talib.MAType(p.i64("optInSlowK_MAType", int64(talib.MATypeDEFAULT)))
-	optInSlowD_Period := int(p.i64("optInSlowD_Period", 3))
-	optInSlowD_MAType := talib.MAType(p.i64("optInSlowD_MAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastK_Period := int(p.i32("optInFastK_Period", 9))
+	optInSlowK_Period := int(p.i32("optInSlowK_Period", 3))
+	optInSlowK_MAType := talib.MAType(p.i32("optInSlowK_MAType", int32(talib.MATypeDEFAULT)))
+	optInSlowD_Period := int(p.i32("optInSlowD_Period", 3))
+	optInSlowD_MAType := talib.MAType(p.i32("optInSlowD_MAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -54975,18 +55341,18 @@ func svKDJ(s *server, p params) string {
 }
 
 func svKST(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInROC1Period := int(p.i64("optInROC1Period", 10))
-	optInROC2Period := int(p.i64("optInROC2Period", 15))
-	optInROC3Period := int(p.i64("optInROC3Period", 20))
-	optInROC4Period := int(p.i64("optInROC4Period", 30))
-	optInSMA1Period := int(p.i64("optInSMA1Period", 10))
-	optInSMA2Period := int(p.i64("optInSMA2Period", 10))
-	optInSMA3Period := int(p.i64("optInSMA3Period", 10))
-	optInSMA4Period := int(p.i64("optInSMA4Period", 15))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInROC1Period := int(p.i32("optInROC1Period", 10))
+	optInROC2Period := int(p.i32("optInROC2Period", 15))
+	optInROC3Period := int(p.i32("optInROC3Period", 20))
+	optInROC4Period := int(p.i32("optInROC4Period", 30))
+	optInSMA1Period := int(p.i32("optInSMA1Period", 10))
+	optInSMA2Period := int(p.i32("optInSMA2Period", 10))
+	optInSMA3Period := int(p.i32("optInSMA3Period", 10))
+	optInSMA4Period := int(p.i32("optInSMA4Period", 15))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -55408,21 +55774,21 @@ func svKST(s *server, p params) string {
 }
 
 func svKSTEXT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInROC1Period := int(p.i64("optInROC1Period", 10))
-	optInROC2Period := int(p.i64("optInROC2Period", 15))
-	optInROC3Period := int(p.i64("optInROC3Period", 20))
-	optInROC4Period := int(p.i64("optInROC4Period", 30))
-	optInMA1Period := int(p.i64("optInMA1Period", 10))
-	optInMA2Period := int(p.i64("optInMA2Period", 10))
-	optInMA3Period := int(p.i64("optInMA3Period", 10))
-	optInMA4Period := int(p.i64("optInMA4Period", 15))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
-	optInROCMAType := talib.MAType(p.i64("optInROCMAType", int64(talib.MATypeDEFAULT)))
-	optInSignalMAType := talib.MAType(p.i64("optInSignalMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInROC1Period := int(p.i32("optInROC1Period", 10))
+	optInROC2Period := int(p.i32("optInROC2Period", 15))
+	optInROC3Period := int(p.i32("optInROC3Period", 20))
+	optInROC4Period := int(p.i32("optInROC4Period", 30))
+	optInMA1Period := int(p.i32("optInMA1Period", 10))
+	optInMA2Period := int(p.i32("optInMA2Period", 10))
+	optInMA3Period := int(p.i32("optInMA3Period", 10))
+	optInMA4Period := int(p.i32("optInMA4Period", 15))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
+	optInROCMAType := talib.MAType(p.i32("optInROCMAType", int32(talib.MATypeDEFAULT)))
+	optInSignalMAType := talib.MAType(p.i32("optInSignalMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -55862,10 +56228,10 @@ func svKSTEXT(s *server, p params) string {
 }
 
 func svKURTOSIS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -56202,13 +56568,13 @@ func svKURTOSIS(s *server, p params) string {
 }
 
 func svKVO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 34))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 55))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 13))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 34))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 55))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 13))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -56633,10 +56999,10 @@ func svKVO(s *server, p params) string {
 }
 
 func svLINEARREG(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -56973,10 +57339,10 @@ func svLINEARREG(s *server, p params) string {
 }
 
 func svLINEARREG_ANGLE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -57313,10 +57679,10 @@ func svLINEARREG_ANGLE(s *server, p params) string {
 }
 
 func svLINEARREG_INTERCEPT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -57653,10 +58019,10 @@ func svLINEARREG_INTERCEPT(s *server, p params) string {
 }
 
 func svLINEARREG_SLOPE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -57993,9 +58359,9 @@ func svLINEARREG_SLOPE(s *server, p params) string {
 }
 
 func svLN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -58332,9 +58698,9 @@ func svLN(s *server, p params) string {
 }
 
 func svLOG10(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -58671,12 +59037,12 @@ func svLOG10(s *server, p params) string {
 }
 
 func svMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -59031,13 +59397,13 @@ func svMA(s *server, p params) string {
 }
 
 func svMACD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -59544,16 +59910,16 @@ func svMACD(s *server, p params) string {
 }
 
 func svMACDEXT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInFastMAType := talib.MAType(p.i64("optInFastMAType", int64(talib.MATypeDEFAULT)))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInSlowMAType := talib.MAType(p.i64("optInSlowMAType", int64(talib.MATypeDEFAULT)))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
-	optInSignalMAType := talib.MAType(p.i64("optInSignalMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInFastMAType := talib.MAType(p.i32("optInFastMAType", int32(talib.MATypeDEFAULT)))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInSlowMAType := talib.MAType(p.i32("optInSlowMAType", int32(talib.MATypeDEFAULT)))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
+	optInSignalMAType := talib.MAType(p.i32("optInSignalMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -60075,11 +60441,11 @@ func svMACDEXT(s *server, p params) string {
 }
 
 func svMACDFIX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -60586,13 +60952,13 @@ func svMACDFIX(s *server, p params) string {
 }
 
 func svMACDV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -61102,10 +61468,10 @@ func svMACDV(s *server, p params) string {
 }
 
 func svMAMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
 	optInFastLimit := p.realOr("optInFastLimit", 0.5)
 	optInSlowLimit := p.realOr("optInSlowLimit", 0.05)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -61532,9 +61898,9 @@ func svMAMA(s *server, p params) string {
 }
 
 func svMARKETFI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -61871,12 +62237,12 @@ func svMARKETFI(s *server, p params) string {
 }
 
 func svMASSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 9))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 25))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 9))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 25))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -62216,13 +62582,13 @@ func svMASSI(s *server, p params) string {
 }
 
 func svMAVP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInMinPeriod := int(p.i64("optInMinPeriod", 2))
-	optInMaxPeriod := int(p.i64("optInMaxPeriod", 30))
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInMinPeriod := int(p.i32("optInMinPeriod", 2))
+	optInMaxPeriod := int(p.i32("optInMaxPeriod", 30))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	for pi := range fzV {
@@ -62580,10 +62946,10 @@ func svMAVP(s *server, p params) string {
 }
 
 func svMAX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -62920,10 +63286,10 @@ func svMAX(s *server, p params) string {
 }
 
 func svMAXINDEX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]int32, svN)
@@ -63257,11 +63623,11 @@ func svMAXINDEX(s *server, p params) string {
 }
 
 func svMCGD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -63601,10 +63967,10 @@ func svMCGD(s *server, p params) string {
 }
 
 func svMEDIAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -63941,9 +64307,9 @@ func svMEDIAN(s *server, p params) string {
 }
 
 func svMEDPRICE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -64280,10 +64646,10 @@ func svMEDPRICE(s *server, p params) string {
 }
 
 func svMFI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -64620,10 +64986,10 @@ func svMFI(s *server, p params) string {
 }
 
 func svMIDPOINT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -64960,10 +65326,10 @@ func svMIDPOINT(s *server, p params) string {
 }
 
 func svMIDPRICE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -65300,10 +65666,10 @@ func svMIDPRICE(s *server, p params) string {
 }
 
 func svMIN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -65640,10 +66006,10 @@ func svMIN(s *server, p params) string {
 }
 
 func svMININDEX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]int32, svN)
@@ -65977,10 +66343,10 @@ func svMININDEX(s *server, p params) string {
 }
 
 func svMINMAX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -66402,10 +66768,10 @@ func svMINMAX(s *server, p params) string {
 }
 
 func svMINMAXINDEX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]int32, svN)
@@ -66821,11 +67187,11 @@ func svMINMAXINDEX(s *server, p params) string {
 }
 
 func svMINUS_DI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -67165,11 +67531,11 @@ func svMINUS_DI(s *server, p params) string {
 }
 
 func svMINUS_DM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -67509,10 +67875,10 @@ func svMINUS_DM(s *server, p params) string {
 }
 
 func svMOM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -67849,9 +68215,9 @@ func svMOM(s *server, p params) string {
 }
 
 func svMULT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -68188,11 +68554,11 @@ func svMULT(s *server, p params) string {
 }
 
 func svNATR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -68532,9 +68898,9 @@ func svNATR(s *server, p params) string {
 }
 
 func svNVI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -68871,9 +69237,9 @@ func svNVI(s *server, p params) string {
 }
 
 func svOBV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -69210,14 +69576,14 @@ func svOBV(s *server, p params) string {
 }
 
 func svPERCENTB(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInNbDevUp := p.realOr("optInNbDevUp", 2.0)
 	optInNbDevDn := p.realOr("optInNbDevDn", 2.0)
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -69572,10 +69938,10 @@ func svPERCENTB(s *server, p params) string {
 }
 
 func svPERCENTILE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 100))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 100))
 	optInPercentile := p.realOr("optInPercentile", 50.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -69913,10 +70279,10 @@ func svPERCENTILE(s *server, p params) string {
 }
 
 func svPERCENTRANK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 100))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 100))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -70253,11 +70619,11 @@ func svPERCENTRANK(s *server, p params) string {
 }
 
 func svPLUS_DI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -70597,11 +70963,11 @@ func svPLUS_DI(s *server, p params) string {
 }
 
 func svPLUS_DM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -70941,13 +71307,13 @@ func svPLUS_DM(s *server, p params) string {
 }
 
 func svPPO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -71302,12 +71668,12 @@ func svPPO(s *server, p params) string {
 }
 
 func svPSO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastK_Period := int(p.i64("optInFastK_Period", 8))
-	optInEMAPeriod := int(p.i64("optInEMAPeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastK_Period := int(p.i32("optInFastK_Period", 8))
+	optInEMAPeriod := int(p.i32("optInEMAPeriod", 5))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -71647,9 +72013,9 @@ func svPSO(s *server, p params) string {
 }
 
 func svPVI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -71986,13 +72352,13 @@ func svPVI(s *server, p params) string {
 }
 
 func svPVO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 12))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 26))
-	optInMAType := talib.MAType(p.i64("optInMAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 12))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 26))
+	optInMAType := talib.MAType(p.i32("optInMAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -72347,9 +72713,9 @@ func svPVO(s *server, p params) string {
 }
 
 func svPVT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -72686,10 +73052,10 @@ func svPVT(s *server, p params) string {
 }
 
 func svQSTICK(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -73026,11 +73392,11 @@ func svQSTICK(s *server, p params) string {
 }
 
 func svRMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -73370,10 +73736,10 @@ func svRMA(s *server, p params) string {
 }
 
 func svROC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -73710,10 +74076,10 @@ func svROC(s *server, p params) string {
 }
 
 func svROCP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -74050,10 +74416,10 @@ func svROCP(s *server, p params) string {
 }
 
 func svROCR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -74390,10 +74756,10 @@ func svROCR(s *server, p params) string {
 }
 
 func svROCR100(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -74730,10 +75096,10 @@ func svROCR100(s *server, p params) string {
 }
 
 func svROGERSSATCHELL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	optInAnnualization := p.realOr("optInAnnualization", 252.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -75071,11 +75437,11 @@ func svROGERSSATCHELL(s *server, p params) string {
 }
 
 func svRSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -75415,12 +75781,12 @@ func svRSI(s *server, p params) string {
 }
 
 func svRVI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
-	optInStdDevPeriod := int(p.i64("optInStdDevPeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
+	optInStdDevPeriod := int(p.i32("optInStdDevPeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -75760,12 +76126,12 @@ func svRVI(s *server, p params) string {
 }
 
 func svRVIR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
-	optInStdDevPeriod := int(p.i64("optInStdDevPeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
+	optInStdDevPeriod := int(p.i32("optInStdDevPeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -76105,10 +76471,10 @@ func svRVIR(s *server, p params) string {
 }
 
 func svRVOL(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -76445,9 +76811,9 @@ func svRVOL(s *server, p params) string {
 }
 
 func svSAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	optInAcceleration := p.realOr("optInAcceleration", 0.02)
 	optInMaximum := p.realOr("optInMaximum", 0.2)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -76786,9 +77152,9 @@ func svSAR(s *server, p params) string {
 }
 
 func svSAREXT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	optInStartValue := p.realOr("optInStartValue", 0.0)
 	optInOffsetOnReverse := p.realOr("optInOffsetOnReverse", 0.0)
 	optInAccelerationInitLong := p.realOr("optInAccelerationInitLong", 0.02)
@@ -77133,10 +77499,10 @@ func svSAREXT(s *server, p params) string {
 }
 
 func svSHARPE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInRiskFreeRate := p.realOr("optInRiskFreeRate", 0.0)
 	optInAnnualization := p.realOr("optInAnnualization", 252.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -77475,9 +77841,9 @@ func svSHARPE(s *server, p params) string {
 }
 
 func svSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	optInLimitMove := p.realOr("optInLimitMove", 3.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -77815,9 +78181,9 @@ func svSI(s *server, p params) string {
 }
 
 func svSIN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -78154,9 +78520,9 @@ func svSIN(s *server, p params) string {
 }
 
 func svSINH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -78493,10 +78859,10 @@ func svSINH(s *server, p params) string {
 }
 
 func svSKEW(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -78833,10 +79199,10 @@ func svSKEW(s *server, p params) string {
 }
 
 func svSMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -79173,14 +79539,14 @@ func svSMA(s *server, p params) string {
 }
 
 func svSMI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 13))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 2))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 25))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 13))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 2))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 25))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -79605,10 +79971,10 @@ func svSMI(s *server, p params) string {
 }
 
 func svSORTINO(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInMAR := p.realOr("optInMAR", 0.0)
 	optInAnnualization := p.realOr("optInAnnualization", 252.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
@@ -79947,9 +80313,9 @@ func svSORTINO(s *server, p params) string {
 }
 
 func svSQRT(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -80286,12 +80652,12 @@ func svSQRT(s *server, p params) string {
 }
 
 func svSQZMOM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInBBPeriod := int(p.i64("optInBBPeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInBBPeriod := int(p.i32("optInBBPeriod", 20))
 	optInNbDev := p.realOr("optInNbDev", 2.0)
-	optInKCPeriod := int(p.i64("optInKCPeriod", 20))
+	optInKCPeriod := int(p.i32("optInKCPeriod", 20))
 	optInFactorWide := p.realOr("optInFactorWide", 2.0)
 	optInFactorNormal := p.realOr("optInFactorNormal", 1.5)
 	optInFactorNarrow := p.realOr("optInFactorNarrow", 1.0)
@@ -80713,13 +81079,13 @@ func svSQZMOM(s *server, p params) string {
 }
 
 func svSTC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastPeriod := int(p.i64("optInFastPeriod", 23))
-	optInSlowPeriod := int(p.i64("optInSlowPeriod", 50))
-	optInCyclePeriod := int(p.i64("optInCyclePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastPeriod := int(p.i32("optInFastPeriod", 23))
+	optInSlowPeriod := int(p.i32("optInSlowPeriod", 50))
+	optInCyclePeriod := int(p.i32("optInCyclePeriod", 10))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -81062,10 +81428,10 @@ func svSTC(s *server, p params) string {
 }
 
 func svSTDDEV(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 5))
 	optInNbDev := p.realOr("optInNbDev", 1.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -81403,15 +81769,15 @@ func svSTDDEV(s *server, p params) string {
 }
 
 func svSTOCH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastK_Period := int(p.i64("optInFastK_Period", 5))
-	optInSlowK_Period := int(p.i64("optInSlowK_Period", 3))
-	optInSlowK_MAType := talib.MAType(p.i64("optInSlowK_MAType", int64(talib.MATypeDEFAULT)))
-	optInSlowD_Period := int(p.i64("optInSlowD_Period", 3))
-	optInSlowD_MAType := talib.MAType(p.i64("optInSlowD_MAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastK_Period := int(p.i32("optInFastK_Period", 5))
+	optInSlowK_Period := int(p.i32("optInSlowK_Period", 3))
+	optInSlowK_MAType := talib.MAType(p.i32("optInSlowK_MAType", int32(talib.MATypeDEFAULT)))
+	optInSlowD_Period := int(p.i32("optInSlowD_Period", 3))
+	optInSlowD_MAType := talib.MAType(p.i32("optInSlowD_MAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -81851,13 +82217,13 @@ func svSTOCH(s *server, p params) string {
 }
 
 func svSTOCHF(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFastK_Period := int(p.i64("optInFastK_Period", 5))
-	optInFastD_Period := int(p.i64("optInFastD_Period", 3))
-	optInFastD_MAType := talib.MAType(p.i64("optInFastD_MAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFastK_Period := int(p.i32("optInFastK_Period", 5))
+	optInFastD_Period := int(p.i32("optInFastD_Period", 3))
+	optInFastD_MAType := talib.MAType(p.i32("optInFastD_MAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -82297,14 +82663,14 @@ func svSTOCHF(s *server, p params) string {
 }
 
 func svSTOCHRSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
-	optInFastK_Period := int(p.i64("optInFastK_Period", 5))
-	optInFastD_Period := int(p.i64("optInFastD_Period", 3))
-	optInFastD_MAType := talib.MAType(p.i64("optInFastD_MAType", int64(talib.MATypeDEFAULT)))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
+	optInFastK_Period := int(p.i32("optInFastK_Period", 5))
+	optInFastD_Period := int(p.i32("optInFastD_Period", 3))
+	optInFastD_MAType := talib.MAType(p.i32("optInFastD_MAType", int32(talib.MATypeDEFAULT)))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -82747,9 +83113,9 @@ func svSTOCHRSI(s *server, p params) string {
 }
 
 func svSUB(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -83086,10 +83452,10 @@ func svSUB(s *server, p params) string {
 }
 
 func svSUM(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -83426,11 +83792,11 @@ func svSUM(s *server, p params) string {
 }
 
 func svSUPERTREND(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 10))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 10))
 	optInMultiplier := p.realOr("optInMultiplier", 3.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -83853,11 +84219,11 @@ func svSUPERTREND(s *server, p params) string {
 }
 
 func svSWAK_2PHP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -84197,11 +84563,11 @@ func svSWAK_2PHP(s *server, p params) string {
 }
 
 func svSWAK_BP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	optInDelta := p.realOr("optInDelta", 0.1)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -84542,11 +84908,11 @@ func svSWAK_BP(s *server, p params) string {
 }
 
 func svSWAK_BUTTER(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -84886,11 +85252,11 @@ func svSWAK_BUTTER(s *server, p params) string {
 }
 
 func svSWAK_GAUSS(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -85230,11 +85596,11 @@ func svSWAK_GAUSS(s *server, p params) string {
 }
 
 func svSWAK_HP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 20))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 20))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -85574,11 +85940,11 @@ func svSWAK_HP(s *server, p params) string {
 }
 
 func svT3(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 5))
 	optInVFactor := p.realOr("optInVFactor", 0.7)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -85919,9 +86285,9 @@ func svT3(s *server, p params) string {
 }
 
 func svTAN(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -86258,9 +86624,9 @@ func svTAN(s *server, p params) string {
 }
 
 func svTANH(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -86597,11 +86963,11 @@ func svTANH(s *server, p params) string {
 }
 
 func svTEMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -86941,9 +87307,9 @@ func svTEMA(s *server, p params) string {
 }
 
 func svTRANGE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -87280,10 +87646,10 @@ func svTRANGE(s *server, p params) string {
 }
 
 func svTRIMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -87620,11 +87986,11 @@ func svTRIMA(s *server, p params) string {
 }
 
 func svTRIX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -87964,10 +88330,10 @@ func svTRIX(s *server, p params) string {
 }
 
 func svTSF(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -88304,12 +88670,12 @@ func svTSF(s *server, p params) string {
 }
 
 func svTSI(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInFirstPeriod := int(p.i64("optInFirstPeriod", 25))
-	optInSecondPeriod := int(p.i64("optInSecondPeriod", 13))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInFirstPeriod := int(p.i32("optInFirstPeriod", 25))
+	optInSecondPeriod := int(p.i32("optInSecondPeriod", 13))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -88649,9 +89015,9 @@ func svTSI(s *server, p params) string {
 }
 
 func svTYPPRICE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -88988,12 +89354,12 @@ func svTYPPRICE(s *server, p params) string {
 }
 
 func svULTOSC(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod1 := int(p.i64("optInTimePeriod1", 7))
-	optInTimePeriod2 := int(p.i64("optInTimePeriod2", 14))
-	optInTimePeriod3 := int(p.i64("optInTimePeriod3", 28))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod1 := int(p.i32("optInTimePeriod1", 7))
+	optInTimePeriod2 := int(p.i32("optInTimePeriod2", 14))
+	optInTimePeriod3 := int(p.i32("optInTimePeriod3", 28))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -89330,10 +89696,10 @@ func svULTOSC(s *server, p params) string {
 }
 
 func svVAR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 5))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 5))
 	optInNbDev := p.realOr("optInNbDev", 1.0)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
@@ -89671,10 +90037,10 @@ func svVAR(s *server, p params) string {
 }
 
 func svVHF(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 28))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 28))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -90011,12 +90377,12 @@ func svVHF(s *server, p params) string {
 }
 
 func svVIDYA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 12))
-	optInCMOPeriod := int(p.i64("optInCMOPeriod", 9))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 12))
+	optInCMOPeriod := int(p.i32("optInCMOPeriod", 9))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -90356,10 +90722,10 @@ func svVIDYA(s *server, p params) string {
 }
 
 func svVORTEX(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -90781,9 +91147,9 @@ func svVORTEX(s *server, p params) string {
 }
 
 func svVWAP(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -91120,10 +91486,10 @@ func svVWAP(s *server, p params) string {
 }
 
 func svVWMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -91460,9 +91826,9 @@ func svVWMA(s *server, p params) string {
 }
 
 func svWAD(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -91799,13 +92165,13 @@ func svWAD(s *server, p params) string {
 }
 
 func svWAVETREND(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInChannelPeriod := int(p.i64("optInChannelPeriod", 10))
-	optInAveragePeriod := int(p.i64("optInAveragePeriod", 21))
-	optInSignalPeriod := int(p.i64("optInSignalPeriod", 4))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInChannelPeriod := int(p.i32("optInChannelPeriod", 10))
+	optInAveragePeriod := int(p.i32("optInAveragePeriod", 21))
+	optInSignalPeriod := int(p.i32("optInSignalPeriod", 4))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -92230,9 +92596,9 @@ func svWAVETREND(s *server, p params) string {
 }
 
 func svWCLPRICE(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -92569,10 +92935,10 @@ func svWCLPRICE(s *server, p params) string {
 }
 
 func svWILLR(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 14))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 14))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -92909,10 +93275,10 @@ func svWILLR(s *server, p params) string {
 }
 
 func svWMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -93249,11 +93615,11 @@ func svWMA(s *server, p params) string {
 }
 
 func svZIGZAG(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
 	optInSensitivity := p.realOr("optInSensitivity", 5.0)
-	optInMinTrendLength := int(p.i64("optInMinTrendLength", 1))
+	optInMinTrendLength := int(p.i32("optInMinTrendLength", 1))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -93754,11 +94120,11 @@ func svZIGZAG(s *server, p params) string {
 }
 
 func svZLEMA(s *server, p params) string {
-	svShape := int32(p.i64("gen_shape", 0))
-	svSeed := int32(p.i64("gen_seed", 0))
-	svN := min(max(int(p.i64("gen_n", 0)), 2), 256)
-	svK := int(p.i64("unstablePeriod", 0))
-	optInTimePeriod := int(p.i64("optInTimePeriod", 30))
+	svShape := p.i32("gen_shape", 0)
+	svSeed := p.i32("gen_seed", 0)
+	svN := min(max(int(p.i32("gen_n", 0)), 2), 256)
+	svK := int(p.i32("unstablePeriod", 0))
+	optInTimePeriod := int(p.i32("optInTimePeriod", 30))
 	fzO, fzH, fzL, fzC, fzV, fzOI := make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN), make([]float64, svN)
 	fuzzGen(svShape, svSeed, svN, fzO, fzH, fzL, fzC, fzV, fzOI)
 	b0 := make([]float64, svN)
@@ -139683,4 +140049,16139 @@ func fuzzHashFin(h uint64) uint64 {
 	h *= 0xC4CEB9FE1A85EC53
 	h ^= h >> 33
 	return h
+}
+
+const (
+	benchOutReal = 4
+	benchOutInt  = 2
+)
+
+func bsAC(r *benchRun) {
+	optInFastPeriod := benchInt(5)
+	optInSlowPeriod := benchInt(34)
+	optInSignalPeriod := benchInt(5)
+	lb, err := r.core.ACLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.AC(t, t, rt0, rt1, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ACOpen(r.in[1], r.in[2], optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsACCBANDS(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.ACCBANDSLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ACCBANDS(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.ACCBANDSOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ACCBANDS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ACCBANDS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsACOS(r *benchRun) {
+	lb, err := r.core.ACOSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ACOS(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ACOSOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ACOS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ACOS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAD(r *benchRun) {
+	lb, err := r.core.ADLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.AD(t, t, rt0, rt1, rt2, rt3, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADOpen(r.in[1], r.in[2], r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsADD(r *benchRun) {
+	lb, err := r.core.ADDLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.ADD(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADDOpen(r.in[3], r.in[1])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ADD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ADD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsADOSC(r *benchRun) {
+	optInFastPeriod := benchInt(3)
+	optInSlowPeriod := benchInt(10)
+	lb, err := r.core.ADOSCLookback(optInFastPeriod, optInSlowPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.ADOSC(t, t, rt0, rt1, rt2, rt3, optInFastPeriod, optInSlowPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADOSCOpen(r.in[1], r.in[2], r.in[3], r.in[4], optInFastPeriod, optInSlowPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ADOSC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ADOSC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsADR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.ADRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.ADR(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADROpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ADR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ADR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsADX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.ADXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ADX(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADXOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ADX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ADX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsADXR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.ADXRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ADXR(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ADXROpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ADXR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ADXR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsALLIGATOR(r *benchRun) {
+	optInJawPeriod := benchInt(13)
+	optInJawShift := benchInt(8)
+	optInTeethPeriod := benchInt(8)
+	optInTeethShift := benchInt(5)
+	optInLipsPeriod := benchInt(5)
+	optInLipsShift := benchInt(3)
+	lb, err := r.core.ALLIGATORLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.ALLIGATOR(t, t, rt0, rt1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.ALLIGATOROpen(r.in[1], r.in[2], optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ALLIGATOR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ALLIGATOR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsALMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(9))
+	optInSigma := benchReal(6.000000000000000)
+	optInOffset := benchReal(0.850000000000000)
+	lb, err := r.core.ALMALookback(optInTimePeriod, optInSigma, optInOffset)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ALMA(t, t, rt0, optInTimePeriod, optInSigma, optInOffset, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ALMAOpen(r.in[3], optInTimePeriod, optInSigma, optInOffset)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ALMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ALMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAO(r *benchRun) {
+	optInFastPeriod := benchInt(5)
+	optInSlowPeriod := benchInt(34)
+	lb, err := r.core.AOLookback(optInFastPeriod, optInSlowPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.AO(t, t, rt0, rt1, optInFastPeriod, optInSlowPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.AOOpen(r.in[1], r.in[2], optInFastPeriod, optInSlowPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAPO(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInSlowPeriod := benchInt(26)
+	optInMAType := talib.MAType(benchInt(1))
+	lb, err := r.core.APOLookback(optInFastPeriod, optInSlowPeriod, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.APO(t, t, rt0, optInFastPeriod, optInSlowPeriod, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.APOOpen(r.in[3], optInFastPeriod, optInSlowPeriod, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("APO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("APO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAROON(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.AROONLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.AROON(t, t, rt0, rt1, optInTimePeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.AROONOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AROON", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AROON", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAROONOSC(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.AROONOSCLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.AROONOSC(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.AROONOSCOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AROONOSC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AROONOSC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsASI(r *benchRun) {
+	optInLimitMove := benchReal(3.000000000000000)
+	lb, err := r.core.ASILookback(optInLimitMove)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.ASI(t, t, rt0, rt1, rt2, rt3, optInLimitMove, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ASIOpen(r.in[0], r.in[1], r.in[2], r.in[3], optInLimitMove)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ASI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ASI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsASIN(r *benchRun) {
+	lb, err := r.core.ASINLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ASIN(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ASINOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ASIN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ASIN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsATAN(r *benchRun) {
+	lb, err := r.core.ATANLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ATAN(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ATANOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ATAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ATAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsATR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.ATRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ATR(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ATROpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ATR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ATR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAVGDEV(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.AVGDEVLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.AVGDEV(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.AVGDEVOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AVGDEV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AVGDEV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsAVGPRICE(r *benchRun) {
+	lb, err := r.core.AVGPRICELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.AVGPRICE(t, t, rt0, rt1, rt2, rt3, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.AVGPRICEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("AVGPRICE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("AVGPRICE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsBBANDS(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInNbDevUp := benchReal(2.000000000000000)
+	optInNbDevDn := benchReal(2.000000000000000)
+	optInMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.BBANDSLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.BBANDS(t, t, rt0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.BBANDSOpen(r.in[3], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("BBANDS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("BBANDS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsBBW(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInNbDevUp := benchReal(2.000000000000000)
+	optInNbDevDn := benchReal(2.000000000000000)
+	optInMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.BBWLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.BBW(t, t, rt0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.BBWOpen(r.in[3], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("BBW", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("BBW", nil, lb, hb, acc+float64(nb))
+}
+
+func bsBETA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(5))
+	lb, err := r.core.BETALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.BETA(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.BETAOpen(r.in[3], r.in[1], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("BETA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("BETA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsBOP(r *benchRun) {
+	lb, err := r.core.BOPLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.BOP(t, t, rt0, rt1, rt2, rt3, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.BOPOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("BOP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("BOP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCCI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.CCILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.CCI(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CCIOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CCI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CCI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL2CROWS(r *benchRun) {
+	lb, err := r.core.CDL2CROWSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL2CROWS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL2CROWSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL2CROWS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL2CROWS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3BLACKCROWS(r *benchRun) {
+	lb, err := r.core.CDL3BLACKCROWSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3BLACKCROWS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3BLACKCROWSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3BLACKCROWS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3BLACKCROWS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3INSIDE(r *benchRun) {
+	lb, err := r.core.CDL3INSIDELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3INSIDE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3INSIDEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3INSIDE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3INSIDE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3LINESTRIKE(r *benchRun) {
+	lb, err := r.core.CDL3LINESTRIKELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3LINESTRIKE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3LINESTRIKEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3LINESTRIKE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3LINESTRIKE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3OUTSIDE(r *benchRun) {
+	lb, err := r.core.CDL3OUTSIDELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3OUTSIDE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3OUTSIDEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3OUTSIDE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3OUTSIDE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3STARSINSOUTH(r *benchRun) {
+	lb, err := r.core.CDL3STARSINSOUTHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3STARSINSOUTH(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3STARSINSOUTHOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3STARSINSOUTH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3STARSINSOUTH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDL3WHITESOLDIERS(r *benchRun) {
+	lb, err := r.core.CDL3WHITESOLDIERSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDL3WHITESOLDIERS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDL3WHITESOLDIERSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDL3WHITESOLDIERS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDL3WHITESOLDIERS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLABANDONEDBABY(r *benchRun) {
+	optInPenetration := benchReal(0.300000000000000)
+	lb, err := r.core.CDLABANDONEDBABYLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLABANDONEDBABY(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLABANDONEDBABYOpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLABANDONEDBABY", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLABANDONEDBABY", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLADVANCEBLOCK(r *benchRun) {
+	lb, err := r.core.CDLADVANCEBLOCKLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLADVANCEBLOCK(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLADVANCEBLOCKOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLADVANCEBLOCK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLADVANCEBLOCK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLBELTHOLD(r *benchRun) {
+	lb, err := r.core.CDLBELTHOLDLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLBELTHOLD(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLBELTHOLDOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLBELTHOLD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLBELTHOLD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLBREAKAWAY(r *benchRun) {
+	lb, err := r.core.CDLBREAKAWAYLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLBREAKAWAY(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLBREAKAWAYOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLBREAKAWAY", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLBREAKAWAY", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLCLOSINGMARUBOZU(r *benchRun) {
+	lb, err := r.core.CDLCLOSINGMARUBOZULookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLCLOSINGMARUBOZU(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLCLOSINGMARUBOZUOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLCLOSINGMARUBOZU", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLCLOSINGMARUBOZU", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLCONCEALBABYSWALL(r *benchRun) {
+	lb, err := r.core.CDLCONCEALBABYSWALLLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLCONCEALBABYSWALL(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLCONCEALBABYSWALLOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLCONCEALBABYSWALL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLCONCEALBABYSWALL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLCOUNTERATTACK(r *benchRun) {
+	lb, err := r.core.CDLCOUNTERATTACKLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLCOUNTERATTACK(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLCOUNTERATTACKOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLCOUNTERATTACK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLCOUNTERATTACK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLDARKCLOUDCOVER(r *benchRun) {
+	optInPenetration := benchReal(0.500000000000000)
+	lb, err := r.core.CDLDARKCLOUDCOVERLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLDARKCLOUDCOVER(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLDARKCLOUDCOVEROpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLDARKCLOUDCOVER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLDARKCLOUDCOVER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLDOJI(r *benchRun) {
+	lb, err := r.core.CDLDOJILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLDOJI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLDOJIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLDOJI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLDOJI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLDOJISTAR(r *benchRun) {
+	lb, err := r.core.CDLDOJISTARLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLDOJISTAR(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLDOJISTAROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLDOJISTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLDOJISTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLDRAGONFLYDOJI(r *benchRun) {
+	lb, err := r.core.CDLDRAGONFLYDOJILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLDRAGONFLYDOJI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLDRAGONFLYDOJIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLDRAGONFLYDOJI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLDRAGONFLYDOJI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLENGULFING(r *benchRun) {
+	lb, err := r.core.CDLENGULFINGLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLENGULFING(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLENGULFINGOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLENGULFING", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLENGULFING", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLEVENINGDOJISTAR(r *benchRun) {
+	optInPenetration := benchReal(0.300000000000000)
+	lb, err := r.core.CDLEVENINGDOJISTARLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLEVENINGDOJISTAR(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLEVENINGDOJISTAROpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLEVENINGDOJISTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLEVENINGDOJISTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLEVENINGSTAR(r *benchRun) {
+	optInPenetration := benchReal(0.300000000000000)
+	lb, err := r.core.CDLEVENINGSTARLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLEVENINGSTAR(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLEVENINGSTAROpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLEVENINGSTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLEVENINGSTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLGAPSIDESIDEWHITE(r *benchRun) {
+	lb, err := r.core.CDLGAPSIDESIDEWHITELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLGAPSIDESIDEWHITE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLGAPSIDESIDEWHITEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLGAPSIDESIDEWHITE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLGAPSIDESIDEWHITE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLGRAVESTONEDOJI(r *benchRun) {
+	lb, err := r.core.CDLGRAVESTONEDOJILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLGRAVESTONEDOJI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLGRAVESTONEDOJIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLGRAVESTONEDOJI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLGRAVESTONEDOJI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHAMMER(r *benchRun) {
+	lb, err := r.core.CDLHAMMERLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHAMMER(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHAMMEROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHAMMER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHAMMER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHANGINGMAN(r *benchRun) {
+	lb, err := r.core.CDLHANGINGMANLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHANGINGMAN(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHANGINGMANOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHANGINGMAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHANGINGMAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHARAMI(r *benchRun) {
+	lb, err := r.core.CDLHARAMILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHARAMI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHARAMIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHARAMI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHARAMI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHARAMICROSS(r *benchRun) {
+	lb, err := r.core.CDLHARAMICROSSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHARAMICROSS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHARAMICROSSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHARAMICROSS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHARAMICROSS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHIGHWAVE(r *benchRun) {
+	lb, err := r.core.CDLHIGHWAVELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHIGHWAVE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHIGHWAVEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHIGHWAVE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHIGHWAVE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHIKKAKE(r *benchRun) {
+	lb, err := r.core.CDLHIKKAKELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHIKKAKE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHIKKAKEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHIKKAKE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHIKKAKE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHIKKAKEMOD(r *benchRun) {
+	lb, err := r.core.CDLHIKKAKEMODLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHIKKAKEMOD(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHIKKAKEMODOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHIKKAKEMOD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHIKKAKEMOD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLHOMINGPIGEON(r *benchRun) {
+	lb, err := r.core.CDLHOMINGPIGEONLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLHOMINGPIGEON(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLHOMINGPIGEONOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLHOMINGPIGEON", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLHOMINGPIGEON", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLIDENTICAL3CROWS(r *benchRun) {
+	lb, err := r.core.CDLIDENTICAL3CROWSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLIDENTICAL3CROWS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLIDENTICAL3CROWSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLIDENTICAL3CROWS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLIDENTICAL3CROWS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLINNECK(r *benchRun) {
+	lb, err := r.core.CDLINNECKLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLINNECK(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLINNECKOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLINNECK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLINNECK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLINVERTEDHAMMER(r *benchRun) {
+	lb, err := r.core.CDLINVERTEDHAMMERLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLINVERTEDHAMMER(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLINVERTEDHAMMEROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLINVERTEDHAMMER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLINVERTEDHAMMER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLKICKING(r *benchRun) {
+	lb, err := r.core.CDLKICKINGLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLKICKING(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLKICKINGOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLKICKING", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLKICKING", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLKICKINGBYLENGTH(r *benchRun) {
+	lb, err := r.core.CDLKICKINGBYLENGTHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLKICKINGBYLENGTH(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLKICKINGBYLENGTHOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLKICKINGBYLENGTH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLKICKINGBYLENGTH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLLADDERBOTTOM(r *benchRun) {
+	lb, err := r.core.CDLLADDERBOTTOMLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLLADDERBOTTOM(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLLADDERBOTTOMOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLLADDERBOTTOM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLLADDERBOTTOM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLLONGLEGGEDDOJI(r *benchRun) {
+	lb, err := r.core.CDLLONGLEGGEDDOJILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLLONGLEGGEDDOJI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLLONGLEGGEDDOJIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLLONGLEGGEDDOJI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLLONGLEGGEDDOJI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLLONGLINE(r *benchRun) {
+	lb, err := r.core.CDLLONGLINELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLLONGLINE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLLONGLINEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLLONGLINE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLLONGLINE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLMARUBOZU(r *benchRun) {
+	lb, err := r.core.CDLMARUBOZULookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLMARUBOZU(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLMARUBOZUOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLMARUBOZU", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLMARUBOZU", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLMATCHINGLOW(r *benchRun) {
+	lb, err := r.core.CDLMATCHINGLOWLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLMATCHINGLOW(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLMATCHINGLOWOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLMATCHINGLOW", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLMATCHINGLOW", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLMATHOLD(r *benchRun) {
+	optInPenetration := benchReal(0.500000000000000)
+	lb, err := r.core.CDLMATHOLDLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLMATHOLD(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLMATHOLDOpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLMATHOLD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLMATHOLD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLMORNINGDOJISTAR(r *benchRun) {
+	optInPenetration := benchReal(0.300000000000000)
+	lb, err := r.core.CDLMORNINGDOJISTARLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLMORNINGDOJISTAR(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLMORNINGDOJISTAROpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLMORNINGDOJISTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLMORNINGDOJISTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLMORNINGSTAR(r *benchRun) {
+	optInPenetration := benchReal(0.300000000000000)
+	lb, err := r.core.CDLMORNINGSTARLookback(optInPenetration)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLMORNINGSTAR(t, t, rt0, rt1, rt2, rt3, optInPenetration, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLMORNINGSTAROpen(r.in[0], r.in[1], r.in[2], r.in[3], optInPenetration)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLMORNINGSTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLMORNINGSTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLONNECK(r *benchRun) {
+	lb, err := r.core.CDLONNECKLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLONNECK(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLONNECKOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLONNECK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLONNECK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLPIERCING(r *benchRun) {
+	lb, err := r.core.CDLPIERCINGLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLPIERCING(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLPIERCINGOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLPIERCING", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLPIERCING", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLRICKSHAWMAN(r *benchRun) {
+	lb, err := r.core.CDLRICKSHAWMANLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLRICKSHAWMAN(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLRICKSHAWMANOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLRICKSHAWMAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLRICKSHAWMAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLRISEFALL3METHODS(r *benchRun) {
+	lb, err := r.core.CDLRISEFALL3METHODSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLRISEFALL3METHODS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLRISEFALL3METHODSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLRISEFALL3METHODS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLRISEFALL3METHODS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSEPARATINGLINES(r *benchRun) {
+	lb, err := r.core.CDLSEPARATINGLINESLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSEPARATINGLINES(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSEPARATINGLINESOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSEPARATINGLINES", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSEPARATINGLINES", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSHOOTINGSTAR(r *benchRun) {
+	lb, err := r.core.CDLSHOOTINGSTARLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSHOOTINGSTAR(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSHOOTINGSTAROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSHOOTINGSTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSHOOTINGSTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSHORTLINE(r *benchRun) {
+	lb, err := r.core.CDLSHORTLINELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSHORTLINE(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSHORTLINEOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSHORTLINE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSHORTLINE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSPINNINGTOP(r *benchRun) {
+	lb, err := r.core.CDLSPINNINGTOPLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSPINNINGTOP(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSPINNINGTOPOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSPINNINGTOP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSPINNINGTOP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSTALLEDPATTERN(r *benchRun) {
+	lb, err := r.core.CDLSTALLEDPATTERNLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSTALLEDPATTERN(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSTALLEDPATTERNOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSTALLEDPATTERN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSTALLEDPATTERN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLSTICKSANDWICH(r *benchRun) {
+	lb, err := r.core.CDLSTICKSANDWICHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLSTICKSANDWICH(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLSTICKSANDWICHOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLSTICKSANDWICH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLSTICKSANDWICH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLTAKURI(r *benchRun) {
+	lb, err := r.core.CDLTAKURILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLTAKURI(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLTAKURIOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLTAKURI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLTAKURI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLTASUKIGAP(r *benchRun) {
+	lb, err := r.core.CDLTASUKIGAPLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLTASUKIGAP(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLTASUKIGAPOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLTASUKIGAP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLTASUKIGAP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLTHRUSTING(r *benchRun) {
+	lb, err := r.core.CDLTHRUSTINGLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLTHRUSTING(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLTHRUSTINGOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLTHRUSTING", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLTHRUSTING", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLTRISTAR(r *benchRun) {
+	lb, err := r.core.CDLTRISTARLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLTRISTAR(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLTRISTAROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLTRISTAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLTRISTAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLUNIQUE3RIVER(r *benchRun) {
+	lb, err := r.core.CDLUNIQUE3RIVERLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLUNIQUE3RIVER(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLUNIQUE3RIVEROpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLUNIQUE3RIVER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLUNIQUE3RIVER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLUPSIDEGAP2CROWS(r *benchRun) {
+	lb, err := r.core.CDLUPSIDEGAP2CROWSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLUPSIDEGAP2CROWS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLUPSIDEGAP2CROWSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLUPSIDEGAP2CROWS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLUPSIDEGAP2CROWS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCDLXSIDEGAP3METHODS(r *benchRun) {
+	lb, err := r.core.CDLXSIDEGAP3METHODSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CDLXSIDEGAP3METHODS(t, t, rt0, rt1, rt2, rt3, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CDLXSIDEGAP3METHODSOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CDLXSIDEGAP3METHODS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CDLXSIDEGAP3METHODS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(22))
+	optInMultiplier := benchReal(3.000000000000000)
+	lb, err := r.core.CELookback(optInTimePeriod, optInMultiplier)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.CE(t, t, rt0, rt1, rt2, optInTimePeriod, optInMultiplier, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.CEOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod, optInMultiplier)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCEIL(r *benchRun) {
+	lb, err := r.core.CEILLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CEIL(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CEILOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CEIL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CEIL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCG(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.CGLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CG(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CGOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CG", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CG", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCHOP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.CHOPLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.CHOP(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CHOPOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CHOP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CHOP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCHOPTR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.CHOPTRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.CHOPTR(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CHOPTROpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CHOPTR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CHOPTR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCKSP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	optInMultiplier := benchReal(1.000000000000000)
+	optInStopPeriod := benchInt(9)
+	lb, err := r.core.CKSPLookback(optInTimePeriod, optInMultiplier, optInStopPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.CKSP(t, t, rt0, rt1, rt2, optInTimePeriod, optInMultiplier, optInStopPeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.CKSPOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod, optInMultiplier, optInStopPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CKSP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CKSP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCMF(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.CMFLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.CMF(t, t, rt0, rt1, rt2, rt3, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CMFOpen(r.in[1], r.in[2], r.in[3], r.in[4], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CMF", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CMF", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCMO(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.CMOLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CMO(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CMOOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CMO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CMO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCMOU(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.CMOULookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CMOU(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CMOUOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CMOU", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CMOU", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCOPPOCK(r *benchRun) {
+	optInWMAPeriod := benchInt(10)
+	optInROC1Period := benchInt(11)
+	optInROC2Period := benchInt(14)
+	lb, err := r.core.COPPOCKLookback(optInWMAPeriod, optInROC1Period, optInROC2Period)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.COPPOCK(t, t, rt0, optInWMAPeriod, optInROC1Period, optInROC2Period, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.COPPOCKOpen(r.in[3], optInWMAPeriod, optInROC1Period, optInROC2Period)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("COPPOCK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("COPPOCK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCORREL(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.CORRELLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.CORREL(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CORRELOpen(r.in[3], r.in[1], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CORREL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CORREL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCOS(r *benchRun) {
+	lb, err := r.core.COSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.COS(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.COSOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("COS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("COS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCOSH(r *benchRun) {
+	lb, err := r.core.COSHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.COSH(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.COSHOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("COSH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("COSH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCRSI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(3))
+	optInStreakPeriod := benchInt(2)
+	optInRankPeriod := benchInt(100)
+	lb, err := r.core.CRSILookback(optInTimePeriod, optInStreakPeriod, optInRankPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CRSI(t, t, rt0, optInTimePeriod, optInStreakPeriod, optInRankPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CRSIOpen(r.in[3], optInTimePeriod, optInStreakPeriod, optInRankPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CRSI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CRSI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCTI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.CTILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CTI(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CTIOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CTI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CTI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCUMSUM(r *benchRun) {
+	lb, err := r.core.CUMSUMLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.CUMSUM(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CUMSUMOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CUMSUM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CUMSUM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsCVI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	optInROCPeriod := benchInt(10)
+	lb, err := r.core.CVILookback(optInTimePeriod, optInROCPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.CVI(t, t, rt0, rt1, optInTimePeriod, optInROCPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.CVIOpen(r.in[1], r.in[2], optInTimePeriod, optInROCPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("CVI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("CVI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDEMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.DEMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.DEMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.DEMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DEMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DEMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDIV(r *benchRun) {
+	lb, err := r.core.DIVLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.DIV(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.DIVOpen(r.in[3], r.in[1])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DIV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DIV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDONCHIAN(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.DONCHIANLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.DONCHIAN(t, t, rt0, rt1, optInTimePeriod, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.DONCHIANOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DONCHIAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DONCHIAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDOSC(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	optInFirstPeriod := benchInt(5)
+	optInSecondPeriod := benchInt(3)
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.DOSCLookback(optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.DOSC(t, t, rt0, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.DOSCOpen(r.in[3], optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DOSC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DOSC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDPO(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.DPOLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.DPO(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.DPOOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DPO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DPO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsDX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.DXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.DX(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.DXOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("DX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("DX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsEFI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(13))
+	lb, err := r.core.EFILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.EFI(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.EFIOpen(r.in[3], r.in[4], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("EFI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("EFI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsEMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.EMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.EMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.EMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("EMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("EMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsEMV(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	optInVolumeDivisor := benchReal(10000.000000000000000)
+	lb, err := r.core.EMVLookback(optInTimePeriod, optInVolumeDivisor)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.EMV(t, t, rt0, rt1, rt2, optInTimePeriod, optInVolumeDivisor, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.EMVOpen(r.in[1], r.in[2], r.in[4], optInTimePeriod, optInVolumeDivisor)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("EMV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("EMV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsER(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.ERLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ER(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.EROpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsERI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(13))
+	lb, err := r.core.ERILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ERI(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.ERIOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ERI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ERI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsEXP(r *benchRun) {
+	lb, err := r.core.EXPLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.EXP(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.EXPOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("EXP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("EXP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsFISHER(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.FISHERLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.FISHER(t, t, rt0, rt1, optInTimePeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.FISHEROpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("FISHER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("FISHER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsFLOOR(r *benchRun) {
+	lb, err := r.core.FLOORLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.FLOOR(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.FLOOROpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("FLOOR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("FLOOR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsFOSC(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(5))
+	lb, err := r.core.FOSCLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.FOSC(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.FOSCOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("FOSC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("FOSC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsFRACTAL(r *benchRun) {
+	optInLeftBars := benchInt(2)
+	optInRightBars := benchInt(2)
+	lb, err := r.core.FRACTALLookback(optInLeftBars, optInRightBars)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.FRACTAL(t, t, rt0, rt1, optInLeftBars, optInRightBars, r.outI[0], r.outI[1])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			acc += float64(r.outI[1][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.FRACTALOpen(r.in[1], r.in[2], optInLeftBars, optInRightBars)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("FRACTAL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, iv1, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += float64(iv0)
+			acc += float64(iv1)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, iv1, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, iv1, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("FRACTAL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsFRAMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(16))
+	lb, err := r.core.FRAMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.FRAMA(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.FRAMAOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("FRAMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("FRAMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsGATOR(r *benchRun) {
+	optInJawPeriod := benchInt(13)
+	optInJawShift := benchInt(8)
+	optInTeethPeriod := benchInt(8)
+	optInTeethShift := benchInt(5)
+	optInLipsPeriod := benchInt(5)
+	optInLipsShift := benchInt(3)
+	lb, err := r.core.GATORLookback(optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.GATOR(t, t, rt0, rt1, optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.GATOROpen(r.in[1], r.in[2], optInJawPeriod, optInJawShift, optInTeethPeriod, optInTeethShift, optInLipsPeriod, optInLipsShift)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("GATOR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("GATOR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHA(r *benchRun) {
+	lb, err := r.core.HALookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.HA(t, t, rt0, rt1, rt2, rt3, r.outR[0], r.outR[1], r.outR[2], r.outR[3])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			acc += r.outR[3][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, _, err := r.core.HAOpen(r.in[0], r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, v3, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+			acc += v3
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, v3, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+				acc += v3
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, v3, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+				acc += v3
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.HMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.HMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_DCPERIOD(r *benchRun) {
+	lb, err := r.core.HT_DCPERIODLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_DCPERIOD(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.HT_DCPERIODOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_DCPERIOD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_DCPERIOD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_DCPHASE(r *benchRun) {
+	lb, err := r.core.HT_DCPHASELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_DCPHASE(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.HT_DCPHASEOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_DCPHASE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_DCPHASE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_PHASOR(r *benchRun) {
+	lb, err := r.core.HT_PHASORLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_PHASOR(t, t, rt0, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.HT_PHASOROpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_PHASOR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_PHASOR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_SINE(r *benchRun) {
+	lb, err := r.core.HT_SINELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_SINE(t, t, rt0, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.HT_SINEOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_SINE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_SINE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_TRENDLINE(r *benchRun) {
+	lb, err := r.core.HT_TRENDLINELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_TRENDLINE(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.HT_TRENDLINEOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_TRENDLINE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_TRENDLINE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsHT_TRENDMODE(r *benchRun) {
+	lb, err := r.core.HT_TRENDMODELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.HT_TRENDMODE(t, t, rt0, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.HT_TRENDMODEOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("HT_TRENDMODE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("HT_TRENDMODE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsIBS(r *benchRun) {
+	lb, err := r.core.IBSLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.IBS(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.IBSOpen(r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("IBS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("IBS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsICHIMOKU(r *benchRun) {
+	optInTenkanPeriod := benchInt(9)
+	optInKijunPeriod := benchInt(26)
+	optInSenkouBPeriod := benchInt(52)
+	lb, err := r.core.ICHIMOKULookback(optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.ICHIMOKU(t, t, rt0, rt1, optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod, r.outR[0], r.outR[1], r.outR[2], r.outR[3])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			acc += r.outR[3][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, _, err := r.core.ICHIMOKUOpen(r.in[1], r.in[2], optInTenkanPeriod, optInKijunPeriod, optInSenkouBPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ICHIMOKU", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, v3, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+			acc += v3
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, v3, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+				acc += v3
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, v3, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+				acc += v3
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ICHIMOKU", nil, lb, hb, acc+float64(nb))
+}
+
+func bsIMI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.IMILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.IMI(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.IMIOpen(r.in[0], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("IMI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("IMI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKAMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.KAMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.KAMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.KAMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KAMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KAMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKC(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInATRPeriod := benchInt(10)
+	optInNbDev := benchReal(2.000000000000000)
+	lb, err := r.core.KCLookback(optInTimePeriod, optInATRPeriod, optInNbDev)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.KC(t, t, rt0, rt1, rt2, optInTimePeriod, optInATRPeriod, optInNbDev, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.KCOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod, optInATRPeriod, optInNbDev)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKDJ(r *benchRun) {
+	optInFastK_Period := benchInt(9)
+	optInSlowK_Period := benchInt(3)
+	optInSlowK_MAType := talib.MAType(benchInt(13))
+	optInSlowD_Period := benchInt(3)
+	optInSlowD_MAType := talib.MAType(benchInt(13))
+	lb, err := r.core.KDJLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.KDJ(t, t, rt0, rt1, rt2, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.KDJOpen(r.in[1], r.in[2], r.in[3], optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KDJ", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KDJ", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKST(r *benchRun) {
+	optInROC1Period := benchInt(10)
+	optInROC2Period := benchInt(15)
+	optInROC3Period := benchInt(20)
+	optInROC4Period := benchInt(30)
+	optInSMA1Period := benchInt(10)
+	optInSMA2Period := benchInt(10)
+	optInSMA3Period := benchInt(10)
+	optInSMA4Period := benchInt(15)
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.KSTLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.KST(t, t, rt0, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.KSTOpen(r.in[3], optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInSMA1Period, optInSMA2Period, optInSMA3Period, optInSMA4Period, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KST", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KST", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKSTEXT(r *benchRun) {
+	optInROC1Period := benchInt(10)
+	optInROC2Period := benchInt(15)
+	optInROC3Period := benchInt(20)
+	optInROC4Period := benchInt(30)
+	optInMA1Period := benchInt(10)
+	optInMA2Period := benchInt(10)
+	optInMA3Period := benchInt(10)
+	optInMA4Period := benchInt(15)
+	optInSignalPeriod := benchInt(9)
+	optInROCMAType := talib.MAType(benchInt(0))
+	optInSignalMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.KSTEXTLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.KSTEXT(t, t, rt0, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.KSTEXTOpen(r.in[3], optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KSTEXT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KSTEXT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKURTOSIS(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.KURTOSISLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.KURTOSIS(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.KURTOSISOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KURTOSIS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KURTOSIS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsKVO(r *benchRun) {
+	optInFastPeriod := benchInt(34)
+	optInSlowPeriod := benchInt(55)
+	optInSignalPeriod := benchInt(13)
+	lb, err := r.core.KVOLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.KVO(t, t, rt0, rt1, rt2, rt3, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.KVOOpen(r.in[1], r.in[2], r.in[3], r.in[4], optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("KVO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("KVO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLINEARREG(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.LINEARREGLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LINEARREG(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LINEARREGOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LINEARREG", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LINEARREG", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLINEARREG_ANGLE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.LINEARREG_ANGLELookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LINEARREG_ANGLE(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LINEARREG_ANGLEOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LINEARREG_ANGLE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LINEARREG_ANGLE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLINEARREG_INTERCEPT(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.LINEARREG_INTERCEPTLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LINEARREG_INTERCEPT(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LINEARREG_INTERCEPTOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LINEARREG_INTERCEPT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LINEARREG_INTERCEPT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLINEARREG_SLOPE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.LINEARREG_SLOPELookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LINEARREG_SLOPE(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LINEARREG_SLOPEOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LINEARREG_SLOPE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LINEARREG_SLOPE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLN(r *benchRun) {
+	lb, err := r.core.LNLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LN(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LNOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsLOG10(r *benchRun) {
+	lb, err := r.core.LOG10Lookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.LOG10(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.LOG10Open(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("LOG10", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("LOG10", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	optInMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.MALookback(optInTimePeriod, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MA(t, t, rt0, optInTimePeriod, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MAOpen(r.in[3], optInTimePeriod, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMACD(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInSlowPeriod := benchInt(26)
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.MACDLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MACD(t, t, rt0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.MACDOpen(r.in[3], optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MACD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MACD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMACDEXT(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInFastMAType := talib.MAType(benchInt(0))
+	optInSlowPeriod := benchInt(26)
+	optInSlowMAType := talib.MAType(benchInt(0))
+	optInSignalPeriod := benchInt(9)
+	optInSignalMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.MACDEXTLookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MACDEXT(t, t, rt0, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.MACDEXTOpen(r.in[3], optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MACDEXT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MACDEXT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMACDFIX(r *benchRun) {
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.MACDFIXLookback(optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MACDFIX(t, t, rt0, optInSignalPeriod, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.MACDFIXOpen(r.in[3], optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MACDFIX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MACDFIX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMACDV(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInSlowPeriod := benchInt(26)
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.MACDVLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.MACDV(t, t, rt0, rt1, rt2, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, r.outR[0], r.outR[1], r.outR[2])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			acc += r.outR[2][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.MACDVOpen(r.in[1], r.in[2], r.in[3], optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MACDV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+			acc += v2
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, v2, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+				acc += v2
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MACDV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMAMA(r *benchRun) {
+	optInFastLimit := benchReal(0.500000000000000)
+	optInSlowLimit := benchReal(0.050000000000000)
+	lb, err := r.core.MAMALookback(optInFastLimit, optInSlowLimit)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MAMA(t, t, rt0, optInFastLimit, optInSlowLimit, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.MAMAOpen(r.in[3], optInFastLimit, optInSlowLimit)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MAMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MAMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMARKETFI(r *benchRun) {
+	lb, err := r.core.MARKETFILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.MARKETFI(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MARKETFIOpen(r.in[1], r.in[2], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MARKETFI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MARKETFI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMASSI(r *benchRun) {
+	optInFastPeriod := benchInt(9)
+	optInSlowPeriod := benchInt(25)
+	lb, err := r.core.MASSILookback(optInFastPeriod, optInSlowPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MASSI(t, t, rt0, rt1, optInFastPeriod, optInSlowPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MASSIOpen(r.in[1], r.in[2], optInFastPeriod, optInSlowPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MASSI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MASSI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMAVP(r *benchRun) {
+	optInMinPeriod := benchInt(2)
+	optInMaxPeriod := benchInt(30)
+	optInMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.MAVPLookback(optInMinPeriod, optInMaxPeriod, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[6], &r.feed[6]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MAVP(t, t, rt0, rt1, optInMinPeriod, optInMaxPeriod, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MAVPOpen(r.in[3], r.in[6], optInMinPeriod, optInMaxPeriod, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MAVP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MAVP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMAX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MAXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MAX(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MAXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MAX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MAX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMAXINDEX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MAXINDEXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MAXINDEX(t, t, rt0, optInTimePeriod, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MAXINDEXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MAXINDEX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MAXINDEX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMCGD(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MCGDLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MCGD(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MCGDOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MCGD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MCGD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMEDIAN(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MEDIANLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MEDIAN(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MEDIANOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MEDIAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MEDIAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMEDPRICE(r *benchRun) {
+	lb, err := r.core.MEDPRICELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MEDPRICE(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MEDPRICEOpen(r.in[1], r.in[2])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MEDPRICE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MEDPRICE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMFI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MFILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.MFI(t, t, rt0, rt1, rt2, rt3, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MFIOpen(r.in[1], r.in[2], r.in[3], r.in[4], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MFI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MFI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMIDPOINT(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MIDPOINTLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MIDPOINT(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MIDPOINTOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MIDPOINT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MIDPOINT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMIDPRICE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MIDPRICELookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MIDPRICE(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MIDPRICEOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MIDPRICE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MIDPRICE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMIN(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MINLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MIN(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MINOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MIN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MIN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMININDEX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MININDEXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MININDEX(t, t, rt0, optInTimePeriod, r.outI[0])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MININDEXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MININDEX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, _ := st.Update(f0[it&mask])
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Peek(f0[it&mask])
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, _ := st.Update(f0[it&mask])
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MININDEX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMINMAX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MINMAXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MINMAX(t, t, rt0, optInTimePeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.MINMAXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MINMAX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MINMAX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMINMAXINDEX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.MINMAXINDEXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MINMAXINDEX(t, t, rt0, optInTimePeriod, r.outI[0], r.outI[1])
+			nb = o.NBElement
+			acc += float64(r.outI[0][0])
+			acc += float64(r.outI[1][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.MINMAXINDEXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MINMAXINDEX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			iv0, iv1, _ := st.Update(f0[it&mask])
+			acc += float64(iv0)
+			acc += float64(iv1)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, iv1, _ := st.Peek(f0[it&mask])
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				iv0, iv1, _ := st.Update(f0[it&mask])
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MINMAXINDEX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMINUS_DI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MINUS_DILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.MINUS_DI(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MINUS_DIOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MINUS_DI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MINUS_DI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMINUS_DM(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.MINUS_DMLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MINUS_DM(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MINUS_DMOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MINUS_DM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MINUS_DM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMOM(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.MOMLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.MOM(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MOMOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MOM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MOM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsMULT(r *benchRun) {
+	lb, err := r.core.MULTLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.MULT(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.MULTOpen(r.in[3], r.in[1])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("MULT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("MULT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsNATR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.NATRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.NATR(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.NATROpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("NATR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("NATR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsNVI(r *benchRun) {
+	lb, err := r.core.NVILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.NVI(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.NVIOpen(r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("NVI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("NVI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsOBV(r *benchRun) {
+	lb, err := r.core.OBVLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.OBV(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.OBVOpen(r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("OBV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("OBV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPERCENTB(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInNbDevUp := benchReal(2.000000000000000)
+	optInNbDevDn := benchReal(2.000000000000000)
+	optInMAType := talib.MAType(benchInt(0))
+	lb, err := r.core.PERCENTBLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.PERCENTB(t, t, rt0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PERCENTBOpen(r.in[3], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PERCENTB", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PERCENTB", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPERCENTILE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(100))
+	optInPercentile := benchReal(50.000000000000000)
+	lb, err := r.core.PERCENTILELookback(optInTimePeriod, optInPercentile)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.PERCENTILE(t, t, rt0, optInTimePeriod, optInPercentile, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PERCENTILEOpen(r.in[3], optInTimePeriod, optInPercentile)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PERCENTILE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PERCENTILE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPERCENTRANK(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(100))
+	lb, err := r.core.PERCENTRANKLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.PERCENTRANK(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PERCENTRANKOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PERCENTRANK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PERCENTRANK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPLUS_DI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.PLUS_DILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.PLUS_DI(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PLUS_DIOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PLUS_DI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PLUS_DI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPLUS_DM(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.PLUS_DMLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.PLUS_DM(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PLUS_DMOpen(r.in[1], r.in[2], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PLUS_DM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PLUS_DM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPPO(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInSlowPeriod := benchInt(26)
+	optInMAType := talib.MAType(benchInt(1))
+	lb, err := r.core.PPOLookback(optInFastPeriod, optInSlowPeriod, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.PPO(t, t, rt0, optInFastPeriod, optInSlowPeriod, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PPOOpen(r.in[3], optInFastPeriod, optInSlowPeriod, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PPO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PPO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPSO(r *benchRun) {
+	optInFastK_Period := benchInt(8)
+	optInEMAPeriod := benchInt(5)
+	lb, err := r.core.PSOLookback(optInFastK_Period, optInEMAPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.PSO(t, t, rt0, rt1, rt2, optInFastK_Period, optInEMAPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PSOOpen(r.in[1], r.in[2], r.in[3], optInFastK_Period, optInEMAPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PSO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PSO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPVI(r *benchRun) {
+	lb, err := r.core.PVILookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.PVI(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PVIOpen(r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PVI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PVI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPVO(r *benchRun) {
+	optInFastPeriod := benchInt(12)
+	optInSlowPeriod := benchInt(26)
+	optInMAType := talib.MAType(benchInt(1))
+	lb, err := r.core.PVOLookback(optInFastPeriod, optInSlowPeriod, optInMAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.PVO(t, t, rt0, optInFastPeriod, optInSlowPeriod, optInMAType, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PVOOpen(r.in[4], optInFastPeriod, optInSlowPeriod, optInMAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PVO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PVO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsPVT(r *benchRun) {
+	lb, err := r.core.PVTLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.PVT(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.PVTOpen(r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("PVT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("PVT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsQSTICK(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.QSTICKLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.QSTICK(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.QSTICKOpen(r.in[0], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("QSTICK", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("QSTICK", nil, lb, hb, acc+float64(nb))
+}
+
+func bsRMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.RMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.RMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.RMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("RMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("RMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsROC(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.ROCLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ROC(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ROCOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ROC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ROC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsROCP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.ROCPLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ROCP(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ROCPOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ROCP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ROCP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsROCR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.ROCRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ROCR(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ROCROpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ROCR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ROCR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsROCR100(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	lb, err := r.core.ROCR100Lookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ROCR100(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ROCR100Open(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ROCR100", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ROCR100", nil, lb, hb, acc+float64(nb))
+}
+
+func bsROGERSSATCHELL(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	optInAnnualization := benchReal(252.000000000000000)
+	lb, err := r.core.ROGERSSATCHELLLookback(optInTimePeriod, optInAnnualization)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.ROGERSSATCHELL(t, t, rt0, rt1, rt2, rt3, optInTimePeriod, optInAnnualization, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ROGERSSATCHELLOpen(r.in[0], r.in[1], r.in[2], r.in[3], optInTimePeriod, optInAnnualization)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ROGERSSATCHELL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ROGERSSATCHELL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsRSI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.RSILookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.RSI(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.RSIOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("RSI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("RSI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsRVI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	optInStdDevPeriod := benchInt(10)
+	lb, err := r.core.RVILookback(optInTimePeriod, optInStdDevPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.RVI(t, t, rt0, optInTimePeriod, optInStdDevPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.RVIOpen(r.in[3], optInTimePeriod, optInStdDevPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("RVI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("RVI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsRVIR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	optInStdDevPeriod := benchInt(10)
+	lb, err := r.core.RVIRLookback(optInTimePeriod, optInStdDevPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.RVIR(t, t, rt0, rt1, optInTimePeriod, optInStdDevPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.RVIROpen(r.in[1], r.in[2], optInTimePeriod, optInStdDevPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("RVIR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("RVIR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsRVOL(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.RVOLLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.RVOL(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.RVOLOpen(r.in[4], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("RVOL", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("RVOL", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSAR(r *benchRun) {
+	optInAcceleration := benchReal(0.020000000000000)
+	optInMaximum := benchReal(0.200000000000000)
+	lb, err := r.core.SARLookback(optInAcceleration, optInMaximum)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.SAR(t, t, rt0, rt1, optInAcceleration, optInMaximum, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SAROpen(r.in[1], r.in[2], optInAcceleration, optInMaximum)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSAREXT(r *benchRun) {
+	optInStartValue := benchReal(0.000000000000000)
+	optInOffsetOnReverse := benchReal(0.000000000000000)
+	optInAccelerationInitLong := benchReal(0.020000000000000)
+	optInAccelerationLong := benchReal(0.020000000000000)
+	optInAccelerationMaxLong := benchReal(0.200000000000000)
+	optInAccelerationInitShort := benchReal(0.020000000000000)
+	optInAccelerationShort := benchReal(0.020000000000000)
+	optInAccelerationMaxShort := benchReal(0.200000000000000)
+	lb, err := r.core.SAREXTLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.SAREXT(t, t, rt0, rt1, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SAREXTOpen(r.in[1], r.in[2], optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SAREXT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SAREXT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSHARPE(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInRiskFreeRate := benchReal(0.000000000000000)
+	optInAnnualization := benchReal(252.000000000000000)
+	lb, err := r.core.SHARPELookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SHARPE(t, t, rt0, optInTimePeriod, optInRiskFreeRate, optInAnnualization, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SHARPEOpen(r.in[3], optInTimePeriod, optInRiskFreeRate, optInAnnualization)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SHARPE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SHARPE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSI(r *benchRun) {
+	optInLimitMove := benchReal(3.000000000000000)
+	lb, err := r.core.SILookback(optInLimitMove)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[0], &r.feed[0]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	rt2, f2 := r.rt[2], &r.feed[2]
+	rt3, f3 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.SI(t, t, rt0, rt1, rt2, rt3, optInLimitMove, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SIOpen(r.in[0], r.in[1], r.in[2], r.in[3], optInLimitMove)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSIN(r *benchRun) {
+	lb, err := r.core.SINLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SIN(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SINOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SIN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SIN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSINH(r *benchRun) {
+	lb, err := r.core.SINHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SINH(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SINHOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SINH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SINH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSKEW(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.SKEWLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SKEW(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SKEWOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SKEW", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SKEW", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.SMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSMI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(13))
+	optInFastPeriod := benchInt(2)
+	optInSlowPeriod := benchInt(25)
+	optInSignalPeriod := benchInt(9)
+	lb, err := r.core.SMILookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.SMI(t, t, rt0, rt1, rt2, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.SMIOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SMI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SMI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSORTINO(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInMAR := benchReal(0.000000000000000)
+	optInAnnualization := benchReal(252.000000000000000)
+	lb, err := r.core.SORTINOLookback(optInTimePeriod, optInMAR, optInAnnualization)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SORTINO(t, t, rt0, optInTimePeriod, optInMAR, optInAnnualization, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SORTINOOpen(r.in[3], optInTimePeriod, optInMAR, optInAnnualization)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SORTINO", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SORTINO", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSQRT(r *benchRun) {
+	lb, err := r.core.SQRTLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SQRT(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SQRTOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SQRT", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SQRT", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSQZMOM(r *benchRun) {
+	optInBBPeriod := benchInt(20)
+	optInNbDev := benchReal(2.000000000000000)
+	optInKCPeriod := benchInt(20)
+	optInFactorWide := benchReal(2.000000000000000)
+	optInFactorNormal := benchReal(1.500000000000000)
+	optInFactorNarrow := benchReal(1.000000000000000)
+	lb, err := r.core.SQZMOMLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.SQZMOM(t, t, rt0, rt1, rt2, optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow, r.outR[0], r.outI[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.SQZMOMOpen(r.in[1], r.in[2], r.in[3], optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SQZMOM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SQZMOM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSTC(r *benchRun) {
+	optInFastPeriod := benchInt(23)
+	optInSlowPeriod := benchInt(50)
+	optInCyclePeriod := benchInt(10)
+	lb, err := r.core.STCLookback(optInFastPeriod, optInSlowPeriod, optInCyclePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.STC(t, t, rt0, optInFastPeriod, optInSlowPeriod, optInCyclePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.STCOpen(r.in[3], optInFastPeriod, optInSlowPeriod, optInCyclePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("STC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("STC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSTDDEV(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(5))
+	optInNbDev := benchReal(1.000000000000000)
+	lb, err := r.core.STDDEVLookback(optInTimePeriod, optInNbDev)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.STDDEV(t, t, rt0, optInTimePeriod, optInNbDev, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.STDDEVOpen(r.in[3], optInTimePeriod, optInNbDev)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("STDDEV", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("STDDEV", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSTOCH(r *benchRun) {
+	optInFastK_Period := benchInt(5)
+	optInSlowK_Period := benchInt(3)
+	optInSlowK_MAType := talib.MAType(benchInt(0))
+	optInSlowD_Period := benchInt(3)
+	optInSlowD_MAType := talib.MAType(benchInt(0))
+	lb, err := r.core.STOCHLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.STOCH(t, t, rt0, rt1, rt2, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.STOCHOpen(r.in[1], r.in[2], r.in[3], optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("STOCH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("STOCH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSTOCHF(r *benchRun) {
+	optInFastK_Period := benchInt(5)
+	optInFastD_Period := benchInt(3)
+	optInFastD_MAType := talib.MAType(benchInt(0))
+	lb, err := r.core.STOCHFLookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.STOCHF(t, t, rt0, rt1, rt2, optInFastK_Period, optInFastD_Period, optInFastD_MAType, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.STOCHFOpen(r.in[1], r.in[2], r.in[3], optInFastK_Period, optInFastD_Period, optInFastD_MAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("STOCHF", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("STOCHF", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSTOCHRSI(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	optInFastK_Period := benchInt(5)
+	optInFastD_Period := benchInt(3)
+	optInFastD_MAType := talib.MAType(benchInt(0))
+	lb, err := r.core.STOCHRSILookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.STOCHRSI(t, t, rt0, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.STOCHRSIOpen(r.in[3], optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("STOCHRSI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("STOCHRSI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSUB(r *benchRun) {
+	lb, err := r.core.SUBLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[1], &r.feed[1]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.SUB(t, t, rt0, rt1, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SUBOpen(r.in[3], r.in[1])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SUB", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SUB", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSUM(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.SUMLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SUM(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SUMOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SUM", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SUM", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSUPERTREND(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(10))
+	optInMultiplier := benchReal(3.000000000000000)
+	lb, err := r.core.SUPERTRENDLookback(optInTimePeriod, optInMultiplier)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.SUPERTREND(t, t, rt0, rt1, rt2, optInTimePeriod, optInMultiplier, r.outR[0], r.outI[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += float64(r.outI[0][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.SUPERTRENDOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod, optInMultiplier)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SUPERTREND", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += float64(iv0)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += float64(iv0)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += float64(iv0)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SUPERTREND", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSWAK_2PHP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.SWAK_2PHPLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SWAK_2PHP(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SWAK_2PHPOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SWAK_2PHP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SWAK_2PHP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSWAK_BP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	optInDelta := benchReal(0.100000000000000)
+	lb, err := r.core.SWAK_BPLookback(optInTimePeriod, optInDelta)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SWAK_BP(t, t, rt0, optInTimePeriod, optInDelta, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SWAK_BPOpen(r.in[3], optInTimePeriod, optInDelta)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SWAK_BP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SWAK_BP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSWAK_BUTTER(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.SWAK_BUTTERLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SWAK_BUTTER(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SWAK_BUTTEROpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SWAK_BUTTER", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SWAK_BUTTER", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSWAK_GAUSS(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.SWAK_GAUSSLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SWAK_GAUSS(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SWAK_GAUSSOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SWAK_GAUSS", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SWAK_GAUSS", nil, lb, hb, acc+float64(nb))
+}
+
+func bsSWAK_HP(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(20))
+	lb, err := r.core.SWAK_HPLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.SWAK_HP(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.SWAK_HPOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("SWAK_HP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("SWAK_HP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsT3(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(5))
+	optInVFactor := benchReal(0.700000000000000)
+	lb, err := r.core.T3Lookback(optInTimePeriod, optInVFactor)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.T3(t, t, rt0, optInTimePeriod, optInVFactor, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.T3Open(r.in[3], optInTimePeriod, optInVFactor)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("T3", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("T3", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTAN(r *benchRun) {
+	lb, err := r.core.TANLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TAN(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TANOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TAN", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TAN", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTANH(r *benchRun) {
+	lb, err := r.core.TANHLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TANH(t, t, rt0, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TANHOpen(r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TANH", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TANH", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTEMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.TEMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TEMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TEMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TEMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TEMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTRANGE(r *benchRun) {
+	lb, err := r.core.TRANGELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.TRANGE(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TRANGEOpen(r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TRANGE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TRANGE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTRIMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.TRIMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TRIMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TRIMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TRIMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TRIMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTRIX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.TRIXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TRIX(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TRIXOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TRIX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TRIX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTSF(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.TSFLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TSF(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TSFOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TSF", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TSF", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTSI(r *benchRun) {
+	optInFirstPeriod := benchInt(25)
+	optInSecondPeriod := benchInt(13)
+	lb, err := r.core.TSILookback(optInFirstPeriod, optInSecondPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.TSI(t, t, rt0, optInFirstPeriod, optInSecondPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TSIOpen(r.in[3], optInFirstPeriod, optInSecondPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TSI", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TSI", nil, lb, hb, acc+float64(nb))
+}
+
+func bsTYPPRICE(r *benchRun) {
+	lb, err := r.core.TYPPRICELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.TYPPRICE(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.TYPPRICEOpen(r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("TYPPRICE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("TYPPRICE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsULTOSC(r *benchRun) {
+	optInTimePeriod1 := benchInt(7)
+	optInTimePeriod2 := benchInt(14)
+	optInTimePeriod3 := benchInt(28)
+	lb, err := r.core.ULTOSCLookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.ULTOSC(t, t, rt0, rt1, rt2, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ULTOSCOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ULTOSC", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ULTOSC", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVAR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(5))
+	optInNbDev := benchReal(1.000000000000000)
+	lb, err := r.core.VARLookback(optInTimePeriod, optInNbDev)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.VAR(t, t, rt0, optInTimePeriod, optInNbDev, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.VAROpen(r.in[3], optInTimePeriod, optInNbDev)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VAR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VAR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVHF(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(28))
+	lb, err := r.core.VHFLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.VHF(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.VHFOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VHF", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VHF", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVIDYA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(12))
+	optInCMOPeriod := benchInt(9)
+	lb, err := r.core.VIDYALookback(optInTimePeriod, optInCMOPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.VIDYA(t, t, rt0, optInTimePeriod, optInCMOPeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.VIDYAOpen(r.in[3], optInTimePeriod, optInCMOPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VIDYA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VIDYA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVORTEX(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.VORTEXLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.VORTEX(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.VORTEXOpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VORTEX", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VORTEX", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVWAP(r *benchRun) {
+	lb, err := r.core.VWAPLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	rt3, f3 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			rt3[t] = f3[it&mask]
+			o, _ := r.core.VWAP(t, t, rt0, rt1, rt2, rt3, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.VWAPOpen(r.in[1], r.in[2], r.in[3], r.in[4])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VWAP", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask], f3[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VWAP", nil, lb, hb, acc+float64(nb))
+}
+
+func bsVWMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.VWMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	rt1, f1 := r.rt[4], &r.feed[4]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.VWMA(t, t, rt0, rt1, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.VWMAOpen(r.in[3], r.in[4], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("VWMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("VWMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsWAD(r *benchRun) {
+	lb, err := r.core.WADLookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.WAD(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.WADOpen(r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("WAD", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("WAD", nil, lb, hb, acc+float64(nb))
+}
+
+func bsWAVETREND(r *benchRun) {
+	optInChannelPeriod := benchInt(10)
+	optInAveragePeriod := benchInt(21)
+	optInSignalPeriod := benchInt(4)
+	lb, err := r.core.WAVETRENDLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.WAVETREND(t, t, rt0, rt1, rt2, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, r.outR[0], r.outR[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += r.outR[1][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, err := r.core.WAVETRENDOpen(r.in[1], r.in[2], r.in[3], optInChannelPeriod, optInAveragePeriod, optInSignalPeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("WAVETREND", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+			acc += v1
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, v1, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+				acc += v1
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("WAVETREND", nil, lb, hb, acc+float64(nb))
+}
+
+func bsWCLPRICE(r *benchRun) {
+	lb, err := r.core.WCLPRICELookback()
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.WCLPRICE(t, t, rt0, rt1, rt2, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.WCLPRICEOpen(r.in[1], r.in[2], r.in[3])
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("WCLPRICE", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("WCLPRICE", nil, lb, hb, acc+float64(nb))
+}
+
+func bsWILLR(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(14))
+	lb, err := r.core.WILLRLookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	rt2, f2 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			rt2[t] = f2[it&mask]
+			o, _ := r.core.WILLR(t, t, rt0, rt1, rt2, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.WILLROpen(r.in[1], r.in[2], r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("WILLR", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask], f1[it&mask], f2[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("WILLR", nil, lb, hb, acc+float64(nb))
+}
+
+func bsWMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.WMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.WMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.WMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("WMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("WMA", nil, lb, hb, acc+float64(nb))
+}
+
+func bsZIGZAG(r *benchRun) {
+	optInSensitivity := benchReal(5.000000000000000)
+	optInMinTrendLength := benchInt(1)
+	lb, err := r.core.ZIGZAGLookback(optInSensitivity, optInMinTrendLength)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[1], &r.feed[1]
+	rt1, f1 := r.rt[2], &r.feed[2]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			rt1[t] = f1[it&mask]
+			o, _ := r.core.ZIGZAG(t, t, rt0, rt1, optInSensitivity, optInMinTrendLength, r.outR[0], r.outI[0], r.outI[1])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			acc += float64(r.outI[0][0])
+			acc += float64(r.outI[1][0])
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, _, _, err := r.core.ZIGZAGOpen(r.in[1], r.in[2], optInSensitivity, optInMinTrendLength)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ZIGZAG", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, iv0, iv1, _ := st.Update(f0[it&mask], f1[it&mask])
+			acc += v0
+			acc += float64(iv0)
+			acc += float64(iv1)
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, iv1, _ := st.Peek(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, iv0, iv1, _ := st.Update(f0[it&mask], f1[it&mask])
+				acc += v0
+				acc += float64(iv0)
+				acc += float64(iv1)
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ZIGZAG", nil, lb, hb, acc+float64(nb))
+}
+
+func bsZLEMA(r *benchRun) {
+	optInTimePeriod := benchInt(r.periodOr(30))
+	lb, err := r.core.ZLEMALookback(optInTimePeriod)
+	if err != nil {
+		lb = -1
+	}
+	iters, mask := r.iters, r.mask&(benchFeedMax-1)
+	r.reserve(lb + iters)
+	rt0, f0 := r.rt[3], &r.feed[3]
+	acc, nb := 0.0, 0
+	for pass := range r.tb {
+		t := max(lb, 0)
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			rt0[t] = f0[it&mask]
+			o, _ := r.core.ZLEMA(t, t, rt0, optInTimePeriod, r.outR[0])
+			nb = o.NBElement
+			acc += r.outR[0][0]
+			t++
+		}
+		r.tb[pass] = time.Since(t0)
+	}
+	r.trackStart()
+	st, _, err := r.core.ZLEMAOpen(r.in[3], optInTimePeriod)
+	hb := r.trackEnd()
+	if err != nil {
+		r.row("ZLEMA", err, lb, 0, acc+float64(nb))
+		return
+	}
+	for pass := range r.tu {
+		t0 := time.Now()
+		for it := 0; it < iters; it++ {
+			v0, _ := st.Update(f0[it&mask])
+			acc += v0
+		}
+		r.tu[pass] = time.Since(t0)
+	}
+	blk := r.blk
+	for pass := range r.tp {
+		var tp time.Duration
+		for b := 0; b < r.nblk; b++ {
+			t0 := time.Now()
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Peek(f0[it&mask])
+				acc += v0
+			}
+			tp += time.Since(t0)
+			for it := b * blk; it < (b+1)*blk; it++ {
+				v0, _ := st.Update(f0[it&mask])
+				acc += v0
+			}
+		}
+		r.tp[pass] = tp
+	}
+	r.row("ZLEMA", nil, lb, hb, acc+float64(nb))
+}
+
+func benchStreamAll(r *benchRun, filter string) {
+	if benchMatches(filter, "AC") {
+		bsAC(r)
+	}
+	if benchMatches(filter, "ACCBANDS") {
+		bsACCBANDS(r)
+	}
+	if benchMatches(filter, "ACOS") {
+		bsACOS(r)
+	}
+	if benchMatches(filter, "AD") {
+		bsAD(r)
+	}
+	if benchMatches(filter, "ADD") {
+		bsADD(r)
+	}
+	if benchMatches(filter, "ADOSC") {
+		bsADOSC(r)
+	}
+	if benchMatches(filter, "ADR") {
+		bsADR(r)
+	}
+	if benchMatches(filter, "ADX") {
+		bsADX(r)
+	}
+	if benchMatches(filter, "ADXR") {
+		bsADXR(r)
+	}
+	if benchMatches(filter, "ALLIGATOR") {
+		bsALLIGATOR(r)
+	}
+	if benchMatches(filter, "ALMA") {
+		bsALMA(r)
+	}
+	if benchMatches(filter, "AO") {
+		bsAO(r)
+	}
+	if benchMatches(filter, "APO") {
+		bsAPO(r)
+	}
+	if benchMatches(filter, "AROON") {
+		bsAROON(r)
+	}
+	if benchMatches(filter, "AROONOSC") {
+		bsAROONOSC(r)
+	}
+	if benchMatches(filter, "ASI") {
+		bsASI(r)
+	}
+	if benchMatches(filter, "ASIN") {
+		bsASIN(r)
+	}
+	if benchMatches(filter, "ATAN") {
+		bsATAN(r)
+	}
+	if benchMatches(filter, "ATR") {
+		bsATR(r)
+	}
+	if benchMatches(filter, "AVGDEV") {
+		bsAVGDEV(r)
+	}
+	if benchMatches(filter, "AVGPRICE") {
+		bsAVGPRICE(r)
+	}
+	if benchMatches(filter, "BBANDS") {
+		bsBBANDS(r)
+	}
+	if benchMatches(filter, "BBW") {
+		bsBBW(r)
+	}
+	if benchMatches(filter, "BETA") {
+		bsBETA(r)
+	}
+	if benchMatches(filter, "BOP") {
+		bsBOP(r)
+	}
+	if benchMatches(filter, "CCI") {
+		bsCCI(r)
+	}
+	if benchMatches(filter, "CDL2CROWS") {
+		bsCDL2CROWS(r)
+	}
+	if benchMatches(filter, "CDL3BLACKCROWS") {
+		bsCDL3BLACKCROWS(r)
+	}
+	if benchMatches(filter, "CDL3INSIDE") {
+		bsCDL3INSIDE(r)
+	}
+	if benchMatches(filter, "CDL3LINESTRIKE") {
+		bsCDL3LINESTRIKE(r)
+	}
+	if benchMatches(filter, "CDL3OUTSIDE") {
+		bsCDL3OUTSIDE(r)
+	}
+	if benchMatches(filter, "CDL3STARSINSOUTH") {
+		bsCDL3STARSINSOUTH(r)
+	}
+	if benchMatches(filter, "CDL3WHITESOLDIERS") {
+		bsCDL3WHITESOLDIERS(r)
+	}
+	if benchMatches(filter, "CDLABANDONEDBABY") {
+		bsCDLABANDONEDBABY(r)
+	}
+	if benchMatches(filter, "CDLADVANCEBLOCK") {
+		bsCDLADVANCEBLOCK(r)
+	}
+	if benchMatches(filter, "CDLBELTHOLD") {
+		bsCDLBELTHOLD(r)
+	}
+	if benchMatches(filter, "CDLBREAKAWAY") {
+		bsCDLBREAKAWAY(r)
+	}
+	if benchMatches(filter, "CDLCLOSINGMARUBOZU") {
+		bsCDLCLOSINGMARUBOZU(r)
+	}
+	if benchMatches(filter, "CDLCONCEALBABYSWALL") {
+		bsCDLCONCEALBABYSWALL(r)
+	}
+	if benchMatches(filter, "CDLCOUNTERATTACK") {
+		bsCDLCOUNTERATTACK(r)
+	}
+	if benchMatches(filter, "CDLDARKCLOUDCOVER") {
+		bsCDLDARKCLOUDCOVER(r)
+	}
+	if benchMatches(filter, "CDLDOJI") {
+		bsCDLDOJI(r)
+	}
+	if benchMatches(filter, "CDLDOJISTAR") {
+		bsCDLDOJISTAR(r)
+	}
+	if benchMatches(filter, "CDLDRAGONFLYDOJI") {
+		bsCDLDRAGONFLYDOJI(r)
+	}
+	if benchMatches(filter, "CDLENGULFING") {
+		bsCDLENGULFING(r)
+	}
+	if benchMatches(filter, "CDLEVENINGDOJISTAR") {
+		bsCDLEVENINGDOJISTAR(r)
+	}
+	if benchMatches(filter, "CDLEVENINGSTAR") {
+		bsCDLEVENINGSTAR(r)
+	}
+	if benchMatches(filter, "CDLGAPSIDESIDEWHITE") {
+		bsCDLGAPSIDESIDEWHITE(r)
+	}
+	if benchMatches(filter, "CDLGRAVESTONEDOJI") {
+		bsCDLGRAVESTONEDOJI(r)
+	}
+	if benchMatches(filter, "CDLHAMMER") {
+		bsCDLHAMMER(r)
+	}
+	if benchMatches(filter, "CDLHANGINGMAN") {
+		bsCDLHANGINGMAN(r)
+	}
+	if benchMatches(filter, "CDLHARAMI") {
+		bsCDLHARAMI(r)
+	}
+	if benchMatches(filter, "CDLHARAMICROSS") {
+		bsCDLHARAMICROSS(r)
+	}
+	if benchMatches(filter, "CDLHIGHWAVE") {
+		bsCDLHIGHWAVE(r)
+	}
+	if benchMatches(filter, "CDLHIKKAKE") {
+		bsCDLHIKKAKE(r)
+	}
+	if benchMatches(filter, "CDLHIKKAKEMOD") {
+		bsCDLHIKKAKEMOD(r)
+	}
+	if benchMatches(filter, "CDLHOMINGPIGEON") {
+		bsCDLHOMINGPIGEON(r)
+	}
+	if benchMatches(filter, "CDLIDENTICAL3CROWS") {
+		bsCDLIDENTICAL3CROWS(r)
+	}
+	if benchMatches(filter, "CDLINNECK") {
+		bsCDLINNECK(r)
+	}
+	if benchMatches(filter, "CDLINVERTEDHAMMER") {
+		bsCDLINVERTEDHAMMER(r)
+	}
+	if benchMatches(filter, "CDLKICKING") {
+		bsCDLKICKING(r)
+	}
+	if benchMatches(filter, "CDLKICKINGBYLENGTH") {
+		bsCDLKICKINGBYLENGTH(r)
+	}
+	if benchMatches(filter, "CDLLADDERBOTTOM") {
+		bsCDLLADDERBOTTOM(r)
+	}
+	if benchMatches(filter, "CDLLONGLEGGEDDOJI") {
+		bsCDLLONGLEGGEDDOJI(r)
+	}
+	if benchMatches(filter, "CDLLONGLINE") {
+		bsCDLLONGLINE(r)
+	}
+	if benchMatches(filter, "CDLMARUBOZU") {
+		bsCDLMARUBOZU(r)
+	}
+	if benchMatches(filter, "CDLMATCHINGLOW") {
+		bsCDLMATCHINGLOW(r)
+	}
+	if benchMatches(filter, "CDLMATHOLD") {
+		bsCDLMATHOLD(r)
+	}
+	if benchMatches(filter, "CDLMORNINGDOJISTAR") {
+		bsCDLMORNINGDOJISTAR(r)
+	}
+	if benchMatches(filter, "CDLMORNINGSTAR") {
+		bsCDLMORNINGSTAR(r)
+	}
+	if benchMatches(filter, "CDLONNECK") {
+		bsCDLONNECK(r)
+	}
+	if benchMatches(filter, "CDLPIERCING") {
+		bsCDLPIERCING(r)
+	}
+	if benchMatches(filter, "CDLRICKSHAWMAN") {
+		bsCDLRICKSHAWMAN(r)
+	}
+	if benchMatches(filter, "CDLRISEFALL3METHODS") {
+		bsCDLRISEFALL3METHODS(r)
+	}
+	if benchMatches(filter, "CDLSEPARATINGLINES") {
+		bsCDLSEPARATINGLINES(r)
+	}
+	if benchMatches(filter, "CDLSHOOTINGSTAR") {
+		bsCDLSHOOTINGSTAR(r)
+	}
+	if benchMatches(filter, "CDLSHORTLINE") {
+		bsCDLSHORTLINE(r)
+	}
+	if benchMatches(filter, "CDLSPINNINGTOP") {
+		bsCDLSPINNINGTOP(r)
+	}
+	if benchMatches(filter, "CDLSTALLEDPATTERN") {
+		bsCDLSTALLEDPATTERN(r)
+	}
+	if benchMatches(filter, "CDLSTICKSANDWICH") {
+		bsCDLSTICKSANDWICH(r)
+	}
+	if benchMatches(filter, "CDLTAKURI") {
+		bsCDLTAKURI(r)
+	}
+	if benchMatches(filter, "CDLTASUKIGAP") {
+		bsCDLTASUKIGAP(r)
+	}
+	if benchMatches(filter, "CDLTHRUSTING") {
+		bsCDLTHRUSTING(r)
+	}
+	if benchMatches(filter, "CDLTRISTAR") {
+		bsCDLTRISTAR(r)
+	}
+	if benchMatches(filter, "CDLUNIQUE3RIVER") {
+		bsCDLUNIQUE3RIVER(r)
+	}
+	if benchMatches(filter, "CDLUPSIDEGAP2CROWS") {
+		bsCDLUPSIDEGAP2CROWS(r)
+	}
+	if benchMatches(filter, "CDLXSIDEGAP3METHODS") {
+		bsCDLXSIDEGAP3METHODS(r)
+	}
+	if benchMatches(filter, "CE") {
+		bsCE(r)
+	}
+	if benchMatches(filter, "CEIL") {
+		bsCEIL(r)
+	}
+	if benchMatches(filter, "CG") {
+		bsCG(r)
+	}
+	if benchMatches(filter, "CHOP") {
+		bsCHOP(r)
+	}
+	if benchMatches(filter, "CHOPTR") {
+		bsCHOPTR(r)
+	}
+	if benchMatches(filter, "CKSP") {
+		bsCKSP(r)
+	}
+	if benchMatches(filter, "CMF") {
+		bsCMF(r)
+	}
+	if benchMatches(filter, "CMO") {
+		bsCMO(r)
+	}
+	if benchMatches(filter, "CMOU") {
+		bsCMOU(r)
+	}
+	if benchMatches(filter, "COPPOCK") {
+		bsCOPPOCK(r)
+	}
+	if benchMatches(filter, "CORREL") {
+		bsCORREL(r)
+	}
+	if benchMatches(filter, "COS") {
+		bsCOS(r)
+	}
+	if benchMatches(filter, "COSH") {
+		bsCOSH(r)
+	}
+	if benchMatches(filter, "CRSI") {
+		bsCRSI(r)
+	}
+	if benchMatches(filter, "CTI") {
+		bsCTI(r)
+	}
+	if benchMatches(filter, "CUMSUM") {
+		bsCUMSUM(r)
+	}
+	if benchMatches(filter, "CVI") {
+		bsCVI(r)
+	}
+	if benchMatches(filter, "DEMA") {
+		bsDEMA(r)
+	}
+	if benchMatches(filter, "DIV") {
+		bsDIV(r)
+	}
+	if benchMatches(filter, "DONCHIAN") {
+		bsDONCHIAN(r)
+	}
+	if benchMatches(filter, "DOSC") {
+		bsDOSC(r)
+	}
+	if benchMatches(filter, "DPO") {
+		bsDPO(r)
+	}
+	if benchMatches(filter, "DX") {
+		bsDX(r)
+	}
+	if benchMatches(filter, "EFI") {
+		bsEFI(r)
+	}
+	if benchMatches(filter, "EMA") {
+		bsEMA(r)
+	}
+	if benchMatches(filter, "EMV") {
+		bsEMV(r)
+	}
+	if benchMatches(filter, "ER") {
+		bsER(r)
+	}
+	if benchMatches(filter, "ERI") {
+		bsERI(r)
+	}
+	if benchMatches(filter, "EXP") {
+		bsEXP(r)
+	}
+	if benchMatches(filter, "FISHER") {
+		bsFISHER(r)
+	}
+	if benchMatches(filter, "FLOOR") {
+		bsFLOOR(r)
+	}
+	if benchMatches(filter, "FOSC") {
+		bsFOSC(r)
+	}
+	if benchMatches(filter, "FRACTAL") {
+		bsFRACTAL(r)
+	}
+	if benchMatches(filter, "FRAMA") {
+		bsFRAMA(r)
+	}
+	if benchMatches(filter, "GATOR") {
+		bsGATOR(r)
+	}
+	if benchMatches(filter, "HA") {
+		bsHA(r)
+	}
+	if benchMatches(filter, "HMA") {
+		bsHMA(r)
+	}
+	if benchMatches(filter, "HT_DCPERIOD") {
+		bsHT_DCPERIOD(r)
+	}
+	if benchMatches(filter, "HT_DCPHASE") {
+		bsHT_DCPHASE(r)
+	}
+	if benchMatches(filter, "HT_PHASOR") {
+		bsHT_PHASOR(r)
+	}
+	if benchMatches(filter, "HT_SINE") {
+		bsHT_SINE(r)
+	}
+	if benchMatches(filter, "HT_TRENDLINE") {
+		bsHT_TRENDLINE(r)
+	}
+	if benchMatches(filter, "HT_TRENDMODE") {
+		bsHT_TRENDMODE(r)
+	}
+	if benchMatches(filter, "IBS") {
+		bsIBS(r)
+	}
+	if benchMatches(filter, "ICHIMOKU") {
+		bsICHIMOKU(r)
+	}
+	if benchMatches(filter, "IMI") {
+		bsIMI(r)
+	}
+	if benchMatches(filter, "KAMA") {
+		bsKAMA(r)
+	}
+	if benchMatches(filter, "KC") {
+		bsKC(r)
+	}
+	if benchMatches(filter, "KDJ") {
+		bsKDJ(r)
+	}
+	if benchMatches(filter, "KST") {
+		bsKST(r)
+	}
+	if benchMatches(filter, "KSTEXT") {
+		bsKSTEXT(r)
+	}
+	if benchMatches(filter, "KURTOSIS") {
+		bsKURTOSIS(r)
+	}
+	if benchMatches(filter, "KVO") {
+		bsKVO(r)
+	}
+	if benchMatches(filter, "LINEARREG") {
+		bsLINEARREG(r)
+	}
+	if benchMatches(filter, "LINEARREG_ANGLE") {
+		bsLINEARREG_ANGLE(r)
+	}
+	if benchMatches(filter, "LINEARREG_INTERCEPT") {
+		bsLINEARREG_INTERCEPT(r)
+	}
+	if benchMatches(filter, "LINEARREG_SLOPE") {
+		bsLINEARREG_SLOPE(r)
+	}
+	if benchMatches(filter, "LN") {
+		bsLN(r)
+	}
+	if benchMatches(filter, "LOG10") {
+		bsLOG10(r)
+	}
+	if benchMatches(filter, "MA") {
+		bsMA(r)
+	}
+	if benchMatches(filter, "MACD") {
+		bsMACD(r)
+	}
+	if benchMatches(filter, "MACDEXT") {
+		bsMACDEXT(r)
+	}
+	if benchMatches(filter, "MACDFIX") {
+		bsMACDFIX(r)
+	}
+	if benchMatches(filter, "MACDV") {
+		bsMACDV(r)
+	}
+	if benchMatches(filter, "MAMA") {
+		bsMAMA(r)
+	}
+	if benchMatches(filter, "MARKETFI") {
+		bsMARKETFI(r)
+	}
+	if benchMatches(filter, "MASSI") {
+		bsMASSI(r)
+	}
+	if benchMatches(filter, "MAVP") {
+		bsMAVP(r)
+	}
+	if benchMatches(filter, "MAX") {
+		bsMAX(r)
+	}
+	if benchMatches(filter, "MAXINDEX") {
+		bsMAXINDEX(r)
+	}
+	if benchMatches(filter, "MCGD") {
+		bsMCGD(r)
+	}
+	if benchMatches(filter, "MEDIAN") {
+		bsMEDIAN(r)
+	}
+	if benchMatches(filter, "MEDPRICE") {
+		bsMEDPRICE(r)
+	}
+	if benchMatches(filter, "MFI") {
+		bsMFI(r)
+	}
+	if benchMatches(filter, "MIDPOINT") {
+		bsMIDPOINT(r)
+	}
+	if benchMatches(filter, "MIDPRICE") {
+		bsMIDPRICE(r)
+	}
+	if benchMatches(filter, "MIN") {
+		bsMIN(r)
+	}
+	if benchMatches(filter, "MININDEX") {
+		bsMININDEX(r)
+	}
+	if benchMatches(filter, "MINMAX") {
+		bsMINMAX(r)
+	}
+	if benchMatches(filter, "MINMAXINDEX") {
+		bsMINMAXINDEX(r)
+	}
+	if benchMatches(filter, "MINUS_DI") {
+		bsMINUS_DI(r)
+	}
+	if benchMatches(filter, "MINUS_DM") {
+		bsMINUS_DM(r)
+	}
+	if benchMatches(filter, "MOM") {
+		bsMOM(r)
+	}
+	if benchMatches(filter, "MULT") {
+		bsMULT(r)
+	}
+	if benchMatches(filter, "NATR") {
+		bsNATR(r)
+	}
+	if benchMatches(filter, "NVI") {
+		bsNVI(r)
+	}
+	if benchMatches(filter, "OBV") {
+		bsOBV(r)
+	}
+	if benchMatches(filter, "PERCENTB") {
+		bsPERCENTB(r)
+	}
+	if benchMatches(filter, "PERCENTILE") {
+		bsPERCENTILE(r)
+	}
+	if benchMatches(filter, "PERCENTRANK") {
+		bsPERCENTRANK(r)
+	}
+	if benchMatches(filter, "PLUS_DI") {
+		bsPLUS_DI(r)
+	}
+	if benchMatches(filter, "PLUS_DM") {
+		bsPLUS_DM(r)
+	}
+	if benchMatches(filter, "PPO") {
+		bsPPO(r)
+	}
+	if benchMatches(filter, "PSO") {
+		bsPSO(r)
+	}
+	if benchMatches(filter, "PVI") {
+		bsPVI(r)
+	}
+	if benchMatches(filter, "PVO") {
+		bsPVO(r)
+	}
+	if benchMatches(filter, "PVT") {
+		bsPVT(r)
+	}
+	if benchMatches(filter, "QSTICK") {
+		bsQSTICK(r)
+	}
+	if benchMatches(filter, "RMA") {
+		bsRMA(r)
+	}
+	if benchMatches(filter, "ROC") {
+		bsROC(r)
+	}
+	if benchMatches(filter, "ROCP") {
+		bsROCP(r)
+	}
+	if benchMatches(filter, "ROCR") {
+		bsROCR(r)
+	}
+	if benchMatches(filter, "ROCR100") {
+		bsROCR100(r)
+	}
+	if benchMatches(filter, "ROGERSSATCHELL") {
+		bsROGERSSATCHELL(r)
+	}
+	if benchMatches(filter, "RSI") {
+		bsRSI(r)
+	}
+	if benchMatches(filter, "RVI") {
+		bsRVI(r)
+	}
+	if benchMatches(filter, "RVIR") {
+		bsRVIR(r)
+	}
+	if benchMatches(filter, "RVOL") {
+		bsRVOL(r)
+	}
+	if benchMatches(filter, "SAR") {
+		bsSAR(r)
+	}
+	if benchMatches(filter, "SAREXT") {
+		bsSAREXT(r)
+	}
+	if benchMatches(filter, "SHARPE") {
+		bsSHARPE(r)
+	}
+	if benchMatches(filter, "SI") {
+		bsSI(r)
+	}
+	if benchMatches(filter, "SIN") {
+		bsSIN(r)
+	}
+	if benchMatches(filter, "SINH") {
+		bsSINH(r)
+	}
+	if benchMatches(filter, "SKEW") {
+		bsSKEW(r)
+	}
+	if benchMatches(filter, "SMA") {
+		bsSMA(r)
+	}
+	if benchMatches(filter, "SMI") {
+		bsSMI(r)
+	}
+	if benchMatches(filter, "SORTINO") {
+		bsSORTINO(r)
+	}
+	if benchMatches(filter, "SQRT") {
+		bsSQRT(r)
+	}
+	if benchMatches(filter, "SQZMOM") {
+		bsSQZMOM(r)
+	}
+	if benchMatches(filter, "STC") {
+		bsSTC(r)
+	}
+	if benchMatches(filter, "STDDEV") {
+		bsSTDDEV(r)
+	}
+	if benchMatches(filter, "STOCH") {
+		bsSTOCH(r)
+	}
+	if benchMatches(filter, "STOCHF") {
+		bsSTOCHF(r)
+	}
+	if benchMatches(filter, "STOCHRSI") {
+		bsSTOCHRSI(r)
+	}
+	if benchMatches(filter, "SUB") {
+		bsSUB(r)
+	}
+	if benchMatches(filter, "SUM") {
+		bsSUM(r)
+	}
+	if benchMatches(filter, "SUPERTREND") {
+		bsSUPERTREND(r)
+	}
+	if benchMatches(filter, "SWAK_2PHP") {
+		bsSWAK_2PHP(r)
+	}
+	if benchMatches(filter, "SWAK_BP") {
+		bsSWAK_BP(r)
+	}
+	if benchMatches(filter, "SWAK_BUTTER") {
+		bsSWAK_BUTTER(r)
+	}
+	if benchMatches(filter, "SWAK_GAUSS") {
+		bsSWAK_GAUSS(r)
+	}
+	if benchMatches(filter, "SWAK_HP") {
+		bsSWAK_HP(r)
+	}
+	if benchMatches(filter, "T3") {
+		bsT3(r)
+	}
+	if benchMatches(filter, "TAN") {
+		bsTAN(r)
+	}
+	if benchMatches(filter, "TANH") {
+		bsTANH(r)
+	}
+	if benchMatches(filter, "TEMA") {
+		bsTEMA(r)
+	}
+	if benchMatches(filter, "TRANGE") {
+		bsTRANGE(r)
+	}
+	if benchMatches(filter, "TRIMA") {
+		bsTRIMA(r)
+	}
+	if benchMatches(filter, "TRIX") {
+		bsTRIX(r)
+	}
+	if benchMatches(filter, "TSF") {
+		bsTSF(r)
+	}
+	if benchMatches(filter, "TSI") {
+		bsTSI(r)
+	}
+	if benchMatches(filter, "TYPPRICE") {
+		bsTYPPRICE(r)
+	}
+	if benchMatches(filter, "ULTOSC") {
+		bsULTOSC(r)
+	}
+	if benchMatches(filter, "VAR") {
+		bsVAR(r)
+	}
+	if benchMatches(filter, "VHF") {
+		bsVHF(r)
+	}
+	if benchMatches(filter, "VIDYA") {
+		bsVIDYA(r)
+	}
+	if benchMatches(filter, "VORTEX") {
+		bsVORTEX(r)
+	}
+	if benchMatches(filter, "VWAP") {
+		bsVWAP(r)
+	}
+	if benchMatches(filter, "VWMA") {
+		bsVWMA(r)
+	}
+	if benchMatches(filter, "WAD") {
+		bsWAD(r)
+	}
+	if benchMatches(filter, "WAVETREND") {
+		bsWAVETREND(r)
+	}
+	if benchMatches(filter, "WCLPRICE") {
+		bsWCLPRICE(r)
+	}
+	if benchMatches(filter, "WILLR") {
+		bsWILLR(r)
+	}
+	if benchMatches(filter, "WMA") {
+		bsWMA(r)
+	}
+	if benchMatches(filter, "ZIGZAG") {
+		bsZIGZAG(r)
+	}
+	if benchMatches(filter, "ZLEMA") {
+		bsZLEMA(r)
+	}
+}
+
+// --bench-stream: the Go counterpart of ta_bench_stream, by the same method so
+// the two tools' rows can be joined on the function name. Keep in step with
+// bench_gen.rs's C tool: corpus, defaults, the batch@last history, the 32-call
+// peek blocks between untimed updates, and the best pass of each column.
+
+// The bar feed: Update, Peek and batch@last read bar it&(feed-1), and every
+// pass restarts at bar 0. The default 4096 bars is short enough for a branch
+// predictor to learn, which makes a data-dependent branch read as free and a
+// branch-free pick as a loss; --feed-bars walks a longer one.
+const (
+	benchFeedDefault = 4096
+	benchFeedMax     = 131072
+)
+
+var (
+	benchSinkI int
+	benchSinkF float64
+)
+
+// A parameter reaches every call through one of these, so no call times a
+// body specialised on a constant.
+//
+//go:noinline
+func benchInt(v int) int {
+	benchSinkI = v
+	return benchSinkI
+}
+
+//go:noinline
+func benchReal(v float64) float64 {
+	benchSinkF = v
+	return benchSinkF
+}
+
+type benchRun struct {
+	core   *talib.Core
+	iters  int
+	period int
+	passes int
+	n      int
+	in     [7][]float64
+	feed   [7][benchFeedMax]float64
+	mask   int
+	rt     [7][]float64
+	outR   [][]float64
+	outI   [][]int32
+	tb     []time.Duration
+	tu     []time.Duration
+	tp     []time.Duration
+	blk    int
+	nblk   int
+	npk    int
+	heap   uint64
+	sink   float64
+	jsonl  *os.File
+	header string
+
+	minRatio                         float64
+	rows, slow, below, reject, short int
+	worstRatio                       float64
+	worstName                        string
+}
+
+func (r *benchRun) periodOr(def int) int {
+	if r.period > 0 {
+		return r.period
+	}
+	return def
+}
+
+// reserve grows the batch@last history to need bars, filling the new tail
+// from the corpus as bench_rt_reserve does.
+func (r *benchRun) reserve(need int) {
+	if need <= len(r.rt[0]) {
+		return
+	}
+	for k := range r.rt {
+		old := len(r.rt[k])
+		p := make([]float64, need)
+		copy(p, r.rt[k])
+		for i := old; i < need; i++ {
+			p[i] = r.in[k][i%r.n]
+		}
+		r.rt[k] = p
+	}
+}
+
+// The retained size of a handle: the live heap after a collection, after Open
+// against before it. One collection before is not enough: the heap it reports
+// still shrinks by a few kilobytes at the next one.
+func (r *benchRun) trackStart() {
+	var m runtime.MemStats
+	runtime.GC()
+	runtime.GC()
+	runtime.ReadMemStats(&m)
+	r.heap = m.HeapAlloc
+}
+
+func (r *benchRun) trackEnd() int64 {
+	var m runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m)
+	if m.HeapAlloc < r.heap {
+		return 0
+	}
+	return int64(m.HeapAlloc - r.heap)
+}
+
+func benchBest(d []time.Duration) (best, spread float64) {
+	lo, hi := d[0], d[0]
+	for _, x := range d[1:] {
+		lo, hi = min(lo, x), max(hi, x)
+	}
+	if lo <= 0 {
+		return float64(lo), 0
+	}
+	return float64(lo), 100 * float64(hi-lo) / float64(lo)
+}
+
+func (r *benchRun) record(name, status string, b, u, p float64, lb int, hb int64, ratio, bs, us, ps float64) {
+	if r.jsonl == nil {
+		return
+	}
+	fmt.Fprintf(r.jsonl, `{%s,"func":%q,"status":%q,"batch_last_ns":%.3f,"update_ns":%.3f,"peek_ns":%.3f,"lookback":%d,"handle_bytes":%d,"speedup":%.3f,"batch_spread_pct":%.1f,"update_spread_pct":%.1f,"peek_spread_pct":%.1f}`+"\n",
+		r.header, name, status, b, u, p, lb, hb, ratio, bs, us, ps)
+}
+
+// row prints the C tool's columns, then the spread of each timed column over
+// the passes, in percent of its best pass (-1 where nothing was timed).
+func (r *benchRun) row(name string, openErr error, lb int, hb int64, sink float64) {
+	r.sink += sink
+	b, bs := benchBest(r.tb)
+	b /= float64(r.iters)
+	if lb < 0 {
+		b, bs = -1, -1
+	}
+	if openErr != nil {
+		if errors.Is(openErr, talib.InsufficientHistory) {
+			fmt.Printf("%s %.3f -1 -1 %d 0 short %.1f -1 -1\n", name, b, lb, bs)
+			r.record(name, "short", b, -1, -1, lb, 0, -1, bs, -1, -1)
+			r.short++
+			return
+		}
+		if lb < 0 {
+			fmt.Printf("%s -1 -1 -1 %d 0 -1 -1 -1 -1\n", name, lb)
+		} else {
+			fmt.Printf("%s %.3f -1 -1 %d 0 -1 %.1f -1 -1\n", name, b, lb, bs)
+		}
+		r.record(name, "rejected", b, -1, -1, lb, 0, -1, bs, -1, -1)
+		r.reject++
+		return
+	}
+	u, us := benchBest(r.tu)
+	u /= float64(r.iters)
+	p, ps := benchBest(r.tp)
+	p /= float64(r.npk)
+	ratio := b / u
+	fmt.Printf("%s %.3f %.3f %.3f %d %d %.3f %.1f %.1f %.1f\n", name, b, u, p, lb, hb, ratio, bs, us, ps)
+	r.record(name, "timed", b, u, p, lb, hb, ratio, bs, us, ps)
+	r.rows++
+	if ratio < 1.0 {
+		r.slow++
+	}
+	if r.minRatio > 0.0 && ratio < r.minRatio {
+		r.below++
+	}
+	if r.worstRatio < 0.0 || ratio < r.worstRatio {
+		r.worstRatio = ratio
+		r.worstName = name
+	}
+}
+
+func benchMatches(filter, name string) bool {
+	if filter == "" {
+		return true
+	}
+	if len(filter) > 511 {
+		filter = filter[:511]
+	}
+	name = strings.ToLower(name)
+	for _, tok := range strings.Split(filter, ",") {
+		if tok != "" && strings.Contains(name, strings.ToLower(tok)) {
+			return true
+		}
+	}
+	return false
+}
+
+func benchIntArg(arg, prefix string, dst *int) bool {
+	if !strings.HasPrefix(arg, prefix) {
+		return false
+	}
+	v, err := strconv.Atoi(arg[len(prefix):])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "--bench-stream: %s needs an integer, got '%s'\n", prefix, arg[len(prefix):])
+		os.Exit(2)
+	}
+	*dst = v
+	return true
+}
+
+func benchRealArg(arg, prefix string, dst *float64) bool {
+	if !strings.HasPrefix(arg, prefix) {
+		return false
+	}
+	v, err := strconv.ParseFloat(arg[len(prefix):], 64)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "--bench-stream: %s needs a number, got '%s'\n", prefix, arg[len(prefix):])
+		os.Exit(2)
+	}
+	*dst = v
+	return true
+}
+
+// benchCorpusHash is FNV-1a 64 over the little-endian bits of the seven
+// series, each in full, in benchCorpusGen's argument order.
+func benchCorpusHash(in *[7][]float64) uint64 {
+	h := uint64(14695981039346656037)
+	for _, s := range in {
+		for _, v := range s {
+			bits := math.Float64bits(v)
+			for k := 0; k < 8; k++ {
+				h ^= (bits >> (8 * k)) & 0xff
+				h *= 1099511628211
+			}
+		}
+	}
+	return h
+}
+
+func benchStream(args []string) int {
+	points, iters, passes, feed := 100000, 500, 3, benchFeedDefault
+	filter, jsonl, shapeName := "", "", "randwalk"
+	corpusHash := false
+	cfg := benchCorpusCfg{shape: 0, seed: benchCorpusSeed, refPeriod: 0, trendStrength: benchCorpusTrend}
+	r := &benchRun{core: talib.NewCore(), worstRatio: -1}
+	for _, a := range args {
+		switch {
+		case benchIntArg(a, "--points=", &points), benchIntArg(a, "--iters=", &iters),
+			benchIntArg(a, "--passes=", &passes), benchIntArg(a, "--period=", &r.period),
+			benchIntArg(a, "--feed-bars=", &feed),
+			benchIntArg(a, "--seed=", &cfg.seed), benchIntArg(a, "--regime-period=", &cfg.refPeriod),
+			benchRealArg(a, "--trend-strength=", &cfg.trendStrength), benchRealArg(a, "--min-ratio=", &r.minRatio):
+		case strings.HasPrefix(a, "--function="):
+			filter = a[len("--function="):]
+		case strings.HasPrefix(a, "--jsonl="):
+			jsonl = a[len("--jsonl="):]
+		case strings.HasPrefix(a, "--shape="):
+			shapeName = a[len("--shape="):]
+			if cfg.shape = benchShapeID(shapeName); cfg.shape < 0 {
+				fmt.Fprintf(os.Stderr, "--bench-stream: unknown --shape=%s; one of:", shapeName)
+				for _, sh := range benchShapes {
+					fmt.Fprintf(os.Stderr, " %s", sh.name)
+				}
+				fmt.Fprintln(os.Stderr)
+				return 2
+			}
+		case a == "--corpus-hash":
+			corpusHash = true
+		default:
+			fmt.Fprintf(os.Stderr, "--bench-stream: unknown option '%s'\n", a)
+			return 2
+		}
+	}
+	if feed < benchFeedDefault || feed > benchFeedMax || feed&(feed-1) != 0 {
+		fmt.Fprintf(os.Stderr, "--bench-stream: --feed-bars=N needs a power of two from %d to %d, got %d\n", benchFeedDefault, benchFeedMax, feed)
+		return 2
+	}
+	r.mask = feed - 1
+	points = min(max(points, feed), maxArraySize)
+	iters = max(iters, 1)
+	passes = max(passes, 1)
+	if cfg.refPeriod <= 0 {
+		cfg.refPeriod = r.periodOr(benchCorpusPeriod)
+	}
+	r.iters, r.passes, r.n = iters, passes, points
+	for k := range r.in {
+		r.in[k] = make([]float64, points)
+	}
+	benchCorpusGen(cfg, points, r.in[0], r.in[1], r.in[2], r.in[3], r.in[4], r.in[5], r.in[6])
+	if corpusHash {
+		fmt.Printf("corpus shape=%s seed=%d points=%d regime_period=%d fnv1a64=%016x\n",
+			benchShapes[cfg.shape].name, cfg.seed, points, cfg.refPeriod, benchCorpusHash(&r.in))
+		return 0
+	}
+	for k := range r.in {
+		copy(r.feed[k][:], r.in[k])
+	}
+	r.reserve(iters + 8192)
+	r.outR = make([][]float64, benchOutReal)
+	for k := range r.outR {
+		r.outR[k] = make([]float64, maxArraySize)
+	}
+	r.outI = make([][]int32, benchOutInt)
+	for k := range r.outI {
+		r.outI[k] = make([]int32, maxArraySize)
+	}
+	r.tb, r.tu, r.tp = make([]time.Duration, passes), make([]time.Duration, passes), make([]time.Duration, passes)
+	r.blk = 1
+	if iters >= 64 {
+		r.blk = 32
+	}
+	r.nblk = iters / r.blk
+	r.npk = max(r.nblk*r.blk, 1)
+	r.header = fmt.Sprintf(`"points":%d,"iters":%d,"passes":%d,"period":%d,"feed_bars":%d,"shape":%q,"seed":%d,"go":%q,"goarch":%q`,
+		points, iters, passes, r.period, feed, benchShapes[cfg.shape].name, cfg.seed, runtime.Version(), runtime.GOARCH)
+	if jsonl != "" {
+		f, err := os.OpenFile(jsonl, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "--bench-stream: %v\n", err)
+			return 2
+		}
+		defer f.Close()
+		r.jsonl = f
+	}
+	fmt.Printf("# ta_codegen_serve_go --bench-stream points=%d iters=%d passes=%d shape=%s seed=%d %s\n",
+		points, iters, passes, benchShapes[cfg.shape].name, cfg.seed, runtime.Version())
+	if r.period > 0 {
+		fmt.Printf("# --period=%d: every optInTimePeriod; all other params at their defaults\n", r.period)
+	}
+	if feed != benchFeedDefault {
+		fmt.Printf("# --feed-bars=%d: every pass walks that many distinct bars\n", feed)
+	}
+	fmt.Println("# func batch_last_ns update_ns peek_ns lookback handle_bytes speedup batch_spread_pct update_spread_pct peek_spread_pct")
+	benchStreamAll(r, filter)
+	worst := r.worstName
+	if worst == "" {
+		worst = "-"
+	}
+	fmt.Printf("# %d timed, %d rejected, %d short (lookback >= --points); %d slower than batch@last; worst %s %.2fx\n",
+		r.rows, r.reject, r.short, r.slow, worst, r.worstRatio)
+	benchSinkF = r.sink
+	if r.minRatio > 0.0 {
+		verdict := "PASS"
+		if r.below > 0 {
+			verdict = "FAIL"
+		}
+		fmt.Printf("# --min-ratio=%.2f: %d below -> %s\n", r.minRatio, r.below, verdict)
+		if r.below > 0 {
+			return 1
+		}
+	}
+	return 0
+}
+
+// Port of src/tools/ta_bench/bench_corpus.h, so --bench-stream times the series
+// ta_bench_stream times for the same shape, seed and points. Every product is
+// written float64(a*b), as in fuzz.go. The walk, ramp, flat and peg shapes match
+// C bit for bit; gbm and trend-chop also go through Go's Log, Exp, Sin and Cos,
+// which may round a last bit differently from the C library's.
+
+const (
+	benchGenWalk = iota
+	benchGenGBM
+	benchGenTrendChop
+	benchGenRamp
+	benchGenFlat
+	benchGenPeg
+)
+
+const (
+	benchCorpusSeed   = 42
+	benchCorpusPeriod = 14
+	benchCorpusTrend  = 0.5
+)
+
+type benchShape struct {
+	name  string
+	gen   int
+	param float64
+}
+
+var benchShapes = [...]benchShape{
+	{"randwalk", benchGenWalk, 1.00},
+	{"randwalk-lo", benchGenWalk, 0.25},
+	{"randwalk-hi", benchGenWalk, 4.00},
+	{"gbm", benchGenGBM, 0.20},
+	{"trend-chop-0.5p", benchGenTrendChop, 0.50},
+	{"trend-chop-1p", benchGenTrendChop, 1.00},
+	{"trend-chop-2p", benchGenTrendChop, 2.00},
+	{"trend-chop-4p", benchGenTrendChop, 4.00},
+	{"mono-up", benchGenRamp, 1.00},
+	{"mono-down", benchGenRamp, -1.00},
+	{"constant", benchGenFlat, 0.00},
+	{"peg", benchGenPeg, 0.00},
+}
+
+type benchCorpusCfg struct {
+	shape, seed, refPeriod int
+	trendStrength          float64
+}
+
+func benchShapeID(name string) int {
+	if name == "" {
+		return 0
+	}
+	for i := range benchShapes {
+		if benchShapes[i].name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+type benchRng struct {
+	m        splitMix64
+	spare    float64
+	hasSpare bool
+}
+
+func (r *benchRng) normal() float64 {
+	if r.hasSpare {
+		r.hasSpare = false
+		return r.spare
+	}
+	u1 := r.m.unit()
+	for u1 <= 1.0e-300 {
+		u1 = r.m.unit()
+	}
+	u2 := r.m.unit()
+	mag := math.Sqrt(float64(-2.0 * math.Log(u1)))
+	r.spare = float64(mag * math.Sin(float64(6.283185307179586476925286766559*u2)))
+	r.hasSpare = true
+	return float64(mag * math.Cos(float64(6.283185307179586476925286766559*u2)))
+}
+
+func benchFmax(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func benchFmin(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// benchCorpusGen fills the seven series in ta_bench's order: open, high, low,
+// close, volume, open interest, MAVP's periods.
+func benchCorpusGen(cfg benchCorpusCfg, n int, o, h, l, c, v, oi, periods []float64) {
+	shape := cfg.shape
+	if shape < 0 || shape >= len(benchShapes) {
+		shape = 0
+	}
+	refPeriod := cfg.refPeriod
+	if refPeriod < 2 {
+		refPeriod = benchCorpusPeriod
+	}
+	sh := benchShapes[shape]
+	param := sh.param
+	rng := benchRng{m: splitMix64{0x243F6A8885A308D3 ^ uint64(uint32(int32(cfg.seed)))*0xD1B54A32D192ED03}}
+	period := 16
+
+	switch sh.gen {
+	case benchGenWalk:
+		lcg := uint32(int32(cfg.seed))
+		price := 100.0
+		amp, hw := float64(2.0*param), float64(0.5*param)
+		for i := 0; i < n; i++ {
+			lcg = lcg*1103515245 + 12345
+			r := float64(lcg>>16)/32768.0 - 1.0
+			oo, cc := price, price+float64(r*amp)
+			o[i], c[i] = oo, cc
+			h[i] = benchFmax(oo, cc) + float64(math.Abs(r)*hw)
+			l[i] = benchFmin(oo, cc) - float64(math.Abs(r)*hw)
+			if l[i] < 1.0 {
+				l[i] = 1.0
+			}
+			v[i] = 1000000.0 + float64(r*500000.0)
+			oi[i] = 0.0
+			price = cc
+			if price < 1.0 {
+				price = 1.0
+			}
+			period += int((lcg>>8)%7) - 3
+			period = min(max(period, 2), 30)
+			periods[i] = float64(period)
+		}
+		return
+	case benchGenFlat:
+		for i := 0; i < n; i++ {
+			o[i], h[i], l[i], c[i] = 100.0, 100.0, 100.0, 100.0
+			v[i], oi[i], periods[i] = 1000000.0, 0.0, 14.0
+		}
+		return
+	case benchGenPeg:
+		cents := int64(330)
+		for i := 0; i < n; i++ {
+			prev := cents
+			if i%400 < 40 {
+				cents += int64(rng.m.next()%5) - 2
+				if cents < 100 {
+					cents = 100
+				}
+			} else {
+				cents = 330
+			}
+			o[i] = float64(prev) / 100.0
+			c[i] = float64(cents) / 100.0
+			h[i] = benchFmax(o[i], c[i])
+			l[i] = benchFmin(o[i], c[i])
+			v[i], oi[i], periods[i] = 1000000.0, 0.0, 14.0
+		}
+		return
+	case benchGenRamp:
+		span := 0.0
+		if n > 1 {
+			span = 900.0 / float64(n-1)
+		}
+		dir := -1.0
+		if param > 0.0 {
+			dir = 1.0
+		}
+		for i := 0; i < n; i++ {
+			t := float64(n - 1 - i)
+			if param > 0.0 {
+				t = float64(i)
+			}
+			cc := 100.0 + float64(span*t)
+			oo := cc - float64(float64(0.5*span)*dir)
+			o[i], c[i] = oo, cc
+			h[i] = benchFmax(oo, cc) + float64(0.25*span) + 1.0e-6
+			l[i] = benchFmin(oo, cc) - float64(0.25*span) - 1.0e-6
+			if l[i] < 1.0 {
+				l[i] = 1.0
+			}
+			v[i], oi[i], periods[i] = 1000000.0, 0.0, 14.0
+		}
+		return
+	}
+
+	sigma, mu := 0.01, 0.0
+	if sh.gen == benchGenGBM {
+		sigma = param / math.Sqrt(252.0)
+		mu = float64(0.05)/float64(252.0) - float64(float64(0.5*sigma)*sigma)
+	}
+	trendDrift := float64(cfg.trendStrength * sigma)
+	phi := 0.10
+	regimeF := 0.0
+	if sh.gen == benchGenTrendChop {
+		regimeF = float64(param*float64(refPeriod)) + 0.5
+	}
+	if top := float64(max(n, 2)); regimeF > top {
+		regimeF = top
+	}
+	if regimeF < 0.0 {
+		regimeF = 0.0
+	}
+	regime := int(regimeF)
+	logp := math.Log(100.0)
+	anchor := logp
+	leg, legBar := 0, 0
+	if sh.gen == benchGenTrendChop && regime < 2 {
+		regime = 2
+	}
+	for i := 0; i < n; i++ {
+		z := rng.normal()
+		if sh.gen == benchGenTrendChop {
+			if legBar >= regime {
+				legBar = 0
+				leg = (leg + 1) & 3
+				anchor = logp
+			}
+			switch leg {
+			case 0:
+				logp += trendDrift + float64(sigma*z)
+			case 2:
+				logp += -trendDrift + float64(sigma*z)
+			default:
+				logp += float64(-phi*(logp-anchor)) + float64(sigma*z)
+			}
+			legBar++
+		} else {
+			logp += mu + float64(sigma*z)
+		}
+		cc := math.Exp(logp)
+		oo := float64(cc * (1.0 + float64(float64(sigma*0.5)*rng.m.unit()) - float64(sigma*0.25)))
+		hi, lo := benchFmax(oo, cc), benchFmin(oo, cc)
+		w := float64(float64(sigma*0.5) * rng.m.unit())
+		hi = float64(hi * (1.0 + w))
+		w = float64(float64(sigma*0.5) * rng.m.unit())
+		lo = float64(lo * (1.0 - w))
+		o[i], c[i], h[i], l[i] = oo, cc, hi, lo
+		if l[i] < 1.0e-6 {
+			l[i] = 1.0e-6
+		}
+		v[i] = 1000000.0 + float64(500000.0*(rng.m.unit()-0.5))
+		oi[i] = 0.0
+		period += int(rng.m.next()%7) - 3
+		period = min(max(period, 2), 30)
+		periods[i] = float64(period)
+	}
 }

@@ -148,6 +148,25 @@ func (c *Core) KDJLookback(optInFastK_Period, optInSlowK_Period int, optInSlowK_
 	return int(lookback), nil
 }
 
+// KDJDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.KDJ]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.KDJ] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.KDJLookback] rejects or an index that names no output.
+func (c *Core) KDJDisplayShift(optInFastK_Period, optInSlowK_Period int, optInSlowK_MAType MAType, optInSlowD_Period int, optInSlowD_MAType MAType, outputIdx int) (int, error) {
+	if _, err := c.KDJLookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // KDJ computes the KDJ Stochastic over bars startIdx through endIdx.
 //
 // The stochastic oscillator as it is drawn on Chinese-market platforms: the
@@ -195,7 +214,8 @@ func (c *Core) KDJLookback(optInFastK_Period, optInSlowK_Period int, optInSlowK_
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) KDJ(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInFastK_Period, optInSlowK_Period int, optInSlowK_MAType MAType, optInSlowD_Period int, optInSlowD_MAType MAType, outK, outD, outJ []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -290,12 +310,21 @@ func (sp *KDJStream) Update(inHigh, inLow, inClose float64) (float64, float64, f
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, BadParam
 	}
-	if err := kdjStepImpl(sp, inHigh, inLow, inClose); err != nil {
-		return 0, 0, 0, err
+	var cur_outK float64
+	var cur_outD float64
+	var cur_outJ float64
+	var subErr error
+	cur_outK, cur_outD, subErr = sp.sub0.Update(inHigh, inLow, inClose)
+	if subErr != nil {
+		return 0, 0, 0, subErr
 	}
+	cur_outJ = float64(3.0*cur_outK) - float64(2.0*cur_outD)
+	sp.cur_outK = cur_outK
+	sp.cur_outD = cur_outD
+	sp.cur_outJ = cur_outJ
 	sp.outRangeCount++
 	return sp.cur_outK, sp.cur_outD, sp.cur_outJ, nil
 }
@@ -304,7 +333,7 @@ func (sp *KDJStream) Update(inHigh, inLow, inClose float64) (float64, float64, f
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *KDJStream) Peek(inHigh, inLow, inClose float64) (float64, float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var cur_outK float64
@@ -331,22 +360,6 @@ func (sp *KDJStream) Clone() *KDJStream {
 	cl := *sp
 	cl.sub0 = sp.sub0.Clone()
 	return &cl
-}
-
-func kdjStepImpl(sp *KDJStream, inHigh, inLow, inClose float64) error {
-	var cur_outK float64
-	var cur_outD float64
-	var cur_outJ float64
-	var subErr error
-	cur_outK, cur_outD, subErr = sp.sub0.Update(inHigh, inLow, inClose)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outJ = float64(3.0*cur_outK) - float64(2.0*cur_outD)
-	sp.cur_outK = cur_outK
-	sp.cur_outD = cur_outD
-	sp.cur_outJ = cur_outJ
-	return nil
 }
 
 func (c *Core) kdjOpenImpl(sp *KDJStream, inHigh, inLow, inClose []float64, startIdx, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType int32, outBegIdx, outNBElement *int32, outK, outD, outJ []float64, outStride int32) RetCode {
@@ -476,8 +489,9 @@ func (c *Core) kdjOpenInternal(inHigh, inLow, inClose []float64, startIdx, optIn
 // are those of [Core.KDJ].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.KDJLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.KDJLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) KDJOpen(inHigh, inLow, inClose []float64, optInFastK_Period, optInSlowK_Period int, optInSlowK_MAType MAType, optInSlowD_Period int, optInSlowD_MAType MAType) (*KDJStream, float64, float64, float64, error) {
 	if !fitsInt32(optInFastK_Period) {
 		return nil, 0, 0, 0, BadParam
@@ -503,7 +517,8 @@ func (c *Core) KDJOpen(inHigh, inLow, inClose []float64, optInFastK_Period, optI
 // no memory with an input or another output.
 //
 // The errors are those of [Core.KDJOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) KDJOpenAndFill(inHigh, inLow, inClose []float64, optInFastK_Period, optInSlowK_Period int, optInSlowK_MAType MAType, optInSlowD_Period int, optInSlowD_MAType MAType, outK, outD, outJ []float64) (*KDJStream, OutRange, error) {
 	if !fitsInt32(optInFastK_Period) {
 		return nil, OutRange{}, BadParam

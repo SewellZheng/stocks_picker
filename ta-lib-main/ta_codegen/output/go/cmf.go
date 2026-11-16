@@ -61,7 +61,9 @@ func (c *Core) cmfImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 	var nullRun int32
 	var liveVol int32
 	var mfv_flow []float64
+	var local_mfv_flow [50]float64
 	var mfv_volume []float64
+	var local_mfv_volume [50]float64
 	var mfv_Idx int32
 	var maxIdx_mfv int32
 	maxIdx_mfv = 49
@@ -88,8 +90,16 @@ func (c *Core) cmfImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	mfv_flow = make([]float64, optInTimePeriod)
-	mfv_volume = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 50 {
+		mfv_flow = local_mfv_flow[:optInTimePeriod]
+	} else {
+		mfv_flow = make([]float64, optInTimePeriod)
+	}
+	if optInTimePeriod <= 50 {
+		mfv_volume = local_mfv_volume[:optInTimePeriod]
+	} else {
+		mfv_volume = make([]float64, optInTimePeriod)
+	}
 	maxIdx_mfv = optInTimePeriod - 1
 	mfv_Idx = 0
 	outIdx = 0
@@ -184,6 +194,25 @@ func (c *Core) CMFLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// CMFDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.CMF]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CMF] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CMFLookback] rejects or an index that names no output.
+func (c *Core) CMFDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.CMFLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CMF computes the Chaikin Money Flow over bars startIdx through endIdx.
 //
 // Chaikin Money Flow: over a trailing window of optInTimePeriod bars, the sum
@@ -216,7 +245,8 @@ func (c *Core) CMFLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) CMF(startIdx, endIdx int, inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -303,11 +333,47 @@ func (sp *CMFStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	cmfStepImpl(sp, inHigh, inLow, inClose, inVolume)
 	sp.outRangeCount++
+	var high float64
+	var low float64
+	var close_ float64
+	var tmp float64
+	var mfv float64
+	var liveVol int32
+	sp.sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx]
+	sp.sumVol -= sp.cb_mfv_volume[sp.mfv_Idx]
+	high = inHigh
+	low = inLow
+	close_ = inClose
+	tmp = high - low
+	if tmp > 0.0 {
+		mfv = float64((close_ - low - (high - close_)) / tmp * inVolume)
+	} else {
+		mfv = 0.0
+	}
+	sp.cb_mfv_flow[sp.mfv_Idx] = mfv
+	sp.cb_mfv_volume[sp.mfv_Idx] = inVolume
+	sp.sumMFV += mfv
+	sp.sumVol += inVolume
+	liveVol = b2i(!(math.Abs(inVolume) <= 0.0))
+	sp.nullRun = (sp.nullRun + 1) & (liveVol - 1)
+	if sp.nullRun >= sp.optInTimePeriod {
+		sp.nullRun = sp.optInTimePeriod
+		sp.sumMFV = 0.0
+		sp.sumVol = 0.0
+		sp.cur_outReal = 0.0
+	} else if sp.sumVol > 0.0 {
+		sp.cur_outReal = sp.sumMFV / sp.sumVol
+	} else {
+		sp.cur_outReal = 0.0
+	}
+	sp.mfv_Idx = sp.mfv_Idx + 1
+	if sp.mfv_Idx > sp.maxIdx_mfv {
+		sp.mfv_Idx = 0
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -315,7 +381,7 @@ func (sp *CMFStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *CMFStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var high float64
@@ -368,46 +434,6 @@ func (sp *CMFStream) Clone() *CMFStream {
 	cl.cb_mfv_flow = append(sp.cb_mfv_flow[:0:0], sp.cb_mfv_flow...)
 	cl.cb_mfv_volume = append(sp.cb_mfv_volume[:0:0], sp.cb_mfv_volume...)
 	return &cl
-}
-
-func cmfStepImpl(sp *CMFStream, inHigh, inLow, inClose, inVolume float64) {
-	var high float64
-	var low float64
-	var close_ float64
-	var tmp float64
-	var mfv float64
-	var liveVol int32
-	sp.sumMFV -= sp.cb_mfv_flow[sp.mfv_Idx]
-	sp.sumVol -= sp.cb_mfv_volume[sp.mfv_Idx]
-	high = inHigh
-	low = inLow
-	close_ = inClose
-	tmp = high - low
-	if tmp > 0.0 {
-		mfv = float64((close_ - low - (high - close_)) / tmp * inVolume)
-	} else {
-		mfv = 0.0
-	}
-	sp.cb_mfv_flow[sp.mfv_Idx] = mfv
-	sp.cb_mfv_volume[sp.mfv_Idx] = inVolume
-	sp.sumMFV += mfv
-	sp.sumVol += inVolume
-	liveVol = b2i(!(math.Abs(inVolume) <= 0.0))
-	sp.nullRun = (sp.nullRun + 1) & (liveVol - 1)
-	if sp.nullRun >= sp.optInTimePeriod {
-		sp.nullRun = sp.optInTimePeriod
-		sp.sumMFV = 0.0
-		sp.sumVol = 0.0
-		sp.cur_outReal = 0.0
-	} else if sp.sumVol > 0.0 {
-		sp.cur_outReal = sp.sumMFV / sp.sumVol
-	} else {
-		sp.cur_outReal = 0.0
-	}
-	sp.mfv_Idx = sp.mfv_Idx + 1
-	if sp.mfv_Idx > sp.maxIdx_mfv {
-		sp.mfv_Idx = 0
-	}
 }
 
 func (c *Core) cmfOpenImpl(sp *CMFStream, inHigh, inLow, inClose, inVolume []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -583,8 +609,9 @@ func (c *Core) cmfOpenInternal(inHigh, inLow, inClose, inVolume []float64, start
 // parameters are those of [Core.CMF].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CMFLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.CMFLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) CMFOpen(inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int) (*CMFStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -604,7 +631,8 @@ func (c *Core) CMFOpen(inHigh, inLow, inClose, inVolume []float64, optInTimePeri
 // no memory with an input or another output.
 //
 // The errors are those of [Core.CMFOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CMFOpenAndFill(inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (*CMFStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

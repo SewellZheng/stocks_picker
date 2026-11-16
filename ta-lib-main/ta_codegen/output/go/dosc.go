@@ -92,6 +92,7 @@ func (c *Core) doscImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	var n1 int32
 	var n2 int32
 	var dsBuffer []float64
+	var local_dsBuffer [32]float64
 	var dsBuffer_Idx int32
 	var maxIdx_dsBuffer int32
 	maxIdx_dsBuffer = 31
@@ -133,7 +134,11 @@ func (c *Core) doscImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	if optInSignalPeriod < 1 {
 		return InternalError
 	}
-	dsBuffer = make([]float64, optInSignalPeriod)
+	if optInSignalPeriod <= 32 {
+		dsBuffer = local_dsBuffer[:optInSignalPeriod]
+	} else {
+		dsBuffer = make([]float64, optInSignalPeriod)
+	}
 	maxIdx_dsBuffer = optInSignalPeriod - 1
 	dsBuffer_Idx = 0
 	lookbackRSI = c.rsiLookback(optInTimePeriod)
@@ -168,13 +173,7 @@ func (c *Core) doscImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		today = today + 1
 		tempValue2 = tempValue1 - prevValue
 		prevValue = tempValue1
-		var _T0 float64
-		if tempValue2 > 0.0 {
-			_T0 = tempValue2
-		} else {
-			_T0 = 0.0
-		}
-		gainDelta = _T0
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 	}
@@ -224,13 +223,7 @@ func (c *Core) doscImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		prevValue = tempValue1
 		prevLoss = float64(prevLoss * float64(optInTimePeriod-1))
 		prevGain = float64(prevGain * float64(optInTimePeriod-1))
-		var _T1 float64
-		if tempValue2 > 0.0 {
-			_T1 = tempValue2
-		} else {
-			_T1 = 0.0
-		}
-		gainDelta = _T1
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 		prevLoss = float64(prevLoss * invPeriod)
@@ -261,13 +254,7 @@ func (c *Core) doscImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		prevValue = tempValue1
 		prevLoss = float64(prevLoss * float64(optInTimePeriod-1))
 		prevGain = float64(prevGain * float64(optInTimePeriod-1))
-		var _T2 float64
-		if tempValue2 > 0.0 {
-			_T2 = tempValue2
-		} else {
-			_T2 = 0.0
-		}
-		gainDelta = _T2
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 		prevLoss = float64(prevLoss * invPeriod)
@@ -320,6 +307,25 @@ func (c *Core) DOSCLookback(optInTimePeriod, optInFirstPeriod, optInSecondPeriod
 	return int(lookback), nil
 }
 
+// DOSCDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.DOSC].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.DOSC] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.DOSCLookback] rejects or an index that names no output.
+func (c *Core) DOSCDisplayShift(optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.DOSCLookback(optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // DOSC computes the Derivative Oscillator over bars startIdx through endIdx.
 //
 // Derivative Oscillator: Wilder's RSI, smoothed by two exponential averages in
@@ -361,7 +367,8 @@ func (c *Core) DOSCLookback(optInTimePeriod, optInFirstPeriod, optInSecondPeriod
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) DOSC(startIdx, endIdx int, inReal []float64, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -458,18 +465,47 @@ func (sp *DOSCStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	doscStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var gainDelta float64
+	var tempValue1 float64
+	var tempValue2 float64
+	var rsiValue float64
+	tempValue1 = inReal
+	tempValue2 = tempValue1 - sp.prevValue
+	sp.prevValue = tempValue1
+	sp.prevLoss = float64(sp.prevLoss * float64(sp.optInTimePeriod-1))
+	sp.prevGain = float64(sp.prevGain * float64(sp.optInTimePeriod-1))
+	gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
+	sp.prevGain += gainDelta
+	sp.prevLoss += gainDelta - tempValue2
+	sp.prevLoss = float64(sp.prevLoss * sp.invPeriod)
+	sp.prevGain = float64(sp.prevGain * sp.invPeriod)
+	tempValue1 = sp.prevGain + sp.prevLoss
+	if tempValue1 > 0.0 {
+		rsiValue = float64(100.0 * (sp.prevGain / tempValue1))
+	} else {
+		rsiValue = 50.0
+	}
+	sp.ema1 = math.FMA(sp.beta1, sp.ema1, float64(sp.k1*rsiValue))
+	sp.ema2 = math.FMA(sp.beta2, sp.ema2, float64(sp.k2*sp.ema1))
+	sp.cb_dsBuffer[sp.dsBuffer_Idx] = sp.ema2
+	sp.sumSignal = sp.sumSignal + sp.ema2
+	sp.cur_outReal = sp.ema2 - sp.sumSignal/float64(sp.optInSignalPeriod)
+	sp.dsBuffer_Idx = sp.dsBuffer_Idx + 1
+	if sp.dsBuffer_Idx > sp.maxIdx_dsBuffer {
+		sp.dsBuffer_Idx = 0
+	}
+	sp.sumSignal = sp.sumSignal - sp.cb_dsBuffer[sp.dsBuffer_Idx]
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *DOSCStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var gainDelta float64
@@ -488,13 +524,7 @@ func (sp *DOSCStream) Peek(inReal float64) (float64, error) {
 	prevValue = tempValue1
 	prevLoss = float64(prevLoss * float64(sp.optInTimePeriod-1))
 	prevGain = float64(prevGain * float64(sp.optInTimePeriod-1))
-	var _T0 float64
-	if tempValue2 > 0.0 {
-		_T0 = tempValue2
-	} else {
-		_T0 = 0.0
-	}
-	gainDelta = _T0
+	gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 	prevGain += gainDelta
 	prevLoss += gainDelta - tempValue2
 	prevLoss = float64(prevLoss * sp.invPeriod)
@@ -523,45 +553,6 @@ func (sp *DOSCStream) Clone() *DOSCStream {
 	cl := *sp
 	cl.cb_dsBuffer = append(sp.cb_dsBuffer[:0:0], sp.cb_dsBuffer...)
 	return &cl
-}
-
-func doscStepImpl(sp *DOSCStream, inReal float64) {
-	var gainDelta float64
-	var tempValue1 float64
-	var tempValue2 float64
-	var rsiValue float64
-	tempValue1 = inReal
-	tempValue2 = tempValue1 - sp.prevValue
-	sp.prevValue = tempValue1
-	sp.prevLoss = float64(sp.prevLoss * float64(sp.optInTimePeriod-1))
-	sp.prevGain = float64(sp.prevGain * float64(sp.optInTimePeriod-1))
-	var _T1 float64
-	if tempValue2 > 0.0 {
-		_T1 = tempValue2
-	} else {
-		_T1 = 0.0
-	}
-	gainDelta = _T1
-	sp.prevGain += gainDelta
-	sp.prevLoss += gainDelta - tempValue2
-	sp.prevLoss = float64(sp.prevLoss * sp.invPeriod)
-	sp.prevGain = float64(sp.prevGain * sp.invPeriod)
-	tempValue1 = sp.prevGain + sp.prevLoss
-	if tempValue1 > 0.0 {
-		rsiValue = float64(100.0 * (sp.prevGain / tempValue1))
-	} else {
-		rsiValue = 50.0
-	}
-	sp.ema1 = math.FMA(sp.beta1, sp.ema1, float64(sp.k1*rsiValue))
-	sp.ema2 = math.FMA(sp.beta2, sp.ema2, float64(sp.k2*sp.ema1))
-	sp.cb_dsBuffer[sp.dsBuffer_Idx] = sp.ema2
-	sp.sumSignal = sp.sumSignal + sp.ema2
-	sp.cur_outReal = sp.ema2 - sp.sumSignal/float64(sp.optInSignalPeriod)
-	sp.dsBuffer_Idx = sp.dsBuffer_Idx + 1
-	if sp.dsBuffer_Idx > sp.maxIdx_dsBuffer {
-		sp.dsBuffer_Idx = 0
-	}
-	sp.sumSignal = sp.sumSignal - sp.cb_dsBuffer[sp.dsBuffer_Idx]
 }
 
 func (c *Core) doscOpenImpl(sp *DOSCStream, inReal []float64, startIdx, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -675,13 +666,7 @@ func (c *Core) doscOpenImpl(sp *DOSCStream, inReal []float64, startIdx, optInTim
 		today = today + 1
 		tempValue2 = tempValue1 - prevValue
 		prevValue = tempValue1
-		var _T2 float64
-		if tempValue2 > 0.0 {
-			_T2 = tempValue2
-		} else {
-			_T2 = 0.0
-		}
-		gainDelta = _T2
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 	}
@@ -731,13 +716,7 @@ func (c *Core) doscOpenImpl(sp *DOSCStream, inReal []float64, startIdx, optInTim
 		prevValue = tempValue1
 		prevLoss = float64(prevLoss * float64(optInTimePeriod-1))
 		prevGain = float64(prevGain * float64(optInTimePeriod-1))
-		var _T3 float64
-		if tempValue2 > 0.0 {
-			_T3 = tempValue2
-		} else {
-			_T3 = 0.0
-		}
-		gainDelta = _T3
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 		prevLoss = float64(prevLoss * invPeriod)
@@ -768,13 +747,7 @@ func (c *Core) doscOpenImpl(sp *DOSCStream, inReal []float64, startIdx, optInTim
 		prevValue = tempValue1
 		prevLoss = float64(prevLoss * float64(optInTimePeriod-1))
 		prevGain = float64(prevGain * float64(optInTimePeriod-1))
-		var _T4 float64
-		if tempValue2 > 0.0 {
-			_T4 = tempValue2
-		} else {
-			_T4 = 0.0
-		}
-		gainDelta = _T4
+		gainDelta = selF(tempValue2 > 0.0, tempValue2, 0.0)
 		prevGain += gainDelta
 		prevLoss += gainDelta - tempValue2
 		prevLoss = float64(prevLoss * invPeriod)
@@ -855,7 +828,8 @@ func (c *Core) doscOpenInternal(inReal []float64, startIdx, optInTimePeriod, opt
 // inReal is the history; the parameters are those of [Core.DOSC].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.DOSCLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.DOSCLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) DOSCOpen(inReal []float64, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod int) (*DOSCStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -884,7 +858,8 @@ func (c *Core) DOSCOpen(inReal []float64, optInTimePeriod, optInFirstPeriod, opt
 // no memory with an input or another output.
 //
 // The errors are those of [Core.DOSCOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) DOSCOpenAndFill(inReal []float64, optInTimePeriod, optInFirstPeriod, optInSecondPeriod, optInSignalPeriod int, outReal []float64) (*DOSCStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

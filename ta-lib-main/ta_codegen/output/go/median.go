@@ -62,10 +62,12 @@ func (c *Core) medianImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 	var hi int32
 	var mid int32
 	var ring []float64
+	var local_ring [30]float64
 	var ring_Idx int32
 	var maxIdx_ring int32
 	maxIdx_ring = 29
 	var sorted []float64
+	var local_sorted [30]float64
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -89,13 +91,21 @@ func (c *Core) medianImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	ring = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		ring = local_ring[:optInTimePeriod]
+	} else {
+		ring = make([]float64, optInTimePeriod)
+	}
 	maxIdx_ring = optInTimePeriod - 1
 	ring_Idx = 0
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sorted = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sorted = local_sorted[:optInTimePeriod]
+	} else {
+		sorted = make([]float64, optInTimePeriod)
+	}
 	sorted[lookbackTotal] = 0.0
 	lowerIdx = (optInTimePeriod - 1) / 2
 	upperIdx = optInTimePeriod / 2
@@ -240,6 +250,25 @@ func (c *Core) MEDIANLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MEDIANDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MEDIAN]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MEDIAN] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MEDIANLookback] rejects or an index that names no output.
+func (c *Core) MEDIANDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MEDIANLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MEDIAN computes the Rolling Median over bars startIdx through endIdx.
 //
 // The middle order statistic of the trailing window: the central value when
@@ -271,7 +300,8 @@ func (c *Core) MEDIANLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MEDIAN(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -353,18 +383,113 @@ func (sp *MEDIANStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	medianStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var newValue float64
+	var oldValue float64
+	var result float64
+	var lower float64
+	var upper float64
+	var j int32
+	var pos int32
+	var lo int32
+	var hi int32
+	var mid int32
+	var cb_sorted []float64
+	var lookbackTotal int32
+	newValue = inReal
+	if sp.lookbackTotal < 128 {
+		pos = 0
+		cb_sorted = sp.cb_sorted
+		lookbackTotal = sp.lookbackTotal
+		for pos < lookbackTotal && cb_sorted[pos] <= newValue {
+			pos += 1
+		}
+	} else {
+		lo = 0
+		hi = sp.lookbackTotal
+		cb_sorted = sp.cb_sorted
+		for lo < hi {
+			mid = (lo + hi) / 2
+			if cb_sorted[mid] <= newValue {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		pos = lo
+	}
+	if sp.lowerIdx < pos {
+		lower = sp.cb_sorted[sp.lowerIdx]
+	} else if sp.lowerIdx == pos {
+		lower = newValue
+	} else {
+		lower = sp.cb_sorted[sp.lowerIdx-1]
+	}
+	if sp.upperIdx < pos {
+		upper = sp.cb_sorted[sp.upperIdx]
+	} else if sp.upperIdx == pos {
+		upper = newValue
+	} else {
+		upper = sp.cb_sorted[sp.upperIdx-1]
+	}
+	if sp.lowerIdx == sp.upperIdx {
+		result = lower
+	} else {
+		result = (lower + upper) / 2.0
+	}
+	sp.cur_outReal = result
+	sp.cb_ring[sp.ring_Idx] = newValue
+	sp.ring_Idx = sp.ring_Idx + 1
+	if sp.ring_Idx > sp.maxIdx_ring {
+		sp.ring_Idx = 0
+	}
+	oldValue = sp.cb_ring[sp.ring_Idx]
+	if sp.lookbackTotal < 128 {
+		j = 0
+		cb_sorted = sp.cb_sorted
+		lookbackTotal = sp.lookbackTotal
+		for j < lookbackTotal && cb_sorted[j] < oldValue {
+			j += 1
+		}
+	} else {
+		lo = 0
+		hi = sp.lookbackTotal
+		cb_sorted = sp.cb_sorted
+		for lo < hi {
+			mid = (lo + hi) / 2
+			if cb_sorted[mid] < oldValue {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		j = lo
+	}
+	if j < pos {
+		cb_sorted = sp.cb_sorted
+		for j < pos-1 {
+			cb_sorted[j] = cb_sorted[j+1]
+			j += 1
+		}
+		sp.cb_sorted[pos-1] = newValue
+	} else {
+		cb_sorted = sp.cb_sorted
+		for j > pos {
+			cb_sorted[j] = cb_sorted[j-1]
+			j -= 1
+		}
+		sp.cb_sorted[pos] = newValue
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MEDIANStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var newValue float64
@@ -375,19 +500,24 @@ func (sp *MEDIANStream) Peek(inReal float64) (float64, error) {
 	var lo int32
 	var hi int32
 	var mid int32
+	var cb_sorted []float64
+	var lookbackTotal int32
 	var cur_outReal float64
 	newValue = inReal
 	if sp.lookbackTotal < 128 {
 		pos = 0
-		for pos < sp.lookbackTotal && sp.cb_sorted[pos] <= newValue {
+		cb_sorted = sp.cb_sorted
+		lookbackTotal = sp.lookbackTotal
+		for pos < lookbackTotal && cb_sorted[pos] <= newValue {
 			pos += 1
 		}
 	} else {
 		lo = 0
 		hi = sp.lookbackTotal
+		cb_sorted = sp.cb_sorted
 		for lo < hi {
 			mid = (lo + hi) / 2
-			if sp.cb_sorted[mid] <= newValue {
+			if cb_sorted[mid] <= newValue {
 				lo = mid + 1
 			} else {
 				hi = mid
@@ -430,95 +560,6 @@ func (sp *MEDIANStream) Clone() *MEDIANStream {
 	cl.cb_ring = append(sp.cb_ring[:0:0], sp.cb_ring...)
 	cl.cb_sorted = append(sp.cb_sorted[:0:0], sp.cb_sorted...)
 	return &cl
-}
-
-func medianStepImpl(sp *MEDIANStream, inReal float64) {
-	var newValue float64
-	var oldValue float64
-	var result float64
-	var lower float64
-	var upper float64
-	var j int32
-	var pos int32
-	var lo int32
-	var hi int32
-	var mid int32
-	newValue = inReal
-	if sp.lookbackTotal < 128 {
-		pos = 0
-		for pos < sp.lookbackTotal && sp.cb_sorted[pos] <= newValue {
-			pos += 1
-		}
-	} else {
-		lo = 0
-		hi = sp.lookbackTotal
-		for lo < hi {
-			mid = (lo + hi) / 2
-			if sp.cb_sorted[mid] <= newValue {
-				lo = mid + 1
-			} else {
-				hi = mid
-			}
-		}
-		pos = lo
-	}
-	if sp.lowerIdx < pos {
-		lower = sp.cb_sorted[sp.lowerIdx]
-	} else if sp.lowerIdx == pos {
-		lower = newValue
-	} else {
-		lower = sp.cb_sorted[sp.lowerIdx-1]
-	}
-	if sp.upperIdx < pos {
-		upper = sp.cb_sorted[sp.upperIdx]
-	} else if sp.upperIdx == pos {
-		upper = newValue
-	} else {
-		upper = sp.cb_sorted[sp.upperIdx-1]
-	}
-	if sp.lowerIdx == sp.upperIdx {
-		result = lower
-	} else {
-		result = (lower + upper) / 2.0
-	}
-	sp.cur_outReal = result
-	sp.cb_ring[sp.ring_Idx] = newValue
-	sp.ring_Idx = sp.ring_Idx + 1
-	if sp.ring_Idx > sp.maxIdx_ring {
-		sp.ring_Idx = 0
-	}
-	oldValue = sp.cb_ring[sp.ring_Idx]
-	if sp.lookbackTotal < 128 {
-		j = 0
-		for j < sp.lookbackTotal && sp.cb_sorted[j] < oldValue {
-			j += 1
-		}
-	} else {
-		lo = 0
-		hi = sp.lookbackTotal
-		for lo < hi {
-			mid = (lo + hi) / 2
-			if sp.cb_sorted[mid] < oldValue {
-				lo = mid + 1
-			} else {
-				hi = mid
-			}
-		}
-		j = lo
-	}
-	if j < pos {
-		for j < pos-1 {
-			sp.cb_sorted[j] = sp.cb_sorted[j+1]
-			j += 1
-		}
-		sp.cb_sorted[pos-1] = newValue
-	} else {
-		for j > pos {
-			sp.cb_sorted[j] = sp.cb_sorted[j-1]
-			j -= 1
-		}
-		sp.cb_sorted[pos] = newValue
-	}
 }
 
 func (c *Core) medianOpenImpl(sp *MEDIANStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -760,7 +801,8 @@ func (c *Core) medianOpenInternal(inReal []float64, startIdx, optInTimePeriod in
 // inReal is the history; the parameters are those of [Core.MEDIAN].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MEDIANLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MEDIANLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MEDIANOpen(inReal []float64, optInTimePeriod int) (*MEDIANStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -780,7 +822,8 @@ func (c *Core) MEDIANOpen(inReal []float64, optInTimePeriod int) (*MEDIANStream,
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MEDIANOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MEDIANOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*MEDIANStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

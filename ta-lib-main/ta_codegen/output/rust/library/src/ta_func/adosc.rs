@@ -81,27 +81,27 @@ impl Core {
     #[doc(alias = "TA_ADOSC_Lookback")]
     #[inline]
     pub fn adosc_lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> Result<usize, RetCode> {
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 3;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 10;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         let mut slowestPeriod: usize = 0_usize;
         // Use the slowest EMA period to evaluate the total lookback.
         if optInFastPeriod < optInSlowPeriod {
-            slowestPeriod = (optInSlowPeriod) as usize;
+            slowestPeriod = optInSlowPeriod as usize;
         } else {
-            slowestPeriod = (optInFastPeriod) as usize;
+            slowestPeriod = optInFastPeriod as usize;
         }
         // Both EMAs seed on one value at one bar, so two starts differ by a fast
         // term less a slow one, and the two can cancel in the first outputs: an
         // Auto level is held against what is left.
-        return Ok((self.ema_lookback((slowestPeriod) as i32)? + (((if self.unstable_count(FuncUnstId::EMA, 1, 1) != self.unstable_count(FuncUnstId::EMA, 0, 0) { self.unstable_count(FuncUnstId::EMA, ((((15 * (optInFastPeriod).min(optInSlowPeriod) + 3 * (((optInFastPeriod).max(optInSlowPeriod) / 2).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 64).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 128).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 256).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 512).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 1024).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 2048).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4096).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8192).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16384).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32768).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 65536).min((optInFastPeriod).min(optInSlowPeriod))) + 7) / 8)) as i32), ((((15 * (optInFastPeriod).min(optInSlowPeriod) + 3 * (((optInFastPeriod).max(optInSlowPeriod) / 2).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 64).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 128).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 256).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 512).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 1024).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 2048).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 4096).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 8192).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 16384).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 32768).min((optInFastPeriod).min(optInSlowPeriod)) + ((optInFastPeriod).max(optInSlowPeriod) / 65536).min((optInFastPeriod).min(optInSlowPeriod))) + 7) / 8)) as i32)) - self.unstable_count(FuncUnstId::EMA, 0, 0) } else { 0 })) as usize)) as usize);
+        return Ok((self.ema_lookback(slowestPeriod as i32)? + ((if self.unstable_count(FuncUnstId::EMA, 1, 1) != self.unstable_count(FuncUnstId::EMA, 0, 0) { self.unstable_count(FuncUnstId::EMA, ((15 * optInFastPeriod.min(optInSlowPeriod) + 3 * ((optInFastPeriod.max(optInSlowPeriod) / 2).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 4).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 8).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 16).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 32).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 64).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 128).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 256).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 512).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 1024).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 2048).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 4096).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 8192).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 16384).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 32768).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 65536).min(optInFastPeriod.min(optInSlowPeriod))) + 7) / 8) as i32, ((15 * optInFastPeriod.min(optInSlowPeriod) + 3 * ((optInFastPeriod.max(optInSlowPeriod) / 2).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 4).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 8).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 16).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 32).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 64).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 128).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 256).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 512).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 1024).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 2048).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 4096).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 8192).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 16384).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 32768).min(optInFastPeriod.min(optInSlowPeriod)) + (optInFastPeriod.max(optInSlowPeriod) / 65536).min(optInFastPeriod.min(optInSlowPeriod))) + 7) / 8) as i32) - self.unstable_count(FuncUnstId::EMA, 0, 0) } else { 0 }) as usize)) as usize);
     }
     /// Display shift of one output of [`Core::adosc`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -120,7 +120,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_ADOSC_DisplayShift")]
-    pub fn adosc_display_shift(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn adosc_display_shift(&self, optInFastPeriod: i32, optInSlowPeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.adosc_lookback(optInFastPeriod, optInSlowPeriod)?;
         if outputIdx >= 1 {
             return Err(RetCode::BadParam);
@@ -188,14 +188,14 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 3;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return RetCode::BadParam;
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 10;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.adosc_lookback(optInFastPeriod, optInSlowPeriod).unwrap_or(usize::MAX);
@@ -248,15 +248,15 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inHigh = &inHigh[..=endIdx];
         let inLow = &inLow[..=endIdx];
         let inClose = &inClose[..=endIdx];
         let inVolume = &inVolume[..=endIdx];
-        (*outBegIdx) = startIdx;
+        *outBegIdx = startIdx;
         today = startIdx - lookbackTotal;
         // The following variables are used to
         // calculate the "ad".
@@ -303,8 +303,8 @@ impl Core {
                 cold_arm();
             }
             today += 1;
-            fastEMA = fmadd!(one_minus_fastk as f64, fastEMA, fastk * ad);
-            slowEMA = fmadd!(one_minus_slowk as f64, slowEMA, slowk * ad);
+            fastEMA = fmadd!(one_minus_fastk, fastEMA, fastk * ad);
+            slowEMA = fmadd!(one_minus_slowk, slowEMA, slowk * ad);
         }
         // Perform the calculation for the requested range
         outIdx = 0;
@@ -319,12 +319,12 @@ impl Core {
                 cold_arm();
             }
             today += 1;
-            fastEMA = fmadd!(one_minus_fastk as f64, fastEMA, fastk * ad);
-            slowEMA = fmadd!(one_minus_slowk as f64, slowEMA, slowk * ad);
+            fastEMA = fmadd!(one_minus_fastk, fastEMA, fastk * ad);
+            slowEMA = fmadd!(one_minus_slowk, slowEMA, slowk * ad);
             outReal[outIdx] = fastEMA - slowEMA;
             outIdx += 1;
         }
-        (*outNBElement) = outIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the
@@ -372,23 +372,27 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let volume = vec![0.0; 252]; // your data, oldest first
     /// # let volume: Vec<f64> = (0..252)
-    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.adosc(0, high.len() - 1, &high, &low, &close, &volume, 3, 10, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -480,8 +484,6 @@ pub struct AdoscStream {
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct AdoscStreamState {
-    optInFastPeriod: i32,
-    optInSlowPeriod: i32,
     slowEMA: f64,
     slowk: f64,
     one_minus_slowk: f64,
@@ -512,10 +514,10 @@ impl Core {
         } else {
             cold_arm();
         }
-        sp.fastEMA = fmadd!(sp.one_minus_fastk as f64, sp.fastEMA, sp.fastk * sp.ad);
-        sp.slowEMA = fmadd!(sp.one_minus_slowk as f64, sp.slowEMA, sp.slowk * sp.ad);
-        (*outReal) = sp.fastEMA - sp.slowEMA;
-        sp.cur_outReal = (*outReal);
+        sp.fastEMA = fmadd!(sp.one_minus_fastk, sp.fastEMA, sp.fastk * sp.ad);
+        sp.slowEMA = fmadd!(sp.one_minus_slowk, sp.slowEMA, sp.slowk * sp.ad);
+        *outReal = sp.fastEMA - sp.slowEMA;
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::adosc_open_internal`]
@@ -544,14 +546,14 @@ impl Core {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 3;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 10;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
@@ -559,14 +561,12 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
@@ -609,11 +609,11 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
-        (*outBegIdx) = startIdx;
+        *outBegIdx = startIdx;
         today = startIdx - lookbackTotal;
         // The following variables are used to
         // calculate the "ad".
@@ -660,8 +660,8 @@ impl Core {
                 cold_arm();
             }
             today += 1;
-            fastEMA = fmadd!(one_minus_fastk as f64, fastEMA, fastk * ad);
-            slowEMA = fmadd!(one_minus_slowk as f64, slowEMA, slowk * ad);
+            fastEMA = fmadd!(one_minus_fastk, fastEMA, fastk * ad);
+            slowEMA = fmadd!(one_minus_slowk, slowEMA, slowk * ad);
         }
         // Perform the calculation for the requested range
         outIdx = 0;
@@ -676,16 +676,14 @@ impl Core {
                 cold_arm();
             }
             today += 1;
-            fastEMA = fmadd!(one_minus_fastk as f64, fastEMA, fastk * ad);
-            slowEMA = fmadd!(one_minus_slowk as f64, slowEMA, slowk * ad);
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = fastEMA - slowEMA;
+            fastEMA = fmadd!(one_minus_fastk, fastEMA, fastk * ad);
+            slowEMA = fmadd!(one_minus_slowk, slowEMA, slowk * ad);
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = fastEMA - slowEMA;
         }
-        (*outNBElement) = outIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = AdoscStreamState {
-            optInFastPeriod,
-            optInSlowPeriod,
             slowEMA,
             slowk,
             one_minus_slowk,
@@ -700,7 +698,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::adosc_open`] (composition seam).
     pub(crate) fn adosc_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32,
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32,
     ) -> Result<(AdoscStream, f64), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -721,13 +719,17 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -759,13 +761,17 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -783,7 +789,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_ADOSC_OpenAndFill")]
     pub fn adosc_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outReal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], optInFastPeriod: i32, optInSlowPeriod: i32, outReal: &mut [f64],
     ) -> Result<(AdoscStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -805,7 +811,7 @@ impl Core {
     /// [`Core::adosc_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn adosc_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<AdoscStream, RetCode> {
         self.adosc_open_impl(inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1)
     }
@@ -888,9 +894,9 @@ impl AdoscStream {
             } else {
                 cold_arm();
             }
-            fastEMA = fmadd!(sp.one_minus_fastk as f64, fastEMA, sp.fastk * ad);
-            slowEMA = fmadd!(sp.one_minus_slowk as f64, slowEMA, sp.slowk * ad);
-            (*outReal) = fastEMA - slowEMA;
+            fastEMA = fmadd!(sp.one_minus_fastk, fastEMA, sp.fastk * ad);
+            slowEMA = fmadd!(sp.one_minus_slowk, slowEMA, sp.slowk * ad);
+            *outReal = fastEMA - slowEMA;
         }
         Ok(outReal)
     }

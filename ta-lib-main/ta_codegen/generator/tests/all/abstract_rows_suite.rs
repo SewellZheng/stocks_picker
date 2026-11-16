@@ -5,7 +5,10 @@
 
 use crate::common;
 
-use common::{all_abstract_rows, check_rust_cast_parens, generate_all, load_indicator_with_source};
+use common::{
+    abstract_rows_of, all_indicators, check_rust_cast_parens, generate_all,
+    load_indicator_with_source,
+};
 use std::collections::HashMap;
 use ta_codegen_lib::{backends, ir};
 
@@ -72,7 +75,7 @@ fn abstract_rows_unstable_period_set_is_exactly_the_declared_ids() {
         ("SWAK_BP", 35), ("FISHER", 36),
     ];
 
-    let rows = all_abstract_rows();
+    let rows = abstract_rows_of(&all_indicators());
     let mut got: Vec<(String, i32)> = rows
         .iter()
         .filter_map(|r| r.unst.as_ref().map(|u| (r.name.clone(), u.value)))
@@ -107,7 +110,7 @@ fn abstract_rows_group_strings_round_trip() {
     for g in Group::ALL {
         assert_eq!(Group::parse(g.as_str()), *g, "group round-trip for {}", g.as_str());
     }
-    let rows = all_abstract_rows();
+    let rows = abstract_rows_of(&all_indicators());
     for g in Group::ALL {
         // Not an emptiness check: every declared group must actually be used,
         // so a retired group cannot linger in the closed set unnoticed.
@@ -125,12 +128,13 @@ fn abstract_rows_group_strings_round_trip() {
 #[test]
 fn abstract_rows_unreachable_domains_stay_unreachable() {
     use ta_codegen_lib::backends::abstract_rows::{InputKind, OptDomain};
-    for r in all_abstract_rows() {
+    for r in abstract_rows_of(&all_indicators()) {
         for o in &r.opt_inputs {
             assert!(
                 !matches!(o.domain, OptDomain::RealList { .. }),
                 "{}.{} is the first real-list parameter — re-check the RealList arm in \
-                 rust_abstract, java_abstract, java_metadata and csharp_metadata",
+                 rust_abstract, java_abstract, java_metadata, csharp_metadata, ts_metadata \
+                 and go_metadata",
                 r.name,
                 o.param_name
             );
@@ -154,7 +158,7 @@ fn abstract_rows_unreachable_domains_stay_unreachable() {
 fn abstract_rows_price_bundle_is_one_parameter() {
     use ta_codegen_lib::backends::abstract_rows::InputKind;
     const HLC: u32 = 0x0000_0002 | 0x0000_0004 | 0x0000_0008;
-    let rows = all_abstract_rows();
+    let rows = abstract_rows_of(&all_indicators());
     let adx = rows.iter().find(|r| r.name == "ADX").expect("ADX row");
     assert_eq!(adx.inputs.len(), 1, "ADX must present one bundled price input");
     assert_eq!(adx.inputs[0].kind, InputKind::Price);
@@ -241,10 +245,10 @@ TA_RetCode max( int    startIdx,
 
     // The whole cast is wrapped, in every position.
     for needle in [
-        "((dqI[hd]) as usize) < trailingIdx",
-        "trailingIdx + ((dqI[hd]) as usize) < today",
-        "trailingIdx < ((dqI[hd]) as usize)",
-        "highestIdx < ((trailingIdx) as i32)",
+        "(dqI[hd] as usize) < trailingIdx",
+        "trailingIdx + (dqI[hd] as usize) < today",
+        "trailingIdx < (dqI[hd] as usize)",
+        "highestIdx < (trailingIdx as i32)",
     ] {
         assert!(
             out.rust.contains(needle),
@@ -380,7 +384,7 @@ TA_RetCode max( int    startIdx,
     }
 
     // The two that already worked are untouched — no cast appears on either.
-    for needle in ["if hd + 1 < today {", "if trailingIdx + ((dqI[hd]) as usize) < today {"] {
+    for needle in ["if hd + 1 < today {", "if trailingIdx + (dqI[hd] as usize) < today {"] {
         assert!(
             out.rust.contains(needle),
             "Rust output should leave `{needle}` unchanged:\n{}",
@@ -540,7 +544,7 @@ TA_RetCode max( int    startIdx,
          hits += 1;
       kk += (kk & 65535) | (hits << 16);
 
-      outReal[outIdx] = barVal;
+      outReal[outIdx] = barVal + kk;
       outIdx++;
       trailingIdx++;
       today++;
@@ -607,11 +611,15 @@ fn function_group_values_are_pinned() {
     .iter()
     .map(|rel| (*rel, std::fs::read_to_string(root.join(rel)).expect(rel)))
     .collect();
+    let go_rel = "go/metadata/vocabulary.go";
+    let go = std::fs::read_to_string(root.join(go_rel)).expect(go_rel);
     for (g, value) in pinned {
         assert_eq!(g as u32, value, "Group::{} moved", g.ident());
         let decl = format!("    {} = {value},\n", g.ident());
         for (rel, text) in &emitted {
             assert!(text.contains(&decl), "{rel} lacks `{}`", decl.trim());
         }
+        let go_decl = format!("\tGroup{} Group = {value}\n", g.ident());
+        assert!(go.contains(&go_decl), "{go_rel} lacks `{}`", go_decl.trim());
     }
 }

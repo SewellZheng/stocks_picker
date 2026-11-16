@@ -46,9 +46,13 @@ func (c *Core) midpriceLookback(optInTimePeriod int32) int32 {
 
 func (c *Core) midpriceImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var sufLowest []float64
+	var local_sufLowest [30]float64
 	var preLowest []float64
+	var local_preLowest [30]float64
 	var lowest float64
 	var highest float64
 	var tmpLow float64
@@ -88,19 +92,35 @@ func (c *Core) midpriceImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufHighest = local_sufHighest[:optInTimePeriod]
+	} else {
+		sufHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preHighest = local_preHighest[:optInTimePeriod]
+	} else {
+		preHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufLowest = local_sufLowest[:optInTimePeriod]
+	} else {
+		sufLowest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preLowest = local_preLowest[:optInTimePeriod]
+	} else {
+		preLowest = make([]float64, optInTimePeriod)
+	}
 	blockStart = trailingIdx
 	for today <= endIdx {
 		i = blockStart + optInTimePeriod - 1
@@ -192,6 +212,25 @@ func (c *Core) MIDPRICELookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MIDPRICEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MIDPRICE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MIDPRICE] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MIDPRICELookback] rejects or an index that names no output.
+func (c *Core) MIDPRICEDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MIDPRICELookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MIDPRICE computes the Midpoint Price over period over bars startIdx through
 // endIdx.
 //
@@ -223,7 +262,8 @@ func (c *Core) MIDPRICELookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MIDPRICE(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -310,22 +350,99 @@ func (sp *MIDPRICEStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	midpriceStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var tmpLow float64
+	var tmpHigh float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var lowest float64
+	var lowestIdx int32
+	var x_inLow []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	tmpHigh = sp.x_inHigh[sp.today&sp.xMask]
+	tmpLow = sp.x_inLow[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpHigh = x_inHigh[i&xMask]
+			if tmpHigh > highest {
+				highestIdx = i
+				highest = tmpHigh
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmpHigh >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmpHigh
+	}
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpLow = x_inLow[i&xMask]
+			if tmpLow < lowest {
+				lowestIdx = i
+				lowest = tmpLow
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmpLow <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmpLow
+	}
+	sp.cur_outReal = (sp.highest + sp.lowest) / 2.0
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var tmpLow float64
 	var tmpHigh float64
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var x_inLow []float64
 	var cur_outReal float64
 	highest := sp.highest
 	highestIdx := sp.highestIdx
@@ -364,14 +481,17 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 		}
 		highest = _T2
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T3 float64
-			if i&sp.xMask != pkSlot0 {
-				_T3 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T3 = x_inHigh[i&xMask]
 			} else {
 				_T3 = pkVal0
 			}
@@ -395,14 +515,17 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 		}
 		lowest = _T4
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot1 {
-				_T5 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T5 = x_inLow[i&xMask]
 			} else {
 				_T5 = pkVal1
 			}
@@ -432,56 +555,6 @@ func (sp *MIDPRICEStream) Clone() *MIDPRICEStream {
 	cl.x_inHigh = append(sp.x_inHigh[:0:0], sp.x_inHigh...)
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	return &cl
-}
-
-func midpriceStepImpl(sp *MIDPRICEStream, inHigh, inLow float64) {
-	var tmpLow float64
-	var tmpHigh float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	tmpHigh = sp.x_inHigh[sp.today&sp.xMask]
-	tmpLow = sp.x_inLow[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpHigh = sp.x_inHigh[sp.i&sp.xMask]
-			if tmpHigh > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmpHigh
-			}
-		}
-	} else if tmpHigh >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmpHigh
-	}
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpLow = sp.x_inLow[sp.i&sp.xMask]
-			if tmpLow < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmpLow
-			}
-		}
-	} else if tmpLow <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmpLow
-	}
-	sp.cur_outReal = (sp.highest + sp.lowest) / 2.0
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) midpriceOpenImpl(sp *MIDPRICEStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -637,8 +710,9 @@ func (c *Core) midpriceOpenInternal(inHigh, inLow []float64, startIdx, optInTime
 // of [Core.MIDPRICE].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MIDPRICELookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.MIDPRICELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) MIDPRICEOpen(inHigh, inLow []float64, optInTimePeriod int) (*MIDPRICEStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -658,7 +732,9 @@ func (c *Core) MIDPRICEOpen(inHigh, inLow []float64, optInTimePeriod int) (*MIDP
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MIDPRICEOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) MIDPRICEOpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (*MIDPRICEStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

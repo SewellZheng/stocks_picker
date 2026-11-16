@@ -88,6 +88,21 @@ func (c *Core) PVILookback() (int, error) {
 	return int(lookback), nil
 }
 
+// PVIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.PVI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.PVI], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) PVIDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // PVI computes the Positive Volume Index over bars startIdx through endIdx.
 //
 // Positive Volume Index: a running cumulative index that changes only on days
@@ -115,7 +130,9 @@ func (c *Core) PVILookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) PVI(startIdx, endIdx int, inClose, inVolume, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -187,18 +204,32 @@ func (sp *PVIStream) Update(inClose, inVolume float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inClose) || !isFinite(inVolume) {
+	if (inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	pviStepImpl(sp, inClose, inVolume)
 	sp.outRangeCount++
+	var tempClose float64
+	var tempVolume float64
+	var tempPVI float64
+	tempClose = inClose
+	tempVolume = inVolume
+	if tempVolume > sp.prevVolume && sp.prevClose != 0.0 {
+		tempPVI = sp.prevPVI
+		tempPVI += float64((tempClose - sp.prevClose) / sp.prevClose * tempPVI)
+		if isFinite(tempPVI) {
+			sp.prevPVI = tempPVI
+		}
+	}
+	sp.cur_outReal = sp.prevPVI
+	sp.prevClose = tempClose
+	sp.prevVolume = tempVolume
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inClose and inVolume),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *PVIStream) Peek(inClose, inVolume float64) (float64, error) {
-	if !isFinite(inClose) || !isFinite(inVolume) {
+	if (inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var tempClose float64
@@ -229,24 +260,6 @@ func (sp *PVIStream) Value() float64 {
 func (sp *PVIStream) Clone() *PVIStream {
 	cl := *sp
 	return &cl
-}
-
-func pviStepImpl(sp *PVIStream, inClose, inVolume float64) {
-	var tempClose float64
-	var tempVolume float64
-	var tempPVI float64
-	tempClose = inClose
-	tempVolume = inVolume
-	if tempVolume > sp.prevVolume && sp.prevClose != 0.0 {
-		tempPVI = sp.prevPVI
-		tempPVI += float64((tempClose - sp.prevClose) / sp.prevClose * tempPVI)
-		if isFinite(tempPVI) {
-			sp.prevPVI = tempPVI
-		}
-	}
-	sp.cur_outReal = sp.prevPVI
-	sp.prevClose = tempClose
-	sp.prevVolume = tempVolume
 }
 
 func (c *Core) pviOpenImpl(sp *PVIStream, inClose, inVolume []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -328,7 +341,8 @@ func (c *Core) pviOpenInternal(inClose, inVolume []float64, startIdx int32) (*PV
 // inClose and inVolume are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.PVILookback] bars, and [BadParam] for histories of different lengths.
+// [Core.PVILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) PVIOpen(inClose, inVolume []float64) (*PVIStream, float64, error) {
 	sp, err := c.pviOpenInternal(inClose, inVolume, 0)
 	if err != nil {
@@ -345,7 +359,8 @@ func (c *Core) PVIOpen(inClose, inVolume []float64) (*PVIStream, float64, error)
 // no memory with an input or another output.
 //
 // The errors are those of [Core.PVIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) PVIOpenAndFill(inClose, inVolume, outReal []float64) (*PVIStream, OutRange, error) {
 	if len(inClose) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

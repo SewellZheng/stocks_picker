@@ -86,6 +86,21 @@ func (c *Core) ADLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// ADDisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.AD]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.AD], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) ADDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // AD computes the Chaikin A/D Line over bars startIdx through endIdx.
 //
 // Chaikin Accumulation/Distribution Line, a cumulative volume-flow indicator.
@@ -114,7 +129,9 @@ func (c *Core) ADLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) AD(startIdx, endIdx int, inHigh, inLow, inClose, inVolume, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -190,11 +207,22 @@ func (sp *ADStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, e
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	adStepImpl(sp, inHigh, inLow, inClose, inVolume)
 	sp.outRangeCount++
+	var high float64
+	var low float64
+	var close_ float64
+	var tmp float64
+	high = inHigh
+	low = inLow
+	tmp = high - low
+	close_ = inClose
+	if tmp > 0.0 {
+		sp.ad += float64((close_ - low - (high - close_)) / tmp * inVolume)
+	}
+	sp.cur_outReal = sp.ad
 	return sp.cur_outReal, nil
 }
 
@@ -202,7 +230,7 @@ func (sp *ADStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, e
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *ADStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var high float64
@@ -232,21 +260,6 @@ func (sp *ADStream) Value() float64 {
 func (sp *ADStream) Clone() *ADStream {
 	cl := *sp
 	return &cl
-}
-
-func adStepImpl(sp *ADStream, inHigh, inLow, inClose, inVolume float64) {
-	var high float64
-	var low float64
-	var close_ float64
-	var tmp float64
-	high = inHigh
-	low = inLow
-	tmp = high - low
-	close_ = inClose
-	if tmp > 0.0 {
-		sp.ad += float64((close_ - low - (high - close_)) / tmp * inVolume)
-	}
-	sp.cur_outReal = sp.ad
 }
 
 func (c *Core) adOpenImpl(sp *ADStream, inHigh, inLow, inClose, inVolume []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -324,7 +337,8 @@ func (c *Core) adOpenInternal(inHigh, inLow, inClose, inVolume []float64, startI
 // inHigh, inLow, inClose and inVolume are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most [Core.ADLookback]
-// bars, and [BadParam] for histories of different lengths.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for histories of different lengths.
 func (c *Core) ADOpen(inHigh, inLow, inClose, inVolume []float64) (*ADStream, float64, error) {
 	sp, err := c.adOpenInternal(inHigh, inLow, inClose, inVolume, 0)
 	if err != nil {
@@ -341,7 +355,8 @@ func (c *Core) ADOpen(inHigh, inLow, inClose, inVolume []float64) (*ADStream, fl
 // memory with an input or another output.
 //
 // The errors are those of [Core.ADOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ADOpenAndFill(inHigh, inLow, inClose, inVolume, outReal []float64) (*ADStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

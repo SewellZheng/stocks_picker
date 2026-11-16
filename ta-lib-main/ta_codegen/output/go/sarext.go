@@ -308,6 +308,25 @@ func (c *Core) SAREXTLookback(optInStartValue, optInOffsetOnReverse, optInAccele
 	return int(lookback), nil
 }
 
+// SAREXTDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SAREXT]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SAREXT] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SAREXTLookback] rejects or an index that names no output.
+func (c *Core) SAREXTDisplayShift(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort float64, outputIdx int) (int, error) {
+	if _, err := c.SAREXTLookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SAREXT computes the Parabolic SAR - Extended over bars startIdx through
 // endIdx.
 //
@@ -355,7 +374,8 @@ func (c *Core) SAREXTLookback(optInStartValue, optInOffsetOnReverse, optInAccele
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SAREXT(startIdx, endIdx int, inHigh, inLow []float64, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -441,18 +461,102 @@ func (sp *SAREXTStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	sarextStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var prevHigh float64
+	var prevLow float64
+	prevLow = sp.newLow
+	prevHigh = sp.newHigh
+	sp.newLow = inLow
+	sp.newHigh = inHigh
+	if sp.isLong == 1 {
+		if sp.newLow <= sp.sar {
+			sp.isLong = 0
+			sp.sar = sp.ep
+			if sp.sar < prevHigh {
+				sp.sar = prevHigh
+			}
+			if sp.sar < sp.newHigh {
+				sp.sar = sp.newHigh
+			}
+			if sp.optInOffsetOnReverse != 0.0 {
+				sp.sar += float64(sp.sar * sp.optInOffsetOnReverse)
+			}
+			sp.cur_outReal = -sp.sar
+			sp.afShort = sp.optInAccelerationInitShort
+			sp.ep = sp.newLow
+			sp.sar = math.FMA(sp.afShort, sp.ep-sp.sar, sp.sar)
+			if sp.sar < prevHigh {
+				sp.sar = prevHigh
+			}
+			if sp.sar < sp.newHigh {
+				sp.sar = sp.newHigh
+			}
+		} else {
+			sp.cur_outReal = sp.sar
+			if sp.newHigh > sp.ep {
+				sp.ep = sp.newHigh
+				sp.afLong += sp.optInAccelerationLong
+				if sp.afLong > sp.optInAccelerationMaxLong {
+					sp.afLong = sp.optInAccelerationMaxLong
+				}
+			}
+			sp.sar = math.FMA(sp.afLong, sp.ep-sp.sar, sp.sar)
+			if sp.sar > prevLow {
+				sp.sar = prevLow
+			}
+			if sp.sar > sp.newLow {
+				sp.sar = sp.newLow
+			}
+		}
+	} else if sp.newHigh >= sp.sar {
+		sp.isLong = 1
+		sp.sar = sp.ep
+		if sp.sar > prevLow {
+			sp.sar = prevLow
+		}
+		if sp.sar > sp.newLow {
+			sp.sar = sp.newLow
+		}
+		if sp.optInOffsetOnReverse != 0.0 {
+			sp.sar -= float64(sp.sar * sp.optInOffsetOnReverse)
+		}
+		sp.cur_outReal = sp.sar
+		sp.afLong = sp.optInAccelerationInitLong
+		sp.ep = sp.newHigh
+		sp.sar = math.FMA(sp.afLong, sp.ep-sp.sar, sp.sar)
+		if sp.sar > prevLow {
+			sp.sar = prevLow
+		}
+		if sp.sar > sp.newLow {
+			sp.sar = sp.newLow
+		}
+	} else {
+		sp.cur_outReal = -sp.sar
+		if sp.newLow < sp.ep {
+			sp.ep = sp.newLow
+			sp.afShort += sp.optInAccelerationShort
+			if sp.afShort > sp.optInAccelerationMaxShort {
+				sp.afShort = sp.optInAccelerationMaxShort
+			}
+		}
+		sp.sar = math.FMA(sp.afShort, sp.ep-sp.sar, sp.sar)
+		if sp.sar < prevHigh {
+			sp.sar = prevHigh
+		}
+		if sp.sar < sp.newHigh {
+			sp.sar = sp.newHigh
+		}
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *SAREXTStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var prevHigh float64
@@ -561,94 +665,6 @@ func (sp *SAREXTStream) Value() float64 {
 func (sp *SAREXTStream) Clone() *SAREXTStream {
 	cl := *sp
 	return &cl
-}
-
-func sarextStepImpl(sp *SAREXTStream, inHigh, inLow float64) {
-	var prevHigh float64
-	var prevLow float64
-	prevLow = sp.newLow
-	prevHigh = sp.newHigh
-	sp.newLow = inLow
-	sp.newHigh = inHigh
-	if sp.isLong == 1 {
-		if sp.newLow <= sp.sar {
-			sp.isLong = 0
-			sp.sar = sp.ep
-			if sp.sar < prevHigh {
-				sp.sar = prevHigh
-			}
-			if sp.sar < sp.newHigh {
-				sp.sar = sp.newHigh
-			}
-			if sp.optInOffsetOnReverse != 0.0 {
-				sp.sar += float64(sp.sar * sp.optInOffsetOnReverse)
-			}
-			sp.cur_outReal = -sp.sar
-			sp.afShort = sp.optInAccelerationInitShort
-			sp.ep = sp.newLow
-			sp.sar = math.FMA(sp.afShort, sp.ep-sp.sar, sp.sar)
-			if sp.sar < prevHigh {
-				sp.sar = prevHigh
-			}
-			if sp.sar < sp.newHigh {
-				sp.sar = sp.newHigh
-			}
-		} else {
-			sp.cur_outReal = sp.sar
-			if sp.newHigh > sp.ep {
-				sp.ep = sp.newHigh
-				sp.afLong += sp.optInAccelerationLong
-				if sp.afLong > sp.optInAccelerationMaxLong {
-					sp.afLong = sp.optInAccelerationMaxLong
-				}
-			}
-			sp.sar = math.FMA(sp.afLong, sp.ep-sp.sar, sp.sar)
-			if sp.sar > prevLow {
-				sp.sar = prevLow
-			}
-			if sp.sar > sp.newLow {
-				sp.sar = sp.newLow
-			}
-		}
-	} else if sp.newHigh >= sp.sar {
-		sp.isLong = 1
-		sp.sar = sp.ep
-		if sp.sar > prevLow {
-			sp.sar = prevLow
-		}
-		if sp.sar > sp.newLow {
-			sp.sar = sp.newLow
-		}
-		if sp.optInOffsetOnReverse != 0.0 {
-			sp.sar -= float64(sp.sar * sp.optInOffsetOnReverse)
-		}
-		sp.cur_outReal = sp.sar
-		sp.afLong = sp.optInAccelerationInitLong
-		sp.ep = sp.newHigh
-		sp.sar = math.FMA(sp.afLong, sp.ep-sp.sar, sp.sar)
-		if sp.sar > prevLow {
-			sp.sar = prevLow
-		}
-		if sp.sar > sp.newLow {
-			sp.sar = sp.newLow
-		}
-	} else {
-		sp.cur_outReal = -sp.sar
-		if sp.newLow < sp.ep {
-			sp.ep = sp.newLow
-			sp.afShort += sp.optInAccelerationShort
-			if sp.afShort > sp.optInAccelerationMaxShort {
-				sp.afShort = sp.optInAccelerationMaxShort
-			}
-		}
-		sp.sar = math.FMA(sp.afShort, sp.ep-sp.sar, sp.sar)
-		if sp.sar < prevHigh {
-			sp.sar = prevHigh
-		}
-		if sp.sar < sp.newHigh {
-			sp.sar = sp.newHigh
-		}
-	}
 }
 
 func (c *Core) sarextOpenImpl(sp *SAREXTStream, inHigh, inLow []float64, startIdx int32, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -918,8 +934,9 @@ func (c *Core) sarextOpenInternal(inHigh, inLow []float64, startIdx int32, optIn
 // of [Core.SAREXT].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SAREXTLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.SAREXTLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) SAREXTOpen(inHigh, inLow []float64, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort float64) (*SAREXTStream, float64, error) {
 	sp, err := c.sarextOpenInternal(inHigh, inLow, 0, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort)
 	if err != nil {
@@ -936,7 +953,8 @@ func (c *Core) SAREXTOpen(inHigh, inLow []float64, optInStartValue, optInOffsetO
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SAREXTOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SAREXTOpenAndFill(inHigh, inLow []float64, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort float64, outReal []float64) (*SAREXTStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

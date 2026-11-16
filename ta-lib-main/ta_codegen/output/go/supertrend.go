@@ -220,6 +220,25 @@ func (c *Core) SUPERTRENDLookback(optInTimePeriod int, optInMultiplier float64) 
 	return int(lookback), nil
 }
 
+// SUPERTRENDDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SUPERTREND]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SUPERTREND] followed by the output's
+// position among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SUPERTRENDLookback] rejects or an index that names no output.
+func (c *Core) SUPERTRENDDisplayShift(optInTimePeriod int, optInMultiplier float64, outputIdx int) (int, error) {
+	if _, err := c.SUPERTRENDLookback(optInTimePeriod, optInMultiplier); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SUPERTREND computes the SuperTrend over bars startIdx through endIdx.
 //
 // An ATR-scaled trailing band that follows price on one side at a time and
@@ -258,7 +277,8 @@ func (c *Core) SUPERTRENDLookback(optInTimePeriod int, optInMultiplier float64) 
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SUPERTREND(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64, outSupertrend []float64, outTrend []int32) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -349,93 +369,10 @@ func (sp *SUPERTRENDStream) Update(inHigh, inLow, inClose float64) (float64, int
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	supertrendStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outSupertrend, sp.cur_outTrend, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *SUPERTRENDStream) Peek(inHigh, inLow, inClose float64) (float64, int32, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, 0, BadParam
-	}
-	var val2 float64
-	var val3 float64
-	var greatest float64
-	var tempCY float64
-	var tempLT float64
-	var tempHT float64
-	var medianPrice float64
-	var band float64
-	var basicUpper float64
-	var basicLower float64
-	var closeToday float64
-	var cur_outSupertrend float64
-	var cur_outTrend int32
-	finalLower := sp.finalLower
-	finalUpper := sp.finalUpper
-	isUptrend := sp.isUptrend
-	prevATR := sp.prevATR
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	greatest = tempHT - tempLT
-	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
-	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
-	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
-	medianPrice = (tempHT + tempLT) / 2.0
-	band = float64(sp.optInMultiplier * prevATR)
-	basicUpper = medianPrice + band
-	basicLower = medianPrice - band
-	if basicUpper < finalUpper || sp.prevClose > finalUpper {
-		finalUpper = basicUpper
-	}
-	if basicLower > finalLower || sp.prevClose < finalLower {
-		finalLower = basicLower
-	}
-	closeToday = inClose
-	if isUptrend != 0 {
-		if closeToday < finalLower {
-			isUptrend = 0
-		}
-	} else if closeToday > finalUpper {
-		isUptrend = 1
-	}
-	if isUptrend != 0 {
-		cur_outSupertrend = finalLower
-		cur_outTrend = 1
-	} else {
-		cur_outSupertrend = finalUpper
-		cur_outTrend = -1
-	}
-	return cur_outSupertrend, cur_outTrend, nil
-}
-
-// Value returns the outputs at the last bar of OutRange, in Update's order;
-// Peek does not change them.
-func (sp *SUPERTRENDStream) Value() (float64, int32) {
-	return sp.cur_outSupertrend, sp.cur_outTrend
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *SUPERTRENDStream) Clone() *SUPERTRENDStream {
-	cl := *sp
-	return &cl
-}
-
-func supertrendStepImpl(sp *SUPERTRENDStream, inHigh, inLow, inClose float64) {
 	var val2 float64
 	var val3 float64
 	var greatest float64
@@ -487,6 +424,81 @@ func supertrendStepImpl(sp *SUPERTRENDStream, inHigh, inLow, inClose float64) {
 	}
 	sp.prevClose = closeToday
 	sp.lag1_inClose = inClose
+	return sp.cur_outSupertrend, sp.cur_outTrend, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *SUPERTRENDStream) Peek(inHigh, inLow, inClose float64) (float64, int32, error) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, 0, BadParam
+	}
+	var val2 float64
+	var val3 float64
+	var greatest float64
+	var tempCY float64
+	var tempLT float64
+	var tempHT float64
+	var medianPrice float64
+	var band float64
+	var basicUpper float64
+	var basicLower float64
+	var closeToday float64
+	var cur_outSupertrend float64
+	var cur_outTrend int32
+	finalLower := sp.finalLower
+	finalUpper := sp.finalUpper
+	isUptrend := sp.isUptrend
+	prevATR := sp.prevATR
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	greatest = tempHT - tempLT
+	val2 = math.Abs(tempCY - tempHT)
+	greatest = selF(val2 > greatest, val2, greatest)
+	val3 = math.Abs(tempCY - tempLT)
+	greatest = selF(val3 > greatest, val3, greatest)
+	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
+	medianPrice = (tempHT + tempLT) / 2.0
+	band = float64(sp.optInMultiplier * prevATR)
+	basicUpper = medianPrice + band
+	basicLower = medianPrice - band
+	if basicUpper < finalUpper || sp.prevClose > finalUpper {
+		finalUpper = basicUpper
+	}
+	if basicLower > finalLower || sp.prevClose < finalLower {
+		finalLower = basicLower
+	}
+	closeToday = inClose
+	if isUptrend != 0 {
+		if closeToday < finalLower {
+			isUptrend = 0
+		}
+	} else if closeToday > finalUpper {
+		isUptrend = 1
+	}
+	if isUptrend != 0 {
+		cur_outSupertrend = finalLower
+		cur_outTrend = 1
+	} else {
+		cur_outSupertrend = finalUpper
+		cur_outTrend = -1
+	}
+	return cur_outSupertrend, cur_outTrend, nil
+}
+
+// Value returns the outputs at the last bar of OutRange, in Update's order;
+// Peek does not change them.
+func (sp *SUPERTRENDStream) Value() (float64, int32) {
+	return sp.cur_outSupertrend, sp.cur_outTrend
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *SUPERTRENDStream) Clone() *SUPERTRENDStream {
+	cl := *sp
+	return &cl
 }
 
 func (c *Core) supertrendOpenImpl(sp *SUPERTRENDStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, optInMultiplier float64, outBegIdx, outNBElement *int32, outSupertrend []float64, outTrend []int32, outStride int32) RetCode {
@@ -691,8 +703,9 @@ func (c *Core) supertrendOpenInternal(inHigh, inLow, inClose []float64, startIdx
 // are those of [Core.SUPERTREND].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SUPERTRENDLookback] bars, and [BadParam] for a parameter out of range
-// or histories of different lengths.
+// [Core.SUPERTRENDLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) SUPERTRENDOpen(inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64) (*SUPERTRENDStream, float64, int32, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -712,7 +725,9 @@ func (c *Core) SUPERTRENDOpen(inHigh, inLow, inClose []float64, optInTimePeriod 
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SUPERTRENDOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) SUPERTRENDOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64, outSupertrend []float64, outTrend []int32) (*SUPERTRENDStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

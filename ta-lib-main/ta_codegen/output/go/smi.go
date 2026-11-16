@@ -352,6 +352,25 @@ func (c *Core) SMILookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, op
 	return int(lookback), nil
 }
 
+// SMIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.SMI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SMI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SMILookback] rejects or an index that names no output.
+func (c *Core) SMIDisplayShift(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.SMILookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SMI computes the Stochastic Momentum Index over bars startIdx through endIdx.
 //
 // Stochastic Momentum Index: where the close sits relative to the midpoint of
@@ -397,7 +416,8 @@ func (c *Core) SMILookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, op
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SMI(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outSMI, outSMISignal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -511,11 +531,102 @@ func (sp *SMIStream) Update(inHigh, inLow, inClose float64) (float64, float64, e
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	smiStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tmp float64
+	var num float64
+	var den float64
+	var halfDen float64
+	var smiValue float64
+	var i int32
+	var lowest float64
+	var lowestIdx int32
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var highest float64
+	var highestIdx int32
+	var x_inHigh []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	sp.x_inClose[sp.today&sp.xMask] = inClose
+	tmp = sp.x_inLow[sp.today&sp.xMask]
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inLow[i&xMask]
+			if tmp < lowest {
+				lowestIdx = i
+				lowest = tmp
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmp <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmp
+	}
+	tmp = sp.x_inHigh[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inHigh[i&xMask]
+			if tmp > highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	den = sp.highest - sp.lowest
+	num = sp.x_inClose[sp.today&sp.xMask] - float64((sp.highest+sp.lowest)*0.5)
+	sp.emaSlowNum = math.FMA(sp.betaSlow, sp.emaSlowNum, float64(sp.kSlow*num))
+	sp.emaSlowDen = math.FMA(sp.betaSlow, sp.emaSlowDen, float64(sp.kSlow*den))
+	sp.emaFastNum = math.FMA(sp.betaFast, sp.emaFastNum, float64(sp.kFast*sp.emaSlowNum))
+	sp.emaFastDen = math.FMA(sp.betaFast, sp.emaFastDen, float64(sp.kFast*sp.emaSlowDen))
+	halfDen = float64(0.5 * sp.emaFastDen)
+	if halfDen > 0.0 {
+		smiValue = float64(100.0*sp.emaFastNum) / halfDen
+	} else {
+		smiValue = 0.0
+	}
+	sp.prevSignal = math.FMA(sp.betaSignal, sp.prevSignal, float64(sp.kSignal*smiValue))
+	sp.cur_outSMI = smiValue
+	sp.cur_outSMISignal = sp.prevSignal
+	sp.trailingIdx = sp.trailingIdx + 1
+	sp.today = sp.today + 1
 	return sp.cur_outSMI, sp.cur_outSMISignal, nil
 }
 
@@ -523,7 +634,7 @@ func (sp *SMIStream) Update(inHigh, inLow, inClose float64) (float64, float64, e
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *SMIStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
 	var tmp float64
@@ -531,6 +642,10 @@ func (sp *SMIStream) Peek(inHigh, inLow, inClose float64) (float64, float64, err
 	var den float64
 	var halfDen float64
 	var smiValue float64
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var x_inHigh []float64
 	var cur_outSMI float64
 	var cur_outSMISignal float64
 	emaFastDen := sp.emaFastDen
@@ -572,14 +687,17 @@ func (sp *SMIStream) Peek(inHigh, inLow, inClose float64) (float64, float64, err
 		}
 		lowest = _T1
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot1 {
-				_T2 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T2 = x_inLow[i&xMask]
 			} else {
 				_T2 = pkVal1
 			}
@@ -610,14 +728,17 @@ func (sp *SMIStream) Peek(inHigh, inLow, inClose float64) (float64, float64, err
 		}
 		highest = _T4
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot0 {
-				_T5 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T5 = x_inHigh[i&xMask]
 			} else {
 				_T5 = pkVal0
 			}
@@ -669,74 +790,6 @@ func (sp *SMIStream) Clone() *SMIStream {
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	cl.x_inClose = append(sp.x_inClose[:0:0], sp.x_inClose...)
 	return &cl
-}
-
-func smiStepImpl(sp *SMIStream, inHigh, inLow, inClose float64) {
-	var tmp float64
-	var num float64
-	var den float64
-	var halfDen float64
-	var smiValue float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	sp.x_inClose[sp.today&sp.xMask] = inClose
-	tmp = sp.x_inLow[sp.today&sp.xMask]
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inLow[sp.i&sp.xMask]
-			if tmp < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmp
-			}
-		}
-	} else if tmp <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmp
-	}
-	tmp = sp.x_inHigh[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inHigh[sp.i&sp.xMask]
-			if tmp > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	den = sp.highest - sp.lowest
-	num = sp.x_inClose[sp.today&sp.xMask] - float64((sp.highest+sp.lowest)*0.5)
-	sp.emaSlowNum = math.FMA(sp.betaSlow, sp.emaSlowNum, float64(sp.kSlow*num))
-	sp.emaSlowDen = math.FMA(sp.betaSlow, sp.emaSlowDen, float64(sp.kSlow*den))
-	sp.emaFastNum = math.FMA(sp.betaFast, sp.emaFastNum, float64(sp.kFast*sp.emaSlowNum))
-	sp.emaFastDen = math.FMA(sp.betaFast, sp.emaFastDen, float64(sp.kFast*sp.emaSlowDen))
-	halfDen = float64(0.5 * sp.emaFastDen)
-	if halfDen > 0.0 {
-		smiValue = float64(100.0*sp.emaFastNum) / halfDen
-	} else {
-		smiValue = 0.0
-	}
-	sp.prevSignal = math.FMA(sp.betaSignal, sp.prevSignal, float64(sp.kSignal*smiValue))
-	sp.cur_outSMI = smiValue
-	sp.cur_outSMISignal = sp.prevSignal
-	sp.trailingIdx = sp.trailingIdx + 1
-	sp.today = sp.today + 1
 }
 
 func (c *Core) smiOpenImpl(sp *SMIStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outSMI, outSMISignal []float64, outStride int32) RetCode {
@@ -1084,8 +1137,9 @@ func (c *Core) smiOpenInternal(inHigh, inLow, inClose []float64, startIdx, optIn
 // are those of [Core.SMI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SMILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.SMILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) SMIOpen(inHigh, inLow, inClose []float64, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int) (*SMIStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -1114,7 +1168,8 @@ func (c *Core) SMIOpen(inHigh, inLow, inClose []float64, optInTimePeriod, optInF
 // no memory with an input or another output.
 //
 // The errors are those of [Core.SMIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SMIOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outSMI, outSMISignal []float64) (*SMIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

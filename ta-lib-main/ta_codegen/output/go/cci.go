@@ -130,13 +130,7 @@ func (c *Core) cciImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 		}
 		circBuffer[circBuffer_Idx] = lastValue
 		tempReal = math.Abs(periodTotal)
-		var _T0 float64
-		if tempReal > periodPeak {
-			_T0 = tempReal
-		} else {
-			_T0 = periodPeak
-		}
-		periodPeak = _T0
+		periodPeak = selF(tempReal > periodPeak, tempReal, periodPeak)
 		if circBuffer_Idx == optInTimePeriod-1 || periodPeak > float64(1.5*tempReal) || sumDirty != 0 && flatRun >= optInTimePeriod-1 {
 			tempReal = 0.0
 			for j = 0; j < circBuffer_Idx; j += 1 {
@@ -199,6 +193,25 @@ func (c *Core) CCILookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// CCIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.CCI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CCI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CCILookback] rejects or an index that names no output.
+func (c *Core) CCIDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.CCILookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CCI computes the Commodity Channel Index over bars startIdx through endIdx.
 //
 // Commodity Channel Index: measures the current typical price relative to its
@@ -231,7 +244,8 @@ func (c *Core) CCILookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) CCI(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -316,11 +330,79 @@ func (sp *CCIStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cciStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tempReal float64
+	var tempReal2 float64
+	var tempReal3 float64
+	var theAverage float64
+	var lastValue float64
+	var j int32
+	var cb_circBuffer []float64
+	var circBuffer_Idx int32
+	var optInTimePeriod int32
+	lastValue = (inHigh + inLow + inClose) / 3.0
+	if lastValue == sp.prevValue {
+		if sp.flatRun < sp.optInTimePeriod {
+			sp.flatRun += 1
+		}
+	} else {
+		sp.flatRun = 0
+	}
+	sp.prevValue = lastValue
+	if sp.circBuffer_Idx != sp.optInTimePeriod-1 && lastValue != sp.cb_circBuffer[sp.circBuffer_Idx] {
+		sp.periodTotal += lastValue - sp.cb_circBuffer[sp.circBuffer_Idx]
+		sp.sumDirty = 1
+	}
+	sp.cb_circBuffer[sp.circBuffer_Idx] = lastValue
+	tempReal = math.Abs(sp.periodTotal)
+	sp.periodPeak = selF(tempReal > sp.periodPeak, tempReal, sp.periodPeak)
+	if sp.circBuffer_Idx == sp.optInTimePeriod-1 || sp.periodPeak > float64(1.5*tempReal) || sp.sumDirty != 0 && sp.flatRun >= sp.optInTimePeriod-1 {
+		tempReal = 0.0
+		cb_circBuffer = sp.cb_circBuffer
+		circBuffer_Idx = sp.circBuffer_Idx
+		for j = 0; j < circBuffer_Idx; j += 1 {
+			tempReal += cb_circBuffer[j]
+		}
+		tempReal += lastValue
+		cb_circBuffer = sp.cb_circBuffer
+		circBuffer_Idx = sp.circBuffer_Idx
+		optInTimePeriod = sp.optInTimePeriod
+		for j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 {
+			tempReal += cb_circBuffer[j]
+		}
+		sp.periodTotal = tempReal
+		sp.periodPeak = math.Abs(tempReal)
+		sp.sumDirty = 0
+	}
+	theAverage = sp.periodTotal / float64(sp.optInTimePeriod)
+	tempReal2 = 0.0
+	cb_circBuffer = sp.cb_circBuffer
+	circBuffer_Idx = sp.circBuffer_Idx
+	for j = 0; j < circBuffer_Idx; j += 1 {
+		tempReal2 += math.Abs(cb_circBuffer[j] - theAverage)
+	}
+	tempReal2 += math.Abs(lastValue - theAverage)
+	cb_circBuffer = sp.cb_circBuffer
+	circBuffer_Idx = sp.circBuffer_Idx
+	optInTimePeriod = sp.optInTimePeriod
+	for j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 {
+		tempReal2 += math.Abs(cb_circBuffer[j] - theAverage)
+	}
+	tempReal2 /= float64(sp.optInTimePeriod)
+	tempReal = lastValue - theAverage
+	tempReal3 = math.Abs(theAverage)
+	if !isZeroScaled(tempReal, tempReal3) && !isZeroScaled(tempReal2, tempReal3) && float64(0.015*tempReal2) != 0.0 {
+		sp.cur_outReal = tempReal / float64(0.015*tempReal2)
+	} else {
+		sp.cur_outReal = 0.0
+	}
+	sp.circBuffer_Idx = sp.circBuffer_Idx + 1
+	if sp.circBuffer_Idx > sp.maxIdx_circBuffer {
+		sp.circBuffer_Idx = 0
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -328,7 +410,7 @@ func (sp *CCIStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CCIStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -337,6 +419,9 @@ func (sp *CCIStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 	var theAverage float64
 	var lastValue float64
 	var j int32
+	var cb_circBuffer []float64
+	var circBuffer_Idx int32
+	var optInTimePeriod int32
 	var cur_outReal float64
 	flatRun := sp.flatRun
 	periodPeak := sp.periodPeak
@@ -357,21 +442,20 @@ func (sp *CCIStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		sumDirty = 1
 	}
 	tempReal = math.Abs(periodTotal)
-	var _T0 float64
-	if tempReal > periodPeak {
-		_T0 = tempReal
-	} else {
-		_T0 = periodPeak
-	}
-	periodPeak = _T0
+	periodPeak = selF(tempReal > periodPeak, tempReal, periodPeak)
 	if sp.circBuffer_Idx == sp.optInTimePeriod-1 || periodPeak > float64(1.5*tempReal) || sumDirty != 0 && flatRun >= sp.optInTimePeriod-1 {
 		tempReal = 0.0
-		for j = 0; j < sp.circBuffer_Idx; j += 1 {
-			tempReal += sp.cb_circBuffer[j]
+		cb_circBuffer = sp.cb_circBuffer
+		circBuffer_Idx = sp.circBuffer_Idx
+		for j = 0; j < circBuffer_Idx; j += 1 {
+			tempReal += cb_circBuffer[j]
 		}
 		tempReal += lastValue
-		for j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 {
-			tempReal += sp.cb_circBuffer[j]
+		cb_circBuffer = sp.cb_circBuffer
+		circBuffer_Idx = sp.circBuffer_Idx
+		optInTimePeriod = sp.optInTimePeriod
+		for j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 {
+			tempReal += cb_circBuffer[j]
 		}
 		periodTotal = tempReal
 		periodPeak = math.Abs(tempReal)
@@ -379,12 +463,17 @@ func (sp *CCIStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 	}
 	theAverage = periodTotal / float64(sp.optInTimePeriod)
 	tempReal2 = 0.0
-	for j = 0; j < sp.circBuffer_Idx; j += 1 {
-		tempReal2 += math.Abs(sp.cb_circBuffer[j] - theAverage)
+	cb_circBuffer = sp.cb_circBuffer
+	circBuffer_Idx = sp.circBuffer_Idx
+	for j = 0; j < circBuffer_Idx; j += 1 {
+		tempReal2 += math.Abs(cb_circBuffer[j] - theAverage)
 	}
 	tempReal2 += math.Abs(lastValue - theAverage)
-	for j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 {
-		tempReal2 += math.Abs(sp.cb_circBuffer[j] - theAverage)
+	cb_circBuffer = sp.cb_circBuffer
+	circBuffer_Idx = sp.circBuffer_Idx
+	optInTimePeriod = sp.optInTimePeriod
+	for j = circBuffer_Idx + 1; j < optInTimePeriod; j += 1 {
+		tempReal2 += math.Abs(cb_circBuffer[j] - theAverage)
 	}
 	tempReal2 /= float64(sp.optInTimePeriod)
 	tempReal = lastValue - theAverage
@@ -408,71 +497,6 @@ func (sp *CCIStream) Clone() *CCIStream {
 	cl := *sp
 	cl.cb_circBuffer = append(sp.cb_circBuffer[:0:0], sp.cb_circBuffer...)
 	return &cl
-}
-
-func cciStepImpl(sp *CCIStream, inHigh, inLow, inClose float64) {
-	var tempReal float64
-	var tempReal2 float64
-	var tempReal3 float64
-	var theAverage float64
-	var lastValue float64
-	var j int32
-	lastValue = (inHigh + inLow + inClose) / 3.0
-	if lastValue == sp.prevValue {
-		if sp.flatRun < sp.optInTimePeriod {
-			sp.flatRun += 1
-		}
-	} else {
-		sp.flatRun = 0
-	}
-	sp.prevValue = lastValue
-	if sp.circBuffer_Idx != sp.optInTimePeriod-1 && lastValue != sp.cb_circBuffer[sp.circBuffer_Idx] {
-		sp.periodTotal += lastValue - sp.cb_circBuffer[sp.circBuffer_Idx]
-		sp.sumDirty = 1
-	}
-	sp.cb_circBuffer[sp.circBuffer_Idx] = lastValue
-	tempReal = math.Abs(sp.periodTotal)
-	var _T1 float64
-	if tempReal > sp.periodPeak {
-		_T1 = tempReal
-	} else {
-		_T1 = sp.periodPeak
-	}
-	sp.periodPeak = _T1
-	if sp.circBuffer_Idx == sp.optInTimePeriod-1 || sp.periodPeak > float64(1.5*tempReal) || sp.sumDirty != 0 && sp.flatRun >= sp.optInTimePeriod-1 {
-		tempReal = 0.0
-		for j = 0; j < sp.circBuffer_Idx; j += 1 {
-			tempReal += sp.cb_circBuffer[j]
-		}
-		tempReal += lastValue
-		for j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 {
-			tempReal += sp.cb_circBuffer[j]
-		}
-		sp.periodTotal = tempReal
-		sp.periodPeak = math.Abs(tempReal)
-		sp.sumDirty = 0
-	}
-	theAverage = sp.periodTotal / float64(sp.optInTimePeriod)
-	tempReal2 = 0.0
-	for j = 0; j < sp.circBuffer_Idx; j += 1 {
-		tempReal2 += math.Abs(sp.cb_circBuffer[j] - theAverage)
-	}
-	tempReal2 += math.Abs(lastValue - theAverage)
-	for j = sp.circBuffer_Idx + 1; j < sp.optInTimePeriod; j += 1 {
-		tempReal2 += math.Abs(sp.cb_circBuffer[j] - theAverage)
-	}
-	tempReal2 /= float64(sp.optInTimePeriod)
-	tempReal = lastValue - theAverage
-	tempReal3 = math.Abs(theAverage)
-	if !isZeroScaled(tempReal, tempReal3) && !isZeroScaled(tempReal2, tempReal3) && float64(0.015*tempReal2) != 0.0 {
-		sp.cur_outReal = tempReal / float64(0.015*tempReal2)
-	} else {
-		sp.cur_outReal = 0.0
-	}
-	sp.circBuffer_Idx = sp.circBuffer_Idx + 1
-	if sp.circBuffer_Idx > sp.maxIdx_circBuffer {
-		sp.circBuffer_Idx = 0
-	}
 }
 
 func (c *Core) cciOpenImpl(sp *CCIStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -566,13 +590,7 @@ func (c *Core) cciOpenImpl(sp *CCIStream, inHigh, inLow, inClose []float64, star
 		}
 		circBuffer[circBuffer_Idx] = lastValue
 		tempReal = math.Abs(periodTotal)
-		var _T2 float64
-		if tempReal > periodPeak {
-			_T2 = tempReal
-		} else {
-			_T2 = periodPeak
-		}
-		periodPeak = _T2
+		periodPeak = selF(tempReal > periodPeak, tempReal, periodPeak)
 		if circBuffer_Idx == optInTimePeriod-1 || periodPeak > float64(1.5*tempReal) || sumDirty != 0 && flatRun >= optInTimePeriod-1 {
 			tempReal = 0.0
 			for j = 0; j < circBuffer_Idx; j += 1 {
@@ -664,8 +682,9 @@ func (c *Core) cciOpenInternal(inHigh, inLow, inClose []float64, startIdx, optIn
 // are those of [Core.CCI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CCILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.CCILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) CCIOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*CCIStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -685,7 +704,8 @@ func (c *Core) CCIOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*
 // no memory with an input or another output.
 //
 // The errors are those of [Core.CCIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CCIOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (*CCIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

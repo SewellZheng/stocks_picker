@@ -73,37 +73,12 @@ impl Core {
     /// before the first output value can be produced.
     #[doc(alias = "TA_CDLADVANCEBLOCK_Lookback")]
     pub fn cdladvanceblock_lookback(&self) -> Result<usize, RetCode> {
-        #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
-        #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
-        #[allow(non_snake_case)]
-        let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        #[allow(non_snake_case)]
-        let Far_rangeType: i32 = self.candle_settings.far.range_type as i32;
-        #[allow(non_snake_case)]
         let Far_avgPeriod: i32 = self.candle_settings.far.avg_period;
-        #[allow(non_snake_case)]
-        let Far_factor: f64 = self.candle_settings.far.factor;
-        #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
-        #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
-        #[allow(non_snake_case)]
-        let Near_factor: f64 = self.candle_settings.near.factor;
-        #[allow(non_snake_case)]
-        let ShadowLong_rangeType: i32 = self.candle_settings.shadow_long.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowLong_avgPeriod: i32 = self.candle_settings.shadow_long.avg_period;
-        #[allow(non_snake_case)]
-        let ShadowLong_factor: f64 = self.candle_settings.shadow_long.factor;
-        #[allow(non_snake_case)]
-        let ShadowShort_rangeType: i32 = self.candle_settings.shadow_short.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
-        #[allow(non_snake_case)]
-        let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
-        return Ok(((((ShadowLong_avgPeriod).max(ShadowShort_avgPeriod)).max((Far_avgPeriod).max(Near_avgPeriod))).max(BodyLong_avgPeriod) + 2) as usize);
+        return Ok((ShadowLong_avgPeriod.max(ShadowShort_avgPeriod).max(Far_avgPeriod.max(Near_avgPeriod)).max(BodyLong_avgPeriod) + 2) as usize);
     }
     /// Display shift of one output of [`Core::cdladvanceblock`]: how many bars ahead (positive) or
     /// behind (negative) of the bar that computed it a chart draws that output. The values are
@@ -185,35 +160,20 @@ impl Core {
         let mut NearTrailingIdx: usize = 0_usize;
         let mut FarTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
-        #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
-        #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        #[allow(non_snake_case)]
         let Far_rangeType: i32 = self.candle_settings.far.range_type as i32;
-        #[allow(non_snake_case)]
         let Far_avgPeriod: i32 = self.candle_settings.far.avg_period;
-        #[allow(non_snake_case)]
         let Far_factor: f64 = self.candle_settings.far.factor;
-        #[allow(non_snake_case)]
         let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
-        #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
-        #[allow(non_snake_case)]
         let Near_factor: f64 = self.candle_settings.near.factor;
-        #[allow(non_snake_case)]
         let ShadowLong_rangeType: i32 = self.candle_settings.shadow_long.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowLong_avgPeriod: i32 = self.candle_settings.shadow_long.avg_period;
-        #[allow(non_snake_case)]
         let ShadowLong_factor: f64 = self.candle_settings.shadow_long.factor;
-        #[allow(non_snake_case)]
         let ShadowShort_rangeType: i32 = self.candle_settings.shadow_short.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
-        #[allow(non_snake_case)]
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
@@ -225,8 +185,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inOpen = &inOpen[..=endIdx];
@@ -239,20 +199,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -262,7 +222,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_0: f64;
+                        let _candlerange_0: f64;
                         match 2 {
                             0 => {
                                 _candlerange_0 = (_w0[_wk] - _w3[_wk]).abs();
@@ -278,7 +238,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_0;
-                        let mut _candlerange_1: f64;
+                        let _candlerange_1: f64;
                         match 2 {
                             0 => {
                                 _candlerange_1 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -294,7 +254,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_1;
-                        let mut _candlerange_2: f64;
+                        let _candlerange_2: f64;
                         match 2 {
                             0 => {
                                 _candlerange_2 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -310,11 +270,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_2;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_3: f64;
+                        let _candlerange_3: f64;
                         match 2 {
                             0 => {
                                 _candlerange_3 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -330,7 +289,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_3;
-                        let mut _candlerange_4: f64;
+                        let _candlerange_4: f64;
                         match 2 {
                             0 => {
                                 _candlerange_4 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -346,7 +305,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_4;
-                        let mut _candlerange_5: f64;
+                        let _candlerange_5: f64;
                         match 2 {
                             0 => {
                                 _candlerange_5 = (inClose[i] - inOpen[i]).abs();
@@ -375,7 +334,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_6: f64;
+                        let _candlerange_6: f64;
                         match 0 {
                             0 => {
                                 _candlerange_6 = (_w0[_wk] - _w3[_wk]).abs();
@@ -391,7 +350,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_6;
-                        let mut _candlerange_7: f64;
+                        let _candlerange_7: f64;
                         match 0 {
                             0 => {
                                 _candlerange_7 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -407,11 +366,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_7;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_8: f64;
+                        let _candlerange_8: f64;
                         match 0 {
                             0 => {
                                 _candlerange_8 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -427,7 +385,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_8;
-                        let mut _candlerange_9: f64;
+                        let _candlerange_9: f64;
                         match 0 {
                             0 => {
                                 _candlerange_9 = (inClose[i] - inOpen[i]).abs();
@@ -456,7 +414,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_10: f64;
+                        let _candlerange_10: f64;
                         match 1 {
                             0 => {
                                 _candlerange_10 = (_w0[_wk] - _w3[_wk]).abs();
@@ -472,7 +430,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_10;
-                        let mut _candlerange_11: f64;
+                        let _candlerange_11: f64;
                         match 1 {
                             0 => {
                                 _candlerange_11 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -488,11 +446,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_11;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_12: f64;
+                        let _candlerange_12: f64;
                         match 1 {
                             0 => {
                                 _candlerange_12 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -508,7 +465,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_12;
-                        let mut _candlerange_13: f64;
+                        let _candlerange_13: f64;
                         match 1 {
                             0 => {
                                 _candlerange_13 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -537,7 +494,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_14: f64;
+                        let _candlerange_14: f64;
                         match 1 {
                             0 => {
                                 _candlerange_14 = (_w0[_wk] - _w3[_wk]).abs();
@@ -553,7 +510,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_14;
-                        let mut _candlerange_15: f64;
+                        let _candlerange_15: f64;
                         match 1 {
                             0 => {
                                 _candlerange_15 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -569,11 +526,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_15;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_16: f64;
+                        let _candlerange_16: f64;
                         match 1 {
                             0 => {
                                 _candlerange_16 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -589,7 +545,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_16;
-                        let mut _candlerange_17: f64;
+                        let _candlerange_17: f64;
                         match 1 {
                             0 => {
                                 _candlerange_17 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -618,7 +574,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_18: f64;
+                        let _candlerange_18: f64;
                         match 0 {
                             0 => {
                                 _candlerange_18 = (_w0[_wk] - _w3[_wk]).abs();
@@ -634,11 +590,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_18;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_19: f64;
+                        let _candlerange_19: f64;
                         match 0 {
                             0 => {
                                 _candlerange_19 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -668,7 +623,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_20: f64;
+            let _candlerange_20: f64;
             match 2 {
                 0 => {
                     _candlerange_20 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -684,7 +639,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_20;
-            let mut _candlerange_21: f64;
+            let _candlerange_21: f64;
             match 2 {
                 0 => {
                     _candlerange_21 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -700,7 +655,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_21;
-            let mut _candlerange_22: f64;
+            let _candlerange_22: f64;
             match 2 {
                 0 => {
                     _candlerange_22 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -716,7 +671,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_22;
-            let mut _candlerange_23: f64;
+            let _candlerange_23: f64;
             match 2 {
                 0 => {
                     _candlerange_23 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -732,7 +687,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_23;
-            let mut _candlerange_24: f64;
+            let _candlerange_24: f64;
             match 0 {
                 0 => {
                     _candlerange_24 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -748,7 +703,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_24;
-            let mut _candlerange_25: f64;
+            let _candlerange_25: f64;
             match 0 {
                 0 => {
                     _candlerange_25 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -764,7 +719,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_25;
-            let mut _candlerange_26: f64;
+            let _candlerange_26: f64;
             match 1 {
                 0 => {
                     _candlerange_26 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -780,7 +735,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_26;
-            let mut _candlerange_27: f64;
+            let _candlerange_27: f64;
             match 1 {
                 0 => {
                     _candlerange_27 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -796,7 +751,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_27;
-            let mut _candlerange_28: f64;
+            let _candlerange_28: f64;
             match 1 {
                 0 => {
                     _candlerange_28 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -812,7 +767,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_28;
-            let mut _candlerange_29: f64;
+            let _candlerange_29: f64;
             match 1 {
                 0 => {
                     _candlerange_29 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -856,19 +811,19 @@ impl Core {
                     let _w22 = &_w22[.._wn];
                     let _w23 = &_w23[.._wn + 2];
                     for _wk in 0.._wn {
-                        if ((u32::from((_w5[_wk] >= _w23[_wk])) +        // 1st white
-                            u32::from((_w5[_wk + 1] >= _w23[_wk + 1])) + // 2nd white
-                            u32::from((_w5[_wk + 2] >= _w23[_wk + 2]))) == 3) { // 3rd white
+                        if ((u32::from(_w5[_wk] >= _w23[_wk]) +        // 1st white
+                            u32::from(_w5[_wk + 1] >= _w23[_wk + 1]) + // 2nd white
+                            u32::from(_w5[_wk + 2] >= _w23[_wk + 2])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -876,7 +831,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_30: f64;
+                        let _candlerange_30: f64;
                         match 2 {
                             0 => {
                                 _candlerange_30 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -892,7 +847,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_30;
-                        let mut _candlerange_31: f64;
+                        let _candlerange_31: f64;
                         match 2 {
                             0 => {
                                 _candlerange_31 = (_w4[_wk] - _w22[_wk]).abs();
@@ -915,7 +870,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_32: f64;
+                        let _candlerange_32: f64;
                         match 0 {
                             0 => {
                                 _candlerange_32 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -931,7 +886,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_32;
-                        let mut _candlerange_33: f64;
+                        let _candlerange_33: f64;
                         match 0 {
                             0 => {
                                 _candlerange_33 = (_w3[_wk] - _w21[_wk]).abs();
@@ -951,7 +906,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_34: f64;
+                        let _candlerange_34: f64;
                         match 1 {
                             0 => {
                                 _candlerange_34 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -967,7 +922,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_34;
-                        let mut _candlerange_35: f64;
+                        let _candlerange_35: f64;
                         match 1 {
                             0 => {
                                 _candlerange_35 = (_w1[_wk] - _w19[_wk]).abs();
@@ -987,7 +942,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_36: f64;
+                        let _candlerange_36: f64;
                         match 1 {
                             0 => {
                                 _candlerange_36 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -1003,7 +958,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_36;
-                        let mut _candlerange_37: f64;
+                        let _candlerange_37: f64;
                         match 1 {
                             0 => {
                                 _candlerange_37 = (_w2[_wk] - _w20[_wk]).abs();
@@ -1023,29 +978,24 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
-                        ShadowShortTrailingIdx += 1;
-                        ShadowLongTrailingIdx += 1;
-                        NearTrailingIdx += 1;
-                        FarTrailingIdx += 1;
-                        BodyLongTrailingIdx += 1;
                     }
                 } else {
                     loop {
-                        if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                            u32::from((inClose[i - 1] >= inOpen[i - 1])) + // 2nd white
-                            u32::from((inClose[i] >= inOpen[i]))) == 3) { // 3rd white
+                        if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                            u32::from(inClose[i - 1] >= inOpen[i - 1]) + // 2nd white
+                            u32::from(inClose[i] >= inOpen[i])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -1053,7 +1003,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_38: f64;
+                        let _candlerange_38: f64;
                         match 2 {
                             0 => {
                                 _candlerange_38 = (inClose[i] - inOpen[i]).abs();
@@ -1069,7 +1019,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_38;
-                        let mut _candlerange_39: f64;
+                        let _candlerange_39: f64;
                         match 2 {
                             0 => {
                                 _candlerange_39 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -1092,7 +1042,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_40: f64;
+                        let _candlerange_40: f64;
                         match 0 {
                             0 => {
                                 _candlerange_40 = (inClose[i] - inOpen[i]).abs();
@@ -1108,7 +1058,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_40;
-                        let mut _candlerange_41: f64;
+                        let _candlerange_41: f64;
                         match 0 {
                             0 => {
                                 _candlerange_41 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -1128,7 +1078,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_42: f64;
+                        let _candlerange_42: f64;
                         match 1 {
                             0 => {
                                 _candlerange_42 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1144,7 +1094,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_42;
-                        let mut _candlerange_43: f64;
+                        let _candlerange_43: f64;
                         match 1 {
                             0 => {
                                 _candlerange_43 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -1164,7 +1114,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_44: f64;
+                        let _candlerange_44: f64;
                         match 1 {
                             0 => {
                                 _candlerange_44 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1180,7 +1130,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_44;
-                        let mut _candlerange_45: f64;
+                        let _candlerange_45: f64;
                         match 1 {
                             0 => {
                                 _candlerange_45 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -1200,7 +1150,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -1212,19 +1162,19 @@ impl Core {
                 }
             } else {
                 loop {
-                    if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                        u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                        u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                    if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                        u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                        u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                         outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                             (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                            (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                            (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                            (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                            (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                             (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                         outIdx += 1;
                     } else {
                         outInteger[outIdx] = 0;
@@ -1232,7 +1182,7 @@ impl Core {
                     }
                     // add the current range and subtract the first range: this is done after the pattern recognition
                     // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                    let mut _candlerange_46: f64;
+                    let _candlerange_46: f64;
                     match 2 {
                         0 => {
                             _candlerange_46 = (inClose[i] - inOpen[i]).abs();
@@ -1248,7 +1198,7 @@ impl Core {
                         }
                     }
                     ShadowShortPeriodTotalRange0 = _candlerange_46;
-                    let mut _candlerange_47: f64;
+                    let _candlerange_47: f64;
                     match 2 {
                         0 => {
                             _candlerange_47 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -1271,7 +1221,7 @@ impl Core {
                     ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                     ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                     ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                    let mut _candlerange_48: f64;
+                    let _candlerange_48: f64;
                     match 0 {
                         0 => {
                             _candlerange_48 = (inClose[i] - inOpen[i]).abs();
@@ -1287,7 +1237,7 @@ impl Core {
                         }
                     }
                     ShadowLongPeriodTotalRange0 = _candlerange_48;
-                    let mut _candlerange_49: f64;
+                    let _candlerange_49: f64;
                     match 0 {
                         0 => {
                             _candlerange_49 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -1307,7 +1257,7 @@ impl Core {
                     ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                     ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                     ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                    let mut _candlerange_50: f64;
+                    let _candlerange_50: f64;
                     match 1 {
                         0 => {
                             _candlerange_50 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1323,7 +1273,7 @@ impl Core {
                         }
                     }
                     FarPeriodTotalRange1 = _candlerange_50;
-                    let mut _candlerange_51: f64;
+                    let _candlerange_51: f64;
                     match 1 {
                         0 => {
                             _candlerange_51 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -1343,7 +1293,7 @@ impl Core {
                     FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                     FarPeriodTotalRange2 = FarPeriodTotalRange1;
                     FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                    let mut _candlerange_52: f64;
+                    let _candlerange_52: f64;
                     match 1 {
                         0 => {
                             _candlerange_52 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1359,7 +1309,7 @@ impl Core {
                         }
                     }
                     NearPeriodTotalRange1 = _candlerange_52;
-                    let mut _candlerange_53: f64;
+                    let _candlerange_53: f64;
                     match 1 {
                         0 => {
                             _candlerange_53 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -1379,7 +1329,7 @@ impl Core {
                     NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                     NearPeriodTotalRange2 = NearPeriodTotalRange1;
                     NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                    BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                    BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                     i += 1;
                     ShadowShortTrailingIdx += 1;
                     ShadowLongTrailingIdx += 1;
@@ -1390,8 +1340,8 @@ impl Core {
                 }
             }
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
             return RetCode::Success;
         } else {
             // Do the calculation using tight loops.
@@ -1399,20 +1349,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -1422,7 +1372,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_0: f64;
+                        let _candlerange_0: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_0 = (_w0[_wk] - _w3[_wk]).abs();
@@ -1438,7 +1388,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_0;
-                        let mut _candlerange_1: f64;
+                        let _candlerange_1: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_1 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -1454,7 +1404,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_1;
-                        let mut _candlerange_2: f64;
+                        let _candlerange_2: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_2 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -1470,11 +1420,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_2;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_3: f64;
+                        let _candlerange_3: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_3 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1490,7 +1439,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_3;
-                        let mut _candlerange_4: f64;
+                        let _candlerange_4: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_4 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1506,7 +1455,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_4;
-                        let mut _candlerange_5: f64;
+                        let _candlerange_5: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_5 = (inClose[i] - inOpen[i]).abs();
@@ -1535,7 +1484,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_6: f64;
+                        let _candlerange_6: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_6 = (_w0[_wk] - _w3[_wk]).abs();
@@ -1551,7 +1500,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_6;
-                        let mut _candlerange_7: f64;
+                        let _candlerange_7: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_7 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -1567,11 +1516,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_7;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_8: f64;
+                        let _candlerange_8: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_8 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1587,7 +1535,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_8;
-                        let mut _candlerange_9: f64;
+                        let _candlerange_9: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_9 = (inClose[i] - inOpen[i]).abs();
@@ -1616,7 +1564,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_10: f64;
+                        let _candlerange_10: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_10 = (_w0[_wk] - _w3[_wk]).abs();
@@ -1632,7 +1580,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_10;
-                        let mut _candlerange_11: f64;
+                        let _candlerange_11: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_11 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -1648,11 +1596,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_11;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_12: f64;
+                        let _candlerange_12: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_12 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1668,7 +1615,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_12;
-                        let mut _candlerange_13: f64;
+                        let _candlerange_13: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_13 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1697,7 +1644,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_14: f64;
+                        let _candlerange_14: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_14 = (_w0[_wk] - _w3[_wk]).abs();
@@ -1713,7 +1660,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_14;
-                        let mut _candlerange_15: f64;
+                        let _candlerange_15: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_15 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -1729,11 +1676,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_15;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_16: f64;
+                        let _candlerange_16: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_16 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1749,7 +1695,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_16;
-                        let mut _candlerange_17: f64;
+                        let _candlerange_17: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_17 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1778,7 +1724,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_18: f64;
+                        let _candlerange_18: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_18 = (_w0[_wk] - _w3[_wk]).abs();
@@ -1794,11 +1740,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_18;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_19: f64;
+                        let _candlerange_19: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_19 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1828,7 +1773,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_20: f64;
+            let _candlerange_20: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_20 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1844,7 +1789,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_20;
-            let mut _candlerange_21: f64;
+            let _candlerange_21: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_21 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -1860,7 +1805,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_21;
-            let mut _candlerange_22: f64;
+            let _candlerange_22: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_22 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1876,7 +1821,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_22;
-            let mut _candlerange_23: f64;
+            let _candlerange_23: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_23 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -1892,7 +1837,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_23;
-            let mut _candlerange_24: f64;
+            let _candlerange_24: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_24 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -1908,7 +1853,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_24;
-            let mut _candlerange_25: f64;
+            let _candlerange_25: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_25 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -1924,7 +1869,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_25;
-            let mut _candlerange_26: f64;
+            let _candlerange_26: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_26 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1940,7 +1885,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_26;
-            let mut _candlerange_27: f64;
+            let _candlerange_27: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_27 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -1956,7 +1901,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_27;
-            let mut _candlerange_28: f64;
+            let _candlerange_28: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_28 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -1972,7 +1917,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_28;
-            let mut _candlerange_29: f64;
+            let _candlerange_29: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_29 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -2016,19 +1961,19 @@ impl Core {
                     let _w22 = &_w22[.._wn];
                     let _w23 = &_w23[.._wn + 2];
                     for _wk in 0.._wn {
-                        if ((u32::from((_w5[_wk] >= _w23[_wk])) +        // 1st white
-                            u32::from((_w5[_wk + 1] >= _w23[_wk + 1])) + // 2nd white
-                            u32::from((_w5[_wk + 2] >= _w23[_wk + 2]))) == 3) { // 3rd white
+                        if ((u32::from(_w5[_wk] >= _w23[_wk]) +        // 1st white
+                            u32::from(_w5[_wk + 1] >= _w23[_wk + 1]) + // 2nd white
+                            u32::from(_w5[_wk + 2] >= _w23[_wk + 2])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -2036,7 +1981,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_30: f64;
+                        let _candlerange_30: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_30 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -2052,7 +1997,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_30;
-                        let mut _candlerange_31: f64;
+                        let _candlerange_31: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_31 = (_w4[_wk] - _w22[_wk]).abs();
@@ -2075,7 +2020,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_32: f64;
+                        let _candlerange_32: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_32 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -2091,7 +2036,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_32;
-                        let mut _candlerange_33: f64;
+                        let _candlerange_33: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_33 = (_w3[_wk] - _w21[_wk]).abs();
@@ -2111,7 +2056,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_34: f64;
+                        let _candlerange_34: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_34 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -2127,7 +2072,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_34;
-                        let mut _candlerange_35: f64;
+                        let _candlerange_35: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_35 = (_w1[_wk] - _w19[_wk]).abs();
@@ -2147,7 +2092,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_36: f64;
+                        let _candlerange_36: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_36 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -2163,7 +2108,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_36;
-                        let mut _candlerange_37: f64;
+                        let _candlerange_37: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_37 = (_w2[_wk] - _w20[_wk]).abs();
@@ -2183,29 +2128,24 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
-                        ShadowShortTrailingIdx += 1;
-                        ShadowLongTrailingIdx += 1;
-                        NearTrailingIdx += 1;
-                        FarTrailingIdx += 1;
-                        BodyLongTrailingIdx += 1;
                     }
                 } else {
                     loop {
-                        if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                            u32::from((inClose[i - 1] >= inOpen[i - 1])) + // 2nd white
-                            u32::from((inClose[i] >= inOpen[i]))) == 3) { // 3rd white
+                        if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                            u32::from(inClose[i - 1] >= inOpen[i - 1]) + // 2nd white
+                            u32::from(inClose[i] >= inOpen[i])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -2213,7 +2153,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_38: f64;
+                        let _candlerange_38: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_38 = (inClose[i] - inOpen[i]).abs();
@@ -2229,7 +2169,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_38;
-                        let mut _candlerange_39: f64;
+                        let _candlerange_39: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_39 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -2252,7 +2192,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_40: f64;
+                        let _candlerange_40: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_40 = (inClose[i] - inOpen[i]).abs();
@@ -2268,7 +2208,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_40;
-                        let mut _candlerange_41: f64;
+                        let _candlerange_41: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_41 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -2288,7 +2228,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_42: f64;
+                        let _candlerange_42: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_42 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -2304,7 +2244,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_42;
-                        let mut _candlerange_43: f64;
+                        let _candlerange_43: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_43 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -2324,7 +2264,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_44: f64;
+                        let _candlerange_44: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_44 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -2340,7 +2280,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_44;
-                        let mut _candlerange_45: f64;
+                        let _candlerange_45: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_45 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -2360,7 +2300,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -2372,19 +2312,19 @@ impl Core {
                 }
             } else {
                 loop {
-                    if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                        u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                        u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                    if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                        u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                        u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                         outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                             (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                            (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                            (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                            (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                            (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                             (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                         outIdx += 1;
                     } else {
                         outInteger[outIdx] = 0;
@@ -2392,7 +2332,7 @@ impl Core {
                     }
                     // add the current range and subtract the first range: this is done after the pattern recognition
                     // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                    let mut _candlerange_46: f64;
+                    let _candlerange_46: f64;
                     match ShadowShort_rangeType {
                         0 => {
                             _candlerange_46 = (inClose[i] - inOpen[i]).abs();
@@ -2408,7 +2348,7 @@ impl Core {
                         }
                     }
                     ShadowShortPeriodTotalRange0 = _candlerange_46;
-                    let mut _candlerange_47: f64;
+                    let _candlerange_47: f64;
                     match ShadowShort_rangeType {
                         0 => {
                             _candlerange_47 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -2431,7 +2371,7 @@ impl Core {
                     ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                     ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                     ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                    let mut _candlerange_48: f64;
+                    let _candlerange_48: f64;
                     match ShadowLong_rangeType {
                         0 => {
                             _candlerange_48 = (inClose[i] - inOpen[i]).abs();
@@ -2447,7 +2387,7 @@ impl Core {
                         }
                     }
                     ShadowLongPeriodTotalRange0 = _candlerange_48;
-                    let mut _candlerange_49: f64;
+                    let _candlerange_49: f64;
                     match ShadowLong_rangeType {
                         0 => {
                             _candlerange_49 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -2467,7 +2407,7 @@ impl Core {
                     ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                     ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                     ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                    let mut _candlerange_50: f64;
+                    let _candlerange_50: f64;
                     match Far_rangeType {
                         0 => {
                             _candlerange_50 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -2483,7 +2423,7 @@ impl Core {
                         }
                     }
                     FarPeriodTotalRange1 = _candlerange_50;
-                    let mut _candlerange_51: f64;
+                    let _candlerange_51: f64;
                     match Far_rangeType {
                         0 => {
                             _candlerange_51 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -2503,7 +2443,7 @@ impl Core {
                     FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                     FarPeriodTotalRange2 = FarPeriodTotalRange1;
                     FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                    let mut _candlerange_52: f64;
+                    let _candlerange_52: f64;
                     match Near_rangeType {
                         0 => {
                             _candlerange_52 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -2519,7 +2459,7 @@ impl Core {
                         }
                     }
                     NearPeriodTotalRange1 = _candlerange_52;
-                    let mut _candlerange_53: f64;
+                    let _candlerange_53: f64;
                     match Near_rangeType {
                         0 => {
                             _candlerange_53 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -2539,7 +2479,7 @@ impl Core {
                     NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                     NearPeriodTotalRange2 = NearPeriodTotalRange1;
                     NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                    BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                    BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                     i += 1;
                     ShadowShortTrailingIdx += 1;
                     ShadowLongTrailingIdx += 1;
@@ -2550,8 +2490,8 @@ impl Core {
                 }
             }
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
             return RetCode::Success;
         }
     }
@@ -2599,22 +2539,26 @@ impl Core {
     ///
     /// let open = vec![0.0; 252]; // your data, oldest first
     /// # let open: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    /// #     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     /// #     .collect();
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut out = vec![0i32; 252];
     ///
     /// let core = Core::new();
     /// let range = core.cdladvanceblock(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{}, ..., {}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert_eq!(range.beg_idx + range.count, open.len());
     /// # // a pattern output writes only the values its flags declare
     /// # assert!(out[..range.count].iter().all(|v| [-100, 0].contains(v)));
@@ -2774,37 +2718,22 @@ impl Core {
         let mut ringPosL_NearTrailingIdx: usize = 0_usize;
         let mut ringPosL_ShadowLongTrailingIdx: usize = 0_usize;
         let mut ringPosL_ShadowShortTrailingIdx: usize = 0_usize;
-        #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = cs_body_long.range_type as i32;
-        #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = cs_body_long.avg_period;
-        #[allow(non_snake_case)]
         let BodyLong_factor: f64 = cs_body_long.factor;
-        #[allow(non_snake_case)]
         let Far_rangeType: i32 = cs_far.range_type as i32;
-        #[allow(non_snake_case)]
         let Far_avgPeriod: i32 = cs_far.avg_period;
-        #[allow(non_snake_case)]
         let Far_factor: f64 = cs_far.factor;
-        #[allow(non_snake_case)]
         let Near_rangeType: i32 = cs_near.range_type as i32;
-        #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = cs_near.avg_period;
-        #[allow(non_snake_case)]
         let Near_factor: f64 = cs_near.factor;
-        #[allow(non_snake_case)]
         let ShadowLong_rangeType: i32 = cs_shadow_long.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowLong_avgPeriod: i32 = cs_shadow_long.avg_period;
-        #[allow(non_snake_case)]
         let ShadowLong_factor: f64 = cs_shadow_long.factor;
-        #[allow(non_snake_case)]
         let ShadowShort_rangeType: i32 = cs_shadow_short.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowShort_avgPeriod: i32 = cs_shadow_short.avg_period;
-        #[allow(non_snake_case)]
         let ShadowShort_factor: f64 = cs_shadow_short.factor;
-        let mut _candlerange_0: f64;
+        let _candlerange_0: f64;
         match BodyLong_rangeType {
             0 => {
                 _candlerange_0 = (inClose - inOpen).abs();
@@ -2820,7 +2749,7 @@ impl Core {
             }
         }
         sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = _candlerange_0;
-        let mut _candlerange_1: f64;
+        let _candlerange_1: f64;
         match Far_rangeType {
             0 => {
                 _candlerange_1 = (inClose - inOpen).abs();
@@ -2836,7 +2765,7 @@ impl Core {
             }
         }
         sp.ring_FarTrailingIdx_derived[sp.ringPos_FarTrailingIdx] = _candlerange_1;
-        let mut _candlerange_2: f64;
+        let _candlerange_2: f64;
         match Near_rangeType {
             0 => {
                 _candlerange_2 = (inClose - inOpen).abs();
@@ -2853,7 +2782,7 @@ impl Core {
         }
         sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = _candlerange_2;
         if sp.ringCap_ShadowLongTrailingIdx == 0 {
-            let mut _candlerange_3: f64;
+            let _candlerange_3: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_3 = (inClose - inOpen).abs();
@@ -2871,7 +2800,7 @@ impl Core {
             sp.ring_ShadowLongTrailingIdx_derived[0] = _candlerange_3;
         }
         if sp.ringCap_ShadowShortTrailingIdx == 0 {
-            let mut _candlerange_4: f64;
+            let _candlerange_4: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_4 = (inClose - inOpen).abs();
@@ -2895,31 +2824,31 @@ impl Core {
             if inClose > sp.lag1_inClose &&
                sp.lag1_inClose > sp.lag2_inClose &&                                    // consecutive higher closes
                sp.lag1_inOpen > sp.lag2_inOpen &&                                      // 2nd opens within/near 1st real body
-               sp.lag1_inOpen <= sp.lag2_inClose + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+               sp.lag1_inOpen <= sp.lag2_inClose + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) &&
                inOpen > sp.lag1_inOpen &&                                              // 3rd opens within/near 2nd real body
-               inOpen <= sp.lag1_inClose + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) &&
-               (sp.lag2_inClose - sp.lag2_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st: long real body
-               (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st: short upper shadow
-               ((sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (sp.FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 })) && // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                 (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) ||
-                (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (sp.FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 })) || // 3 far smaller than 2 advance blocked with the 3rd
+               inOpen <= sp.lag1_inClose + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) &&
+               (sp.lag2_inClose - sp.lag2_inOpen).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { sp.BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 })) && // 1st: long real body
+               (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 })) && // 1st: short upper shadow
+               ((sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() - (Far_factor * (if Far_avgPeriod != 0 { sp.FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 })) && // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                 (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) ||
+                (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() - (Far_factor * (if Far_avgPeriod != 0 { sp.FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 })) || // 3 far smaller than 2 advance blocked with the 3rd
                 (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() && // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
                  (sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() &&
-                 ((inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) ||
-                  (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) ||
+                 ((inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose - inOpen).abs(), 1 => inHigh - inLow, 2 => (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 })) ||
+                  (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) ||
                 (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() && // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                 (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (sp.ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))
+                 (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { sp.ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose - inOpen).abs(), 1 => inHigh - inLow, 2 => (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))
             {
-                (*outInteger) = -100;
+                *outInteger = -100;
             } else {
-                (*outInteger) = 0;
+                *outInteger = 0;
             }
         } else {
-            (*outInteger) = 0;
+            *outInteger = 0;
         }
         // add the current range and subtract the first range: this is done after the pattern recognition
         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-        let mut _candlerange_5: f64;
+        let _candlerange_5: f64;
         match ShadowShort_rangeType {
             0 => {
                 _candlerange_5 = (inClose - inOpen).abs();
@@ -2943,7 +2872,7 @@ impl Core {
         sp.ShadowShortPeriodTotalTrailRange2 = sp.ShadowShortPeriodTotalTrailRange1;
         sp.ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
         sp.ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-        let mut _candlerange_6: f64;
+        let _candlerange_6: f64;
         match ShadowLong_rangeType {
             0 => {
                 _candlerange_6 = (inClose - inOpen).abs();
@@ -2964,7 +2893,7 @@ impl Core {
         sp.ShadowLongPeriodTotal[0] = sp.ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
         sp.ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
         sp.ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-        let mut _candlerange_7: f64;
+        let _candlerange_7: f64;
         match Far_rangeType {
             0 => {
                 _candlerange_7 = (sp.lag1_inClose - sp.lag1_inOpen).abs();
@@ -2985,7 +2914,7 @@ impl Core {
         sp.FarPeriodTotal[1] = sp.FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
         sp.FarPeriodTotalRange2 = FarPeriodTotalRange1;
         sp.FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-        let mut _candlerange_8: f64;
+        let _candlerange_8: f64;
         match Near_rangeType {
             0 => {
                 _candlerange_8 = (sp.lag1_inClose - sp.lag1_inOpen).abs();
@@ -3006,7 +2935,7 @@ impl Core {
         sp.NearPeriodTotal[1] = sp.NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
         sp.NearPeriodTotalRange2 = NearPeriodTotalRange1;
         sp.NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-        let mut _candlerange_9: f64;
+        let _candlerange_9: f64;
         match BodyLong_rangeType {
             0 => {
                 _candlerange_9 = (sp.lag2_inClose - sp.lag2_inOpen).abs();
@@ -3022,7 +2951,7 @@ impl Core {
             }
         }
         sp.BodyLongPeriodTotal += _candlerange_9 - sp.ring_BodyLongTrailingIdx_derived[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 2) % sp.ringCap_BodyLongTrailingIdx) as usize];
-        sp.cur_outInteger = (*outInteger);
+        sp.cur_outInteger = *outInteger;
         sp.lag2_inOpen = sp.lag1_inOpen;
         sp.lag1_inOpen = inOpen;
         sp.lag2_inHigh = sp.lag1_inHigh;
@@ -3079,8 +3008,8 @@ impl Core {
         }
         let historyLen: usize = inOpen.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         if outStride == 0 {
@@ -3098,8 +3027,6 @@ impl Core {
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut ShadowShortPeriodTotal: [f64; 3 as usize] = [0.0_f64; 3 as usize];
         let mut ShadowLongPeriodTotal: [f64; 2 as usize] = [0.0_f64; 2 as usize];
         let mut NearPeriodTotal: [f64; 3 as usize] = [0.0_f64; 3 as usize];
@@ -3131,35 +3058,20 @@ impl Core {
         let mut NearTrailingIdx: usize = 0_usize;
         let mut FarTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
-        #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
-        #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        #[allow(non_snake_case)]
         let Far_rangeType: i32 = self.candle_settings.far.range_type as i32;
-        #[allow(non_snake_case)]
         let Far_avgPeriod: i32 = self.candle_settings.far.avg_period;
-        #[allow(non_snake_case)]
         let Far_factor: f64 = self.candle_settings.far.factor;
-        #[allow(non_snake_case)]
         let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
-        #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
-        #[allow(non_snake_case)]
         let Near_factor: f64 = self.candle_settings.near.factor;
-        #[allow(non_snake_case)]
         let ShadowLong_rangeType: i32 = self.candle_settings.shadow_long.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowLong_avgPeriod: i32 = self.candle_settings.shadow_long.avg_period;
-        #[allow(non_snake_case)]
         let ShadowLong_factor: f64 = self.candle_settings.shadow_long.factor;
-        #[allow(non_snake_case)]
         let ShadowShort_rangeType: i32 = self.candle_settings.shadow_short.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
-        #[allow(non_snake_case)]
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
@@ -3171,8 +3083,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         if BodyLong_rangeType == 0 && Far_rangeType == 1 && Near_rangeType == 1 && ShadowLong_rangeType == 0 && ShadowShort_rangeType == 2 {
@@ -3181,20 +3093,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -3204,7 +3116,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_10: f64;
+                        let _candlerange_10: f64;
                         match 2 {
                             0 => {
                                 _candlerange_10 = (_w0[_wk] - _w3[_wk]).abs();
@@ -3220,7 +3132,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_10;
-                        let mut _candlerange_11: f64;
+                        let _candlerange_11: f64;
                         match 2 {
                             0 => {
                                 _candlerange_11 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -3236,7 +3148,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_11;
-                        let mut _candlerange_12: f64;
+                        let _candlerange_12: f64;
                         match 2 {
                             0 => {
                                 _candlerange_12 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -3252,11 +3164,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_12;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_13: f64;
+                        let _candlerange_13: f64;
                         match 2 {
                             0 => {
                                 _candlerange_13 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3272,7 +3183,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_13;
-                        let mut _candlerange_14: f64;
+                        let _candlerange_14: f64;
                         match 2 {
                             0 => {
                                 _candlerange_14 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3288,7 +3199,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_14;
-                        let mut _candlerange_15: f64;
+                        let _candlerange_15: f64;
                         match 2 {
                             0 => {
                                 _candlerange_15 = (inClose[i] - inOpen[i]).abs();
@@ -3317,7 +3228,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_16: f64;
+                        let _candlerange_16: f64;
                         match 0 {
                             0 => {
                                 _candlerange_16 = (_w0[_wk] - _w3[_wk]).abs();
@@ -3333,7 +3244,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_16;
-                        let mut _candlerange_17: f64;
+                        let _candlerange_17: f64;
                         match 0 {
                             0 => {
                                 _candlerange_17 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -3349,11 +3260,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_17;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_18: f64;
+                        let _candlerange_18: f64;
                         match 0 {
                             0 => {
                                 _candlerange_18 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3369,7 +3279,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_18;
-                        let mut _candlerange_19: f64;
+                        let _candlerange_19: f64;
                         match 0 {
                             0 => {
                                 _candlerange_19 = (inClose[i] - inOpen[i]).abs();
@@ -3398,7 +3308,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_20: f64;
+                        let _candlerange_20: f64;
                         match 1 {
                             0 => {
                                 _candlerange_20 = (_w0[_wk] - _w3[_wk]).abs();
@@ -3414,7 +3324,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_20;
-                        let mut _candlerange_21: f64;
+                        let _candlerange_21: f64;
                         match 1 {
                             0 => {
                                 _candlerange_21 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -3430,11 +3340,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_21;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_22: f64;
+                        let _candlerange_22: f64;
                         match 1 {
                             0 => {
                                 _candlerange_22 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3450,7 +3359,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_22;
-                        let mut _candlerange_23: f64;
+                        let _candlerange_23: f64;
                         match 1 {
                             0 => {
                                 _candlerange_23 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3479,7 +3388,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_24: f64;
+                        let _candlerange_24: f64;
                         match 1 {
                             0 => {
                                 _candlerange_24 = (_w0[_wk] - _w3[_wk]).abs();
@@ -3495,7 +3404,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_24;
-                        let mut _candlerange_25: f64;
+                        let _candlerange_25: f64;
                         match 1 {
                             0 => {
                                 _candlerange_25 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -3511,11 +3420,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_25;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_26: f64;
+                        let _candlerange_26: f64;
                         match 1 {
                             0 => {
                                 _candlerange_26 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3531,7 +3439,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_26;
-                        let mut _candlerange_27: f64;
+                        let _candlerange_27: f64;
                         match 1 {
                             0 => {
                                 _candlerange_27 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3560,7 +3468,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_28: f64;
+                        let _candlerange_28: f64;
                         match 0 {
                             0 => {
                                 _candlerange_28 = (_w0[_wk] - _w3[_wk]).abs();
@@ -3576,11 +3484,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_28;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_29: f64;
+                        let _candlerange_29: f64;
                         match 0 {
                             0 => {
                                 _candlerange_29 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3610,7 +3517,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_30: f64;
+            let _candlerange_30: f64;
             match 2 {
                 0 => {
                     _candlerange_30 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3626,7 +3533,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_30;
-            let mut _candlerange_31: f64;
+            let _candlerange_31: f64;
             match 2 {
                 0 => {
                     _candlerange_31 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -3642,7 +3549,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_31;
-            let mut _candlerange_32: f64;
+            let _candlerange_32: f64;
             match 2 {
                 0 => {
                     _candlerange_32 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3658,7 +3565,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_32;
-            let mut _candlerange_33: f64;
+            let _candlerange_33: f64;
             match 2 {
                 0 => {
                     _candlerange_33 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -3674,7 +3581,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_33;
-            let mut _candlerange_34: f64;
+            let _candlerange_34: f64;
             match 0 {
                 0 => {
                     _candlerange_34 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -3690,7 +3597,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_34;
-            let mut _candlerange_35: f64;
+            let _candlerange_35: f64;
             match 0 {
                 0 => {
                     _candlerange_35 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -3706,7 +3613,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_35;
-            let mut _candlerange_36: f64;
+            let _candlerange_36: f64;
             match 1 {
                 0 => {
                     _candlerange_36 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3722,7 +3629,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_36;
-            let mut _candlerange_37: f64;
+            let _candlerange_37: f64;
             match 1 {
                 0 => {
                     _candlerange_37 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -3738,7 +3645,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_37;
-            let mut _candlerange_38: f64;
+            let _candlerange_38: f64;
             match 1 {
                 0 => {
                     _candlerange_38 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -3754,7 +3661,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_38;
-            let mut _candlerange_39: f64;
+            let _candlerange_39: f64;
             match 1 {
                 0 => {
                     _candlerange_39 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -3801,7 +3708,7 @@ impl Core {
                         outIdx += 1;
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_40: f64;
+                        let _candlerange_40: f64;
                         match 2 {
                             0 => {
                                 _candlerange_40 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -3817,7 +3724,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_40;
-                        let mut _candlerange_41: f64;
+                        let _candlerange_41: f64;
                         match 2 {
                             0 => {
                                 _candlerange_41 = (_w4[_wk] - _w22[_wk]).abs();
@@ -3840,7 +3747,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_42: f64;
+                        let _candlerange_42: f64;
                         match 0 {
                             0 => {
                                 _candlerange_42 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -3856,7 +3763,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_42;
-                        let mut _candlerange_43: f64;
+                        let _candlerange_43: f64;
                         match 0 {
                             0 => {
                                 _candlerange_43 = (_w3[_wk] - _w21[_wk]).abs();
@@ -3876,7 +3783,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_44: f64;
+                        let _candlerange_44: f64;
                         match 1 {
                             0 => {
                                 _candlerange_44 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -3892,7 +3799,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_44;
-                        let mut _candlerange_45: f64;
+                        let _candlerange_45: f64;
                         match 1 {
                             0 => {
                                 _candlerange_45 = (_w1[_wk] - _w19[_wk]).abs();
@@ -3912,7 +3819,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_46: f64;
+                        let _candlerange_46: f64;
                         match 1 {
                             0 => {
                                 _candlerange_46 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -3928,7 +3835,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_46;
-                        let mut _candlerange_47: f64;
+                        let _candlerange_47: f64;
                         match 1 {
                             0 => {
                                 _candlerange_47 = (_w2[_wk] - _w20[_wk]).abs();
@@ -3948,7 +3855,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -3961,7 +3868,7 @@ impl Core {
                         outIdx += 1;
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_48: f64;
+                        let _candlerange_48: f64;
                         match 2 {
                             0 => {
                                 _candlerange_48 = (inClose[i] - inOpen[i]).abs();
@@ -3977,7 +3884,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_48;
-                        let mut _candlerange_49: f64;
+                        let _candlerange_49: f64;
                         match 2 {
                             0 => {
                                 _candlerange_49 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -4000,7 +3907,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_50: f64;
+                        let _candlerange_50: f64;
                         match 0 {
                             0 => {
                                 _candlerange_50 = (inClose[i] - inOpen[i]).abs();
@@ -4016,7 +3923,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_50;
-                        let mut _candlerange_51: f64;
+                        let _candlerange_51: f64;
                         match 0 {
                             0 => {
                                 _candlerange_51 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -4036,7 +3943,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_52: f64;
+                        let _candlerange_52: f64;
                         match 1 {
                             0 => {
                                 _candlerange_52 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4052,7 +3959,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_52;
-                        let mut _candlerange_53: f64;
+                        let _candlerange_53: f64;
                         match 1 {
                             0 => {
                                 _candlerange_53 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -4072,7 +3979,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_54: f64;
+                        let _candlerange_54: f64;
                         match 1 {
                             0 => {
                                 _candlerange_54 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4088,7 +3995,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_54;
-                        let mut _candlerange_55: f64;
+                        let _candlerange_55: f64;
                         match 1 {
                             0 => {
                                 _candlerange_55 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -4108,7 +4015,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -4118,19 +4025,19 @@ impl Core {
                     }
                 }
             }
-            if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+            if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                 outInteger[0] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                     (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                    (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                    (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                    ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                    ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                    ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                    (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                    (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                    ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                    ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                    ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                     (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                    ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                    ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                    ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                    ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                 outIdx += 1;
             } else {
                 outInteger[0] = 0;
@@ -4138,7 +4045,7 @@ impl Core {
             }
             // add the current range and subtract the first range: this is done after the pattern recognition
             // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-            let mut _candlerange_56: f64;
+            let _candlerange_56: f64;
             match 2 {
                 0 => {
                     _candlerange_56 = (inClose[i] - inOpen[i]).abs();
@@ -4154,7 +4061,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange0 = _candlerange_56;
-            let mut _candlerange_57: f64;
+            let _candlerange_57: f64;
             match 2 {
                 0 => {
                     _candlerange_57 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -4177,7 +4084,7 @@ impl Core {
             ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
             ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
             ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-            let mut _candlerange_58: f64;
+            let _candlerange_58: f64;
             match 0 {
                 0 => {
                     _candlerange_58 = (inClose[i] - inOpen[i]).abs();
@@ -4193,7 +4100,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange0 = _candlerange_58;
-            let mut _candlerange_59: f64;
+            let _candlerange_59: f64;
             match 0 {
                 0 => {
                     _candlerange_59 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -4213,7 +4120,7 @@ impl Core {
             ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
             ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
             ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-            let mut _candlerange_60: f64;
+            let _candlerange_60: f64;
             match 1 {
                 0 => {
                     _candlerange_60 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4229,7 +4136,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange1 = _candlerange_60;
-            let mut _candlerange_61: f64;
+            let _candlerange_61: f64;
             match 1 {
                 0 => {
                     _candlerange_61 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -4249,7 +4156,7 @@ impl Core {
             FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
             FarPeriodTotalRange2 = FarPeriodTotalRange1;
             FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-            let mut _candlerange_62: f64;
+            let _candlerange_62: f64;
             match 1 {
                 0 => {
                     _candlerange_62 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4265,7 +4172,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange1 = _candlerange_62;
-            let mut _candlerange_63: f64;
+            let _candlerange_63: f64;
             match 1 {
                 0 => {
                     _candlerange_63 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -4285,7 +4192,7 @@ impl Core {
             NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
             NearPeriodTotalRange2 = NearPeriodTotalRange1;
             NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-            BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+            BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
             i += 1;
             ShadowShortTrailingIdx += 1;
             ShadowLongTrailingIdx += 1;
@@ -4293,8 +4200,8 @@ impl Core {
             FarTrailingIdx += 1;
             BodyLongTrailingIdx += 1;
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let capLag_BodyLongTrailingIdx: i64 = (i as i64) - (BodyLongTrailingIdx as i64);
@@ -4307,7 +4214,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = (match BodyLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = match BodyLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -4321,7 +4228,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_FarTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = (match Far_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = match Far_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -4335,7 +4242,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = (match Near_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = match Near_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -4348,7 +4255,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = (match ShadowLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = match ShadowLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -4361,7 +4268,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowShortTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = (match ShadowShort_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = match ShadowShort_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -4416,20 +4323,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -4439,7 +4346,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_10: f64;
+                        let _candlerange_10: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_10 = (_w0[_wk] - _w3[_wk]).abs();
@@ -4455,7 +4362,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_10;
-                        let mut _candlerange_11: f64;
+                        let _candlerange_11: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_11 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -4471,7 +4378,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_11;
-                        let mut _candlerange_12: f64;
+                        let _candlerange_12: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_12 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -4487,11 +4394,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_12;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_13: f64;
+                        let _candlerange_13: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_13 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4507,7 +4413,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_13;
-                        let mut _candlerange_14: f64;
+                        let _candlerange_14: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_14 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4523,7 +4429,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_14;
-                        let mut _candlerange_15: f64;
+                        let _candlerange_15: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_15 = (inClose[i] - inOpen[i]).abs();
@@ -4552,7 +4458,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_16: f64;
+                        let _candlerange_16: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_16 = (_w0[_wk] - _w3[_wk]).abs();
@@ -4568,7 +4474,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_16;
-                        let mut _candlerange_17: f64;
+                        let _candlerange_17: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_17 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -4584,11 +4490,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_17;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_18: f64;
+                        let _candlerange_18: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_18 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4604,7 +4509,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_18;
-                        let mut _candlerange_19: f64;
+                        let _candlerange_19: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_19 = (inClose[i] - inOpen[i]).abs();
@@ -4633,7 +4538,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_20: f64;
+                        let _candlerange_20: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_20 = (_w0[_wk] - _w3[_wk]).abs();
@@ -4649,7 +4554,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_20;
-                        let mut _candlerange_21: f64;
+                        let _candlerange_21: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_21 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -4665,11 +4570,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_21;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_22: f64;
+                        let _candlerange_22: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_22 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4685,7 +4589,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_22;
-                        let mut _candlerange_23: f64;
+                        let _candlerange_23: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_23 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4714,7 +4618,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_24: f64;
+                        let _candlerange_24: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_24 = (_w0[_wk] - _w3[_wk]).abs();
@@ -4730,7 +4634,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_24;
-                        let mut _candlerange_25: f64;
+                        let _candlerange_25: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_25 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -4746,11 +4650,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_25;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_26: f64;
+                        let _candlerange_26: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_26 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4766,7 +4669,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_26;
-                        let mut _candlerange_27: f64;
+                        let _candlerange_27: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_27 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4795,7 +4698,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_28: f64;
+                        let _candlerange_28: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_28 = (_w0[_wk] - _w3[_wk]).abs();
@@ -4811,11 +4714,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_28;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_29: f64;
+                        let _candlerange_29: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_29 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4845,7 +4747,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_30: f64;
+            let _candlerange_30: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_30 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4861,7 +4763,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_30;
-            let mut _candlerange_31: f64;
+            let _candlerange_31: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_31 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -4877,7 +4779,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_31;
-            let mut _candlerange_32: f64;
+            let _candlerange_32: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_32 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4893,7 +4795,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_32;
-            let mut _candlerange_33: f64;
+            let _candlerange_33: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_33 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -4909,7 +4811,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_33;
-            let mut _candlerange_34: f64;
+            let _candlerange_34: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_34 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -4925,7 +4827,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_34;
-            let mut _candlerange_35: f64;
+            let _candlerange_35: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_35 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -4941,7 +4843,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_35;
-            let mut _candlerange_36: f64;
+            let _candlerange_36: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_36 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4957,7 +4859,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_36;
-            let mut _candlerange_37: f64;
+            let _candlerange_37: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_37 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -4973,7 +4875,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_37;
-            let mut _candlerange_38: f64;
+            let _candlerange_38: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_38 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -4989,7 +4891,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_38;
-            let mut _candlerange_39: f64;
+            let _candlerange_39: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_39 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -5036,7 +4938,7 @@ impl Core {
                         outIdx += 1;
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_40: f64;
+                        let _candlerange_40: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_40 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -5052,7 +4954,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_40;
-                        let mut _candlerange_41: f64;
+                        let _candlerange_41: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_41 = (_w4[_wk] - _w22[_wk]).abs();
@@ -5075,7 +4977,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_42: f64;
+                        let _candlerange_42: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_42 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -5091,7 +4993,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_42;
-                        let mut _candlerange_43: f64;
+                        let _candlerange_43: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_43 = (_w3[_wk] - _w21[_wk]).abs();
@@ -5111,7 +5013,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_44: f64;
+                        let _candlerange_44: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_44 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -5127,7 +5029,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_44;
-                        let mut _candlerange_45: f64;
+                        let _candlerange_45: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_45 = (_w1[_wk] - _w19[_wk]).abs();
@@ -5147,7 +5049,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_46: f64;
+                        let _candlerange_46: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_46 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -5163,7 +5065,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_46;
-                        let mut _candlerange_47: f64;
+                        let _candlerange_47: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_47 = (_w2[_wk] - _w20[_wk]).abs();
@@ -5183,7 +5085,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -5196,7 +5098,7 @@ impl Core {
                         outIdx += 1;
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_48: f64;
+                        let _candlerange_48: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_48 = (inClose[i] - inOpen[i]).abs();
@@ -5212,7 +5114,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_48;
-                        let mut _candlerange_49: f64;
+                        let _candlerange_49: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_49 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -5235,7 +5137,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_50: f64;
+                        let _candlerange_50: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_50 = (inClose[i] - inOpen[i]).abs();
@@ -5251,7 +5153,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_50;
-                        let mut _candlerange_51: f64;
+                        let _candlerange_51: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_51 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -5271,7 +5173,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_52: f64;
+                        let _candlerange_52: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_52 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5287,7 +5189,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_52;
-                        let mut _candlerange_53: f64;
+                        let _candlerange_53: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_53 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -5307,7 +5209,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_54: f64;
+                        let _candlerange_54: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_54 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5323,7 +5225,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_54;
-                        let mut _candlerange_55: f64;
+                        let _candlerange_55: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_55 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -5343,7 +5245,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -5353,19 +5255,19 @@ impl Core {
                     }
                 }
             }
-            if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+            if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                 outInteger[0] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                     (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                    (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                    (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                    ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                    ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                    ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                    (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                    (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                    ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                    ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                    ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                     (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                    ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                    ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                    ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                    ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                 outIdx += 1;
             } else {
                 outInteger[0] = 0;
@@ -5373,7 +5275,7 @@ impl Core {
             }
             // add the current range and subtract the first range: this is done after the pattern recognition
             // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-            let mut _candlerange_56: f64;
+            let _candlerange_56: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_56 = (inClose[i] - inOpen[i]).abs();
@@ -5389,7 +5291,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange0 = _candlerange_56;
-            let mut _candlerange_57: f64;
+            let _candlerange_57: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_57 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -5412,7 +5314,7 @@ impl Core {
             ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
             ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
             ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-            let mut _candlerange_58: f64;
+            let _candlerange_58: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_58 = (inClose[i] - inOpen[i]).abs();
@@ -5428,7 +5330,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange0 = _candlerange_58;
-            let mut _candlerange_59: f64;
+            let _candlerange_59: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_59 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -5448,7 +5350,7 @@ impl Core {
             ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
             ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
             ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-            let mut _candlerange_60: f64;
+            let _candlerange_60: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_60 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5464,7 +5366,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange1 = _candlerange_60;
-            let mut _candlerange_61: f64;
+            let _candlerange_61: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_61 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -5484,7 +5386,7 @@ impl Core {
             FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
             FarPeriodTotalRange2 = FarPeriodTotalRange1;
             FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-            let mut _candlerange_62: f64;
+            let _candlerange_62: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_62 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5500,7 +5402,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange1 = _candlerange_62;
-            let mut _candlerange_63: f64;
+            let _candlerange_63: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_63 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -5520,7 +5422,7 @@ impl Core {
             NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
             NearPeriodTotalRange2 = NearPeriodTotalRange1;
             NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-            BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+            BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
             i += 1;
             ShadowShortTrailingIdx += 1;
             ShadowLongTrailingIdx += 1;
@@ -5528,8 +5430,8 @@ impl Core {
             FarTrailingIdx += 1;
             BodyLongTrailingIdx += 1;
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let capLag_BodyLongTrailingIdx: i64 = (i as i64) - (BodyLongTrailingIdx as i64);
@@ -5542,7 +5444,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = (match BodyLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = match BodyLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -5556,7 +5458,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_FarTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = (match Far_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = match Far_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -5570,7 +5472,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = (match Near_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = match Near_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -5583,7 +5485,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = (match ShadowLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = match ShadowLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -5596,7 +5498,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowShortTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = (match ShadowShort_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = match ShadowShort_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -5655,8 +5557,6 @@ impl Core {
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut ShadowShortPeriodTotal: [f64; 3 as usize] = [0.0_f64; 3 as usize];
         let mut ShadowLongPeriodTotal: [f64; 2 as usize] = [0.0_f64; 2 as usize];
         let mut NearPeriodTotal: [f64; 3 as usize] = [0.0_f64; 3 as usize];
@@ -5688,35 +5588,20 @@ impl Core {
         let mut NearTrailingIdx: usize = 0_usize;
         let mut FarTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
-        #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
-        #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        #[allow(non_snake_case)]
         let Far_rangeType: i32 = self.candle_settings.far.range_type as i32;
-        #[allow(non_snake_case)]
         let Far_avgPeriod: i32 = self.candle_settings.far.avg_period;
-        #[allow(non_snake_case)]
         let Far_factor: f64 = self.candle_settings.far.factor;
-        #[allow(non_snake_case)]
         let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
-        #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
-        #[allow(non_snake_case)]
         let Near_factor: f64 = self.candle_settings.near.factor;
-        #[allow(non_snake_case)]
         let ShadowLong_rangeType: i32 = self.candle_settings.shadow_long.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowLong_avgPeriod: i32 = self.candle_settings.shadow_long.avg_period;
-        #[allow(non_snake_case)]
         let ShadowLong_factor: f64 = self.candle_settings.shadow_long.factor;
-        #[allow(non_snake_case)]
         let ShadowShort_rangeType: i32 = self.candle_settings.shadow_short.range_type as i32;
-        #[allow(non_snake_case)]
         let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
-        #[allow(non_snake_case)]
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
@@ -5728,8 +5613,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         if BodyLong_rangeType == 0 && Far_rangeType == 1 && Near_rangeType == 1 && ShadowLong_rangeType == 0 && ShadowShort_rangeType == 2 {
@@ -5738,20 +5623,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -5761,7 +5646,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_64: f64;
+                        let _candlerange_64: f64;
                         match 2 {
                             0 => {
                                 _candlerange_64 = (_w0[_wk] - _w3[_wk]).abs();
@@ -5777,7 +5662,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_64;
-                        let mut _candlerange_65: f64;
+                        let _candlerange_65: f64;
                         match 2 {
                             0 => {
                                 _candlerange_65 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -5793,7 +5678,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_65;
-                        let mut _candlerange_66: f64;
+                        let _candlerange_66: f64;
                         match 2 {
                             0 => {
                                 _candlerange_66 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -5809,11 +5694,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_66;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_67: f64;
+                        let _candlerange_67: f64;
                         match 2 {
                             0 => {
                                 _candlerange_67 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -5829,7 +5713,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_67;
-                        let mut _candlerange_68: f64;
+                        let _candlerange_68: f64;
                         match 2 {
                             0 => {
                                 _candlerange_68 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5845,7 +5729,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_68;
-                        let mut _candlerange_69: f64;
+                        let _candlerange_69: f64;
                         match 2 {
                             0 => {
                                 _candlerange_69 = (inClose[i] - inOpen[i]).abs();
@@ -5874,7 +5758,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_70: f64;
+                        let _candlerange_70: f64;
                         match 0 {
                             0 => {
                                 _candlerange_70 = (_w0[_wk] - _w3[_wk]).abs();
@@ -5890,7 +5774,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_70;
-                        let mut _candlerange_71: f64;
+                        let _candlerange_71: f64;
                         match 0 {
                             0 => {
                                 _candlerange_71 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -5906,11 +5790,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_71;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_72: f64;
+                        let _candlerange_72: f64;
                         match 0 {
                             0 => {
                                 _candlerange_72 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -5926,7 +5809,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_72;
-                        let mut _candlerange_73: f64;
+                        let _candlerange_73: f64;
                         match 0 {
                             0 => {
                                 _candlerange_73 = (inClose[i] - inOpen[i]).abs();
@@ -5955,7 +5838,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_74: f64;
+                        let _candlerange_74: f64;
                         match 1 {
                             0 => {
                                 _candlerange_74 = (_w0[_wk] - _w3[_wk]).abs();
@@ -5971,7 +5854,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_74;
-                        let mut _candlerange_75: f64;
+                        let _candlerange_75: f64;
                         match 1 {
                             0 => {
                                 _candlerange_75 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -5987,11 +5870,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_75;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_76: f64;
+                        let _candlerange_76: f64;
                         match 1 {
                             0 => {
                                 _candlerange_76 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6007,7 +5889,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_76;
-                        let mut _candlerange_77: f64;
+                        let _candlerange_77: f64;
                         match 1 {
                             0 => {
                                 _candlerange_77 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6036,7 +5918,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_78: f64;
+                        let _candlerange_78: f64;
                         match 1 {
                             0 => {
                                 _candlerange_78 = (_w0[_wk] - _w3[_wk]).abs();
@@ -6052,7 +5934,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_78;
-                        let mut _candlerange_79: f64;
+                        let _candlerange_79: f64;
                         match 1 {
                             0 => {
                                 _candlerange_79 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -6068,11 +5950,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_79;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_80: f64;
+                        let _candlerange_80: f64;
                         match 1 {
                             0 => {
                                 _candlerange_80 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6088,7 +5969,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_80;
-                        let mut _candlerange_81: f64;
+                        let _candlerange_81: f64;
                         match 1 {
                             0 => {
                                 _candlerange_81 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6117,7 +5998,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_82: f64;
+                        let _candlerange_82: f64;
                         match 0 {
                             0 => {
                                 _candlerange_82 = (_w0[_wk] - _w3[_wk]).abs();
@@ -6133,11 +6014,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_82;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_83: f64;
+                        let _candlerange_83: f64;
                         match 0 {
                             0 => {
                                 _candlerange_83 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6167,7 +6047,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_84: f64;
+            let _candlerange_84: f64;
             match 2 {
                 0 => {
                     _candlerange_84 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6183,7 +6063,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_84;
-            let mut _candlerange_85: f64;
+            let _candlerange_85: f64;
             match 2 {
                 0 => {
                     _candlerange_85 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -6199,7 +6079,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_85;
-            let mut _candlerange_86: f64;
+            let _candlerange_86: f64;
             match 2 {
                 0 => {
                     _candlerange_86 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6215,7 +6095,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_86;
-            let mut _candlerange_87: f64;
+            let _candlerange_87: f64;
             match 2 {
                 0 => {
                     _candlerange_87 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -6231,7 +6111,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_87;
-            let mut _candlerange_88: f64;
+            let _candlerange_88: f64;
             match 0 {
                 0 => {
                     _candlerange_88 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6247,7 +6127,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_88;
-            let mut _candlerange_89: f64;
+            let _candlerange_89: f64;
             match 0 {
                 0 => {
                     _candlerange_89 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -6263,7 +6143,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_89;
-            let mut _candlerange_90: f64;
+            let _candlerange_90: f64;
             match 1 {
                 0 => {
                     _candlerange_90 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6279,7 +6159,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_90;
-            let mut _candlerange_91: f64;
+            let _candlerange_91: f64;
             match 1 {
                 0 => {
                     _candlerange_91 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -6295,7 +6175,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_91;
-            let mut _candlerange_92: f64;
+            let _candlerange_92: f64;
             match 1 {
                 0 => {
                     _candlerange_92 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -6311,7 +6191,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_92;
-            let mut _candlerange_93: f64;
+            let _candlerange_93: f64;
             match 1 {
                 0 => {
                     _candlerange_93 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -6355,19 +6235,19 @@ impl Core {
                     let _w22 = &_w22[.._wn];
                     let _w23 = &_w23[.._wn + 2];
                     for _wk in 0.._wn {
-                        if ((u32::from((_w5[_wk] >= _w23[_wk])) +        // 1st white
-                            u32::from((_w5[_wk + 1] >= _w23[_wk + 1])) + // 2nd white
-                            u32::from((_w5[_wk + 2] >= _w23[_wk + 2]))) == 3) { // 3rd white
+                        if ((u32::from(_w5[_wk] >= _w23[_wk]) +        // 1st white
+                            u32::from(_w5[_wk + 1] >= _w23[_wk + 1]) + // 2nd white
+                            u32::from(_w5[_wk + 2] >= _w23[_wk + 2])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -6375,7 +6255,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_94: f64;
+                        let _candlerange_94: f64;
                         match 2 {
                             0 => {
                                 _candlerange_94 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -6391,7 +6271,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_94;
-                        let mut _candlerange_95: f64;
+                        let _candlerange_95: f64;
                         match 2 {
                             0 => {
                                 _candlerange_95 = (_w4[_wk] - _w22[_wk]).abs();
@@ -6414,7 +6294,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_96: f64;
+                        let _candlerange_96: f64;
                         match 0 {
                             0 => {
                                 _candlerange_96 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -6430,7 +6310,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_96;
-                        let mut _candlerange_97: f64;
+                        let _candlerange_97: f64;
                         match 0 {
                             0 => {
                                 _candlerange_97 = (_w3[_wk] - _w21[_wk]).abs();
@@ -6450,7 +6330,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_98: f64;
+                        let _candlerange_98: f64;
                         match 1 {
                             0 => {
                                 _candlerange_98 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -6466,7 +6346,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_98;
-                        let mut _candlerange_99: f64;
+                        let _candlerange_99: f64;
                         match 1 {
                             0 => {
                                 _candlerange_99 = (_w1[_wk] - _w19[_wk]).abs();
@@ -6486,7 +6366,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_100: f64;
+                        let _candlerange_100: f64;
                         match 1 {
                             0 => {
                                 _candlerange_100 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -6502,7 +6382,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_100;
-                        let mut _candlerange_101: f64;
+                        let _candlerange_101: f64;
                         match 1 {
                             0 => {
                                 _candlerange_101 = (_w2[_wk] - _w20[_wk]).abs();
@@ -6522,7 +6402,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -6532,19 +6412,19 @@ impl Core {
                     }
                 } else {
                     loop {
-                        if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                            u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                            u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                        if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                            u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                            u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -6552,7 +6432,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_102: f64;
+                        let _candlerange_102: f64;
                         match 2 {
                             0 => {
                                 _candlerange_102 = (inClose[i] - inOpen[i]).abs();
@@ -6568,7 +6448,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_102;
-                        let mut _candlerange_103: f64;
+                        let _candlerange_103: f64;
                         match 2 {
                             0 => {
                                 _candlerange_103 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -6591,7 +6471,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_104: f64;
+                        let _candlerange_104: f64;
                         match 0 {
                             0 => {
                                 _candlerange_104 = (inClose[i] - inOpen[i]).abs();
@@ -6607,7 +6487,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_104;
-                        let mut _candlerange_105: f64;
+                        let _candlerange_105: f64;
                         match 0 {
                             0 => {
                                 _candlerange_105 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -6627,7 +6507,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_106: f64;
+                        let _candlerange_106: f64;
                         match 1 {
                             0 => {
                                 _candlerange_106 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6643,7 +6523,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_106;
-                        let mut _candlerange_107: f64;
+                        let _candlerange_107: f64;
                         match 1 {
                             0 => {
                                 _candlerange_107 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -6663,7 +6543,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_108: f64;
+                        let _candlerange_108: f64;
                         match 1 {
                             0 => {
                                 _candlerange_108 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6679,7 +6559,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_108;
-                        let mut _candlerange_109: f64;
+                        let _candlerange_109: f64;
                         match 1 {
                             0 => {
                                 _candlerange_109 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -6699,7 +6579,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -6711,19 +6591,19 @@ impl Core {
                 }
             } else {
                 loop {
-                    if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                        u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                        u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                    if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                        u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                        u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                         outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                             (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                            (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                            (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match 1 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (1) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                            (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                            (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match 1 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 1 == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                             (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (2) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (0) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match 2 { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if 2 == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match 0 { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if 0 == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                         outIdx += 1;
                     } else {
                         outInteger[outIdx] = 0;
@@ -6731,7 +6611,7 @@ impl Core {
                     }
                     // add the current range and subtract the first range: this is done after the pattern recognition
                     // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                    let mut _candlerange_110: f64;
+                    let _candlerange_110: f64;
                     match 2 {
                         0 => {
                             _candlerange_110 = (inClose[i] - inOpen[i]).abs();
@@ -6747,7 +6627,7 @@ impl Core {
                         }
                     }
                     ShadowShortPeriodTotalRange0 = _candlerange_110;
-                    let mut _candlerange_111: f64;
+                    let _candlerange_111: f64;
                     match 2 {
                         0 => {
                             _candlerange_111 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -6770,7 +6650,7 @@ impl Core {
                     ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                     ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                     ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                    let mut _candlerange_112: f64;
+                    let _candlerange_112: f64;
                     match 0 {
                         0 => {
                             _candlerange_112 = (inClose[i] - inOpen[i]).abs();
@@ -6786,7 +6666,7 @@ impl Core {
                         }
                     }
                     ShadowLongPeriodTotalRange0 = _candlerange_112;
-                    let mut _candlerange_113: f64;
+                    let _candlerange_113: f64;
                     match 0 {
                         0 => {
                             _candlerange_113 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -6806,7 +6686,7 @@ impl Core {
                     ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                     ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                     ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                    let mut _candlerange_114: f64;
+                    let _candlerange_114: f64;
                     match 1 {
                         0 => {
                             _candlerange_114 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6822,7 +6702,7 @@ impl Core {
                         }
                     }
                     FarPeriodTotalRange1 = _candlerange_114;
-                    let mut _candlerange_115: f64;
+                    let _candlerange_115: f64;
                     match 1 {
                         0 => {
                             _candlerange_115 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -6842,7 +6722,7 @@ impl Core {
                     FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                     FarPeriodTotalRange2 = FarPeriodTotalRange1;
                     FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                    let mut _candlerange_116: f64;
+                    let _candlerange_116: f64;
                     match 1 {
                         0 => {
                             _candlerange_116 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -6858,7 +6738,7 @@ impl Core {
                         }
                     }
                     NearPeriodTotalRange1 = _candlerange_116;
-                    let mut _candlerange_117: f64;
+                    let _candlerange_117: f64;
                     match 1 {
                         0 => {
                             _candlerange_117 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -6878,7 +6758,7 @@ impl Core {
                     NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                     NearPeriodTotalRange2 = NearPeriodTotalRange1;
                     NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                    BodyLongPeriodTotal += (match 0 { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                    BodyLongPeriodTotal += match 0 { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                     i += 1;
                     ShadowShortTrailingIdx += 1;
                     ShadowLongTrailingIdx += 1;
@@ -6889,8 +6769,8 @@ impl Core {
                 }
             }
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let capLag_BodyLongTrailingIdx: i64 = (i as i64) - (BodyLongTrailingIdx as i64);
@@ -6903,7 +6783,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = (match BodyLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = match BodyLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -6917,7 +6797,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_FarTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = (match Far_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = match Far_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -6931,7 +6811,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = (match Near_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = match Near_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -6944,7 +6824,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = (match ShadowLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = match ShadowLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -6957,7 +6837,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowShortTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = (match ShadowShort_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = match ShadowShort_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -7012,20 +6892,20 @@ impl Core {
             ShadowShortPeriodTotal[2] = 0.0;
             ShadowShortPeriodTotal[1] = 0.0;
             ShadowShortPeriodTotal[0] = 0.0;
-            ShadowShortTrailingIdx = startIdx - ((ShadowShort_avgPeriod) as usize);
+            ShadowShortTrailingIdx = startIdx - (ShadowShort_avgPeriod as usize);
             ShadowLongPeriodTotal[1] = 0.0;
             ShadowLongPeriodTotal[0] = 0.0;
-            ShadowLongTrailingIdx = startIdx - ((ShadowLong_avgPeriod) as usize);
+            ShadowLongTrailingIdx = startIdx - (ShadowLong_avgPeriod as usize);
             NearPeriodTotal[2] = 0.0;
             NearPeriodTotal[1] = 0.0;
             NearPeriodTotal[0] = 0.0;
-            NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
+            NearTrailingIdx = startIdx - (Near_avgPeriod as usize);
             FarPeriodTotal[2] = 0.0;
             FarPeriodTotal[1] = 0.0;
             FarPeriodTotal[0] = 0.0;
-            FarTrailingIdx = startIdx - ((Far_avgPeriod) as usize);
+            FarTrailingIdx = startIdx - (Far_avgPeriod as usize);
             BodyLongPeriodTotal = 0.0;
-            BodyLongTrailingIdx = startIdx - ((BodyLong_avgPeriod) as usize);
+            BodyLongTrailingIdx = startIdx - (BodyLong_avgPeriod as usize);
             i = ShadowShortTrailingIdx;
             if i < startIdx {
                 let _wn: usize = startIdx - i;
@@ -7035,7 +6915,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 2];
                     let _w3 = &_w3[.._wn + 2];
                     for _wk in 0.._wn {
-                        let mut _candlerange_64: f64;
+                        let _candlerange_64: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_64 = (_w0[_wk] - _w3[_wk]).abs();
@@ -7051,7 +6931,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_64;
-                        let mut _candlerange_65: f64;
+                        let _candlerange_65: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_65 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -7067,7 +6947,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_65;
-                        let mut _candlerange_66: f64;
+                        let _candlerange_66: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_66 = (_w0[_wk + 2] - _w3[_wk + 2]).abs();
@@ -7083,11 +6963,10 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + _candlerange_66;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_67: f64;
+                        let _candlerange_67: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_67 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7103,7 +6982,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + _candlerange_67;
-                        let mut _candlerange_68: f64;
+                        let _candlerange_68: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_68 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7119,7 +6998,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + _candlerange_68;
-                        let mut _candlerange_69: f64;
+                        let _candlerange_69: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_69 = (inClose[i] - inOpen[i]).abs();
@@ -7148,7 +7027,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_70: f64;
+                        let _candlerange_70: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_70 = (_w0[_wk] - _w3[_wk]).abs();
@@ -7164,7 +7043,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_70;
-                        let mut _candlerange_71: f64;
+                        let _candlerange_71: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_71 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -7180,11 +7059,10 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + _candlerange_71;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_72: f64;
+                        let _candlerange_72: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_72 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7200,7 +7078,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + _candlerange_72;
-                        let mut _candlerange_73: f64;
+                        let _candlerange_73: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_73 = (inClose[i] - inOpen[i]).abs();
@@ -7229,7 +7107,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_74: f64;
+                        let _candlerange_74: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_74 = (_w0[_wk] - _w3[_wk]).abs();
@@ -7245,7 +7123,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_74;
-                        let mut _candlerange_75: f64;
+                        let _candlerange_75: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_75 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -7261,11 +7139,10 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[1] = NearPeriodTotal[1] + _candlerange_75;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_76: f64;
+                        let _candlerange_76: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_76 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7281,7 +7158,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_76;
-                        let mut _candlerange_77: f64;
+                        let _candlerange_77: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_77 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7310,7 +7187,7 @@ impl Core {
                     let _w2 = &_w2[.._wn + 1];
                     let _w3 = &_w3[.._wn + 1];
                     for _wk in 0.._wn {
-                        let mut _candlerange_78: f64;
+                        let _candlerange_78: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_78 = (_w0[_wk] - _w3[_wk]).abs();
@@ -7326,7 +7203,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_78;
-                        let mut _candlerange_79: f64;
+                        let _candlerange_79: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_79 = (_w0[_wk + 1] - _w3[_wk + 1]).abs();
@@ -7342,11 +7219,10 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[1] = FarPeriodTotal[1] + _candlerange_79;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_80: f64;
+                        let _candlerange_80: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_80 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7362,7 +7238,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotal[2] = FarPeriodTotal[2] + _candlerange_80;
-                        let mut _candlerange_81: f64;
+                        let _candlerange_81: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_81 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7391,7 +7267,7 @@ impl Core {
                     let _w2 = &_w2[.._wn];
                     let _w3 = &_w3[.._wn];
                     for _wk in 0.._wn {
-                        let mut _candlerange_82: f64;
+                        let _candlerange_82: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_82 = (_w0[_wk] - _w3[_wk]).abs();
@@ -7407,11 +7283,10 @@ impl Core {
                             }
                         }
                         BodyLongPeriodTotal += _candlerange_82;
-                        i += 1;
                     }
                 } else {
                     while i < startIdx {
-                        let mut _candlerange_83: f64;
+                        let _candlerange_83: f64;
                         match BodyLong_rangeType {
                             0 => {
                                 _candlerange_83 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7441,7 +7316,7 @@ impl Core {
             // and/or relatively long upper shadows; see below for specific conditions
             // The meanings of "long body", "short shadow", "far" and "near" are specified with TA_SetCandleSettings
             outIdx = 0;
-            let mut _candlerange_84: f64;
+            let _candlerange_84: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_84 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7457,7 +7332,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange1 = _candlerange_84;
-            let mut _candlerange_85: f64;
+            let _candlerange_85: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_85 = (inClose[ShadowShortTrailingIdx - 1] - inOpen[ShadowShortTrailingIdx - 1]).abs();
@@ -7473,7 +7348,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange1 = _candlerange_85;
-            let mut _candlerange_86: f64;
+            let _candlerange_86: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_86 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7489,7 +7364,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalRange2 = _candlerange_86;
-            let mut _candlerange_87: f64;
+            let _candlerange_87: f64;
             match ShadowShort_rangeType {
                 0 => {
                     _candlerange_87 = (inClose[ShadowShortTrailingIdx - 2] - inOpen[ShadowShortTrailingIdx - 2]).abs();
@@ -7505,7 +7380,7 @@ impl Core {
                 }
             }
             ShadowShortPeriodTotalTrailRange2 = _candlerange_87;
-            let mut _candlerange_88: f64;
+            let _candlerange_88: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_88 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7521,7 +7396,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalRange1 = _candlerange_88;
-            let mut _candlerange_89: f64;
+            let _candlerange_89: f64;
             match ShadowLong_rangeType {
                 0 => {
                     _candlerange_89 = (inClose[ShadowLongTrailingIdx - 1] - inOpen[ShadowLongTrailingIdx - 1]).abs();
@@ -7537,7 +7412,7 @@ impl Core {
                 }
             }
             ShadowLongPeriodTotalTrailRange1 = _candlerange_89;
-            let mut _candlerange_90: f64;
+            let _candlerange_90: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_90 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7553,7 +7428,7 @@ impl Core {
                 }
             }
             FarPeriodTotalRange2 = _candlerange_90;
-            let mut _candlerange_91: f64;
+            let _candlerange_91: f64;
             match Far_rangeType {
                 0 => {
                     _candlerange_91 = (inClose[FarTrailingIdx - 2] - inOpen[FarTrailingIdx - 2]).abs();
@@ -7569,7 +7444,7 @@ impl Core {
                 }
             }
             FarPeriodTotalTrailRange2 = _candlerange_91;
-            let mut _candlerange_92: f64;
+            let _candlerange_92: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_92 = (inClose[i - 2] - inOpen[i - 2]).abs();
@@ -7585,7 +7460,7 @@ impl Core {
                 }
             }
             NearPeriodTotalRange2 = _candlerange_92;
-            let mut _candlerange_93: f64;
+            let _candlerange_93: f64;
             match Near_rangeType {
                 0 => {
                     _candlerange_93 = (inClose[NearTrailingIdx - 2] - inOpen[NearTrailingIdx - 2]).abs();
@@ -7629,19 +7504,19 @@ impl Core {
                     let _w22 = &_w22[.._wn];
                     let _w23 = &_w23[.._wn + 2];
                     for _wk in 0.._wn {
-                        if ((u32::from((_w5[_wk] >= _w23[_wk])) +        // 1st white
-                            u32::from((_w5[_wk + 1] >= _w23[_wk + 1])) + // 2nd white
-                            u32::from((_w5[_wk + 2] >= _w23[_wk + 2]))) == 3) { // 3rd white
+                        if ((u32::from(_w5[_wk] >= _w23[_wk]) +        // 1st white
+                            u32::from(_w5[_wk + 1] >= _w23[_wk + 1]) + // 2nd white
+                            u32::from(_w5[_wk + 2] >= _w23[_wk + 2])) == 3) { // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -7649,7 +7524,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_94: f64;
+                        let _candlerange_94: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_94 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -7665,7 +7540,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_94;
-                        let mut _candlerange_95: f64;
+                        let _candlerange_95: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_95 = (_w4[_wk] - _w22[_wk]).abs();
@@ -7688,7 +7563,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_96: f64;
+                        let _candlerange_96: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_96 = (_w5[_wk + 2] - _w23[_wk + 2]).abs();
@@ -7704,7 +7579,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_96;
-                        let mut _candlerange_97: f64;
+                        let _candlerange_97: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_97 = (_w3[_wk] - _w21[_wk]).abs();
@@ -7724,7 +7599,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_98: f64;
+                        let _candlerange_98: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_98 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -7740,7 +7615,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_98;
-                        let mut _candlerange_99: f64;
+                        let _candlerange_99: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_99 = (_w1[_wk] - _w19[_wk]).abs();
@@ -7760,7 +7635,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_100: f64;
+                        let _candlerange_100: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_100 = (_w5[_wk + 1] - _w23[_wk + 1]).abs();
@@ -7776,7 +7651,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_100;
-                        let mut _candlerange_101: f64;
+                        let _candlerange_101: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_101 = (_w2[_wk] - _w20[_wk]).abs();
@@ -7796,7 +7671,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((_w5[_wk]) - (_w23[_wk])).abs()) - (((_w0[_wk]) - (_w18[_wk])).abs()), 1 => ((_w11[_wk]) - (_w17[_wk])) - ((_w6[_wk]) - (_w12[_wk])), 2 => (((_w11[_wk]) - c_color_max!((_w5[_wk]), (_w23[_wk]))) + (c_color_min!((_w5[_wk]), (_w23[_wk])) - (_w17[_wk]))) - (((_w6[_wk]) - c_color_max!((_w0[_wk]), (_w18[_wk]))) + (c_color_min!((_w0[_wk]), (_w18[_wk])) - (_w12[_wk]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((_w5[_wk] - _w23[_wk]).abs()) - ((_w0[_wk] - _w18[_wk]).abs()), 1 => (_w11[_wk] - _w17[_wk]) - (_w6[_wk] - _w12[_wk]), 2 => ((_w11[_wk] - c_color_max!(_w5[_wk], _w23[_wk])) + (c_color_min!(_w5[_wk], _w23[_wk]) - _w17[_wk])) - ((_w6[_wk] - c_color_max!(_w0[_wk], _w18[_wk])) + (c_color_min!(_w0[_wk], _w18[_wk]) - _w12[_wk])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -7806,19 +7681,19 @@ impl Core {
                     }
                 } else {
                     loop {
-                        if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                            u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                            u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                        if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                            u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                            u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                             outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                                 (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                                (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                                (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                                (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                                (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                                ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                                ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                                ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                                 (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                                ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                                ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                             outIdx += 1;
                         } else {
                             outInteger[outIdx] = 0;
@@ -7826,7 +7701,7 @@ impl Core {
                         }
                         // add the current range and subtract the first range: this is done after the pattern recognition
                         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                        let mut _candlerange_102: f64;
+                        let _candlerange_102: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_102 = (inClose[i] - inOpen[i]).abs();
@@ -7842,7 +7717,7 @@ impl Core {
                             }
                         }
                         ShadowShortPeriodTotalRange0 = _candlerange_102;
-                        let mut _candlerange_103: f64;
+                        let _candlerange_103: f64;
                         match ShadowShort_rangeType {
                             0 => {
                                 _candlerange_103 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -7865,7 +7740,7 @@ impl Core {
                         ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                         ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                         ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                        let mut _candlerange_104: f64;
+                        let _candlerange_104: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_104 = (inClose[i] - inOpen[i]).abs();
@@ -7881,7 +7756,7 @@ impl Core {
                             }
                         }
                         ShadowLongPeriodTotalRange0 = _candlerange_104;
-                        let mut _candlerange_105: f64;
+                        let _candlerange_105: f64;
                         match ShadowLong_rangeType {
                             0 => {
                                 _candlerange_105 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -7901,7 +7776,7 @@ impl Core {
                         ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                         ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                         ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                        let mut _candlerange_106: f64;
+                        let _candlerange_106: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_106 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7917,7 +7792,7 @@ impl Core {
                             }
                         }
                         FarPeriodTotalRange1 = _candlerange_106;
-                        let mut _candlerange_107: f64;
+                        let _candlerange_107: f64;
                         match Far_rangeType {
                             0 => {
                                 _candlerange_107 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -7937,7 +7812,7 @@ impl Core {
                         FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                         FarPeriodTotalRange2 = FarPeriodTotalRange1;
                         FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                        let mut _candlerange_108: f64;
+                        let _candlerange_108: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_108 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -7953,7 +7828,7 @@ impl Core {
                             }
                         }
                         NearPeriodTotalRange1 = _candlerange_108;
-                        let mut _candlerange_109: f64;
+                        let _candlerange_109: f64;
                         match Near_rangeType {
                             0 => {
                                 _candlerange_109 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -7973,7 +7848,7 @@ impl Core {
                         NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                         NearPeriodTotalRange2 = NearPeriodTotalRange1;
                         NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                        BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                        BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                         i += 1;
                         ShadowShortTrailingIdx += 1;
                         ShadowLongTrailingIdx += 1;
@@ -7985,19 +7860,19 @@ impl Core {
                 }
             } else {
                 loop {
-                    if ((u32::from((inClose[i - 2] >= inOpen[i - 2])) + // 1st white
-                        u32::from((inClose[i - 1] >= inOpen[i - 1])) +  // 2nd white
-                        u32::from((inClose[i] >= inOpen[i]))) == 3) {   // 3rd white
+                    if ((u32::from(inClose[i - 2] >= inOpen[i - 2]) + // 1st white
+                        u32::from(inClose[i - 1] >= inOpen[i - 1]) +  // 2nd white
+                        u32::from(inClose[i] >= inOpen[i])) == 3) {   // 3rd white
                         outInteger[outIdx] = std::hint::select_unpredictable(((inClose[i] > inClose[i - 1]) & (inClose[i - 1] > inClose[i - 2]) & // consecutive higher closes
                             (inOpen[i - 1] > inOpen[i - 2]) & // 2nd opens within/near 1st real body
-                            (inOpen[i - 1] <= inClose[i - 2] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
-                            (inOpen[i] <= inClose[i - 1] + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
-                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
-                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
+                            (inOpen[i - 1] <= inClose[i - 2] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & (inOpen[i] > inOpen[i - 1]) & // 3rd opens within/near 2nd real body
+                            (inOpen[i] <= inClose[i - 1] + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 }))) & ((inClose[i - 2] - inOpen[i - 2]).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: long real body
+                            ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) & // 1st: short upper shadow
+                            ((((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => inHigh[i - 2] - inLow[i - 2], 2 => (inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) & // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                            ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() + (Near_factor * (if Near_avgPeriod != 0 { NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })))) | ((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs() - (Far_factor * (if Far_avgPeriod != 0 { FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 }))) | // 3 far smaller than 2 advance blocked with the 3rd
                             (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
-                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - c_color_max!((inClose[i - 1]), (inOpen[i - 1]))) + (c_color_min!((inClose[i - 1]), (inOpen[i - 1])) - (inLow[i - 1])), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose[i]) - (inOpen[i])).abs(), 1 => (inHigh[i]) - (inLow[i]), 2 => ((inHigh[i]) - c_color_max!((inClose[i]), (inOpen[i]))) + (c_color_min!((inClose[i]), (inOpen[i])) - (inLow[i])), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))))), -100, 0);
+                            ((inClose[i - 1] - inOpen[i - 1]).abs() < (inClose[i - 2] - inOpen[i - 2]).abs()) & (((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) | ((inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => inHigh[i - 1] - inLow[i - 1], 2 => (inHigh[i - 1] - c_color_max!(inClose[i - 1], inOpen[i - 1])) + (c_color_min!(inClose[i - 1], inOpen[i - 1]) - inLow[i - 1]), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))))) | (((inClose[i] - inOpen[i]).abs() < (inClose[i - 1] - inOpen[i - 1]).abs()) & // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
+                            ((inHigh[i] - c_color_max!(inClose[i], inOpen[i])) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose[i] - inOpen[i]).abs(), 1 => inHigh[i] - inLow[i], 2 => (inHigh[i] - c_color_max!(inClose[i], inOpen[i])) + (c_color_min!(inClose[i], inOpen[i]) - inLow[i]), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))))), -100, 0);
                         outIdx += 1;
                     } else {
                         outInteger[outIdx] = 0;
@@ -8005,7 +7880,7 @@ impl Core {
                     }
                     // add the current range and subtract the first range: this is done after the pattern recognition
                     // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-                    let mut _candlerange_110: f64;
+                    let _candlerange_110: f64;
                     match ShadowShort_rangeType {
                         0 => {
                             _candlerange_110 = (inClose[i] - inOpen[i]).abs();
@@ -8021,7 +7896,7 @@ impl Core {
                         }
                     }
                     ShadowShortPeriodTotalRange0 = _candlerange_110;
-                    let mut _candlerange_111: f64;
+                    let _candlerange_111: f64;
                     match ShadowShort_rangeType {
                         0 => {
                             _candlerange_111 = (inClose[ShadowShortTrailingIdx] - inOpen[ShadowShortTrailingIdx]).abs();
@@ -8044,7 +7919,7 @@ impl Core {
                     ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1;
                     ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0;
                     ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0;
-                    let mut _candlerange_112: f64;
+                    let _candlerange_112: f64;
                     match ShadowLong_rangeType {
                         0 => {
                             _candlerange_112 = (inClose[i] - inOpen[i]).abs();
@@ -8060,7 +7935,7 @@ impl Core {
                         }
                     }
                     ShadowLongPeriodTotalRange0 = _candlerange_112;
-                    let mut _candlerange_113: f64;
+                    let _candlerange_113: f64;
                     match ShadowLong_rangeType {
                         0 => {
                             _candlerange_113 = (inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]).abs();
@@ -8080,7 +7955,7 @@ impl Core {
                     ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0);
                     ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0;
                     ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0;
-                    let mut _candlerange_114: f64;
+                    let _candlerange_114: f64;
                     match Far_rangeType {
                         0 => {
                             _candlerange_114 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -8096,7 +7971,7 @@ impl Core {
                         }
                     }
                     FarPeriodTotalRange1 = _candlerange_114;
-                    let mut _candlerange_115: f64;
+                    let _candlerange_115: f64;
                     match Far_rangeType {
                         0 => {
                             _candlerange_115 = (inClose[FarTrailingIdx - 1] - inOpen[FarTrailingIdx - 1]).abs();
@@ -8116,7 +7991,7 @@ impl Core {
                     FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1);
                     FarPeriodTotalRange2 = FarPeriodTotalRange1;
                     FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1;
-                    let mut _candlerange_116: f64;
+                    let _candlerange_116: f64;
                     match Near_rangeType {
                         0 => {
                             _candlerange_116 = (inClose[i - 1] - inOpen[i - 1]).abs();
@@ -8132,7 +8007,7 @@ impl Core {
                         }
                     }
                     NearPeriodTotalRange1 = _candlerange_116;
-                    let mut _candlerange_117: f64;
+                    let _candlerange_117: f64;
                     match Near_rangeType {
                         0 => {
                             _candlerange_117 = (inClose[NearTrailingIdx - 1] - inOpen[NearTrailingIdx - 1]).abs();
@@ -8152,7 +8027,7 @@ impl Core {
                     NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1);
                     NearPeriodTotalRange2 = NearPeriodTotalRange1;
                     NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1;
-                    BodyLongPeriodTotal += (match BodyLong_rangeType { 0 => (((inClose[i - 2]) - (inOpen[i - 2])).abs()) - (((inClose[BodyLongTrailingIdx - 2]) - (inOpen[BodyLongTrailingIdx - 2])).abs()), 1 => ((inHigh[i - 2]) - (inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2]) - (inLow[BodyLongTrailingIdx - 2])), 2 => (((inHigh[i - 2]) - c_color_max!((inClose[i - 2]), (inOpen[i - 2]))) + (c_color_min!((inClose[i - 2]), (inOpen[i - 2])) - (inLow[i - 2]))) - (((inHigh[BodyLongTrailingIdx - 2]) - c_color_max!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2]))) + (c_color_min!((inClose[BodyLongTrailingIdx - 2]), (inOpen[BodyLongTrailingIdx - 2])) - (inLow[BodyLongTrailingIdx - 2]))), _ => 0.0 });
+                    BodyLongPeriodTotal += match BodyLong_rangeType { 0 => ((inClose[i - 2] - inOpen[i - 2]).abs()) - ((inClose[BodyLongTrailingIdx - 2] - inOpen[BodyLongTrailingIdx - 2]).abs()), 1 => (inHigh[i - 2] - inLow[i - 2]) - (inHigh[BodyLongTrailingIdx - 2] - inLow[BodyLongTrailingIdx - 2]), 2 => ((inHigh[i - 2] - c_color_max!(inClose[i - 2], inOpen[i - 2])) + (c_color_min!(inClose[i - 2], inOpen[i - 2]) - inLow[i - 2])) - ((inHigh[BodyLongTrailingIdx - 2] - c_color_max!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2])) + (c_color_min!(inClose[BodyLongTrailingIdx - 2], inOpen[BodyLongTrailingIdx - 2]) - inLow[BodyLongTrailingIdx - 2])), _ => 0.0 };
                     i += 1;
                     ShadowShortTrailingIdx += 1;
                     ShadowLongTrailingIdx += 1;
@@ -8163,8 +8038,8 @@ impl Core {
                 }
             }
             // All done. Indicate the output limits and return.
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let capLag_BodyLongTrailingIdx: i64 = (i as i64) - (BodyLongTrailingIdx as i64);
@@ -8177,7 +8052,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = (match BodyLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = match BodyLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -8191,7 +8066,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_FarTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = (match Far_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_FarTrailingIdx_derived[fillJ % cap_FarTrailingIdx as usize] = match Far_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -8205,7 +8080,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = (match Near_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = match Near_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -8218,7 +8093,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowLongTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = (match ShadowLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowLongTrailingIdx_derived[fillJ - (historyLen - cap_ShadowLongTrailingIdx as usize)] = match ShadowLong_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -8231,7 +8106,7 @@ impl Core {
             {
                 let mut fillJ: usize = historyLen - cap_ShadowShortTrailingIdx as usize;
                 while fillJ < historyLen {
-                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = (match ShadowShort_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - c_color_max!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize]))) + (c_color_min!((inClose[(fillJ) as usize]), (inOpen[(fillJ) as usize])) - (inLow[(fillJ) as usize])), _ => 0.0 });
+                    ring_ShadowShortTrailingIdx_derived[fillJ - (historyLen - cap_ShadowShortTrailingIdx as usize)] = match ShadowShort_rangeType { 0 => (inClose[fillJ] - inOpen[fillJ]).abs(), 1 => inHigh[fillJ] - inLow[fillJ], 2 => (inHigh[fillJ] - c_color_max!(inClose[fillJ], inOpen[fillJ])) + (c_color_min!(inClose[fillJ], inOpen[fillJ]) - inLow[fillJ]), _ => 0.0 };
                     fillJ += 1;
                 }
             }
@@ -8307,12 +8182,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -8345,12 +8224,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -8456,35 +8339,20 @@ impl CdladvanceblockStream {
         {
             let sp = &self.state;
             let outInteger = &mut outInteger;
-            #[allow(non_snake_case)]
             let BodyLong_rangeType: i32 = self.cs_body_long.range_type as i32;
-            #[allow(non_snake_case)]
             let BodyLong_avgPeriod: i32 = self.cs_body_long.avg_period;
-            #[allow(non_snake_case)]
             let BodyLong_factor: f64 = self.cs_body_long.factor;
-            #[allow(non_snake_case)]
             let Far_rangeType: i32 = self.cs_far.range_type as i32;
-            #[allow(non_snake_case)]
             let Far_avgPeriod: i32 = self.cs_far.avg_period;
-            #[allow(non_snake_case)]
             let Far_factor: f64 = self.cs_far.factor;
-            #[allow(non_snake_case)]
             let Near_rangeType: i32 = self.cs_near.range_type as i32;
-            #[allow(non_snake_case)]
             let Near_avgPeriod: i32 = self.cs_near.avg_period;
-            #[allow(non_snake_case)]
             let Near_factor: f64 = self.cs_near.factor;
-            #[allow(non_snake_case)]
             let ShadowLong_rangeType: i32 = self.cs_shadow_long.range_type as i32;
-            #[allow(non_snake_case)]
             let ShadowLong_avgPeriod: i32 = self.cs_shadow_long.avg_period;
-            #[allow(non_snake_case)]
             let ShadowLong_factor: f64 = self.cs_shadow_long.factor;
-            #[allow(non_snake_case)]
             let ShadowShort_rangeType: i32 = self.cs_shadow_short.range_type as i32;
-            #[allow(non_snake_case)]
             let ShadowShort_avgPeriod: i32 = self.cs_shadow_short.avg_period;
-            #[allow(non_snake_case)]
             let ShadowShort_factor: f64 = self.cs_shadow_short.factor;
             if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { -1 }) == 1 && // 1st white
                (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { -1 }) == 1 && // 2nd white
@@ -8493,27 +8361,27 @@ impl CdladvanceblockStream {
                 if inClose > sp.lag1_inClose &&
                    sp.lag1_inClose > sp.lag2_inClose &&                                    // consecutive higher closes
                    sp.lag1_inOpen > sp.lag2_inOpen &&                                      // 2nd opens within/near 1st real body
-                   sp.lag1_inOpen <= sp.lag2_inClose + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) &&
+                   sp.lag1_inOpen <= sp.lag2_inClose + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[2] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) &&
                    inOpen > sp.lag1_inOpen &&                                              // 3rd opens within/near 2nd real body
-                   inOpen <= sp.lag1_inClose + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) &&
-                   (sp.lag2_inClose - sp.lag2_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (BodyLong_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st: long real body
-                   (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) < ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[2]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) && // 1st: short upper shadow
-                   ((sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (sp.FarPeriodTotal[2]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 })) && // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
-                     (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[1]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Near_rangeType) == 2 { 0.5 } else { 1.0 })) ||
-                    (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() - ((Far_factor) * (if (Far_avgPeriod) != 0 { (sp.FarPeriodTotal[1]) / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (Far_rangeType) == 2 { 0.5 } else { 1.0 })) || // 3 far smaller than 2 advance blocked with the 3rd
+                   inOpen <= sp.lag1_inClose + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) &&
+                   (sp.lag2_inClose - sp.lag2_inOpen).abs() > (BodyLong_factor * (if BodyLong_avgPeriod != 0 { sp.BodyLongPeriodTotal / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if BodyLong_rangeType == 2 { 0.5 } else { 1.0 })) && // 1st: long real body
+                   (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) < (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[2] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 })) && // 1st: short upper shadow
+                   ((sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() - (Far_factor * (if Far_avgPeriod != 0 { sp.FarPeriodTotal[2] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => sp.lag2_inHigh - sp.lag2_inLow, 2 => (sp.lag2_inHigh - (if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inClose } else { sp.lag2_inOpen })) + ((if sp.lag2_inClose >= sp.lag2_inOpen { sp.lag2_inOpen } else { sp.lag2_inClose }) - sp.lag2_inLow), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 })) && // ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance
+                     (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() + (Near_factor * (if Near_avgPeriod != 0 { sp.NearPeriodTotal[1] / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Near_rangeType == 2 { 0.5 } else { 1.0 })) ||
+                    (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() - (Far_factor * (if Far_avgPeriod != 0 { sp.FarPeriodTotal[1] / (Far_avgPeriod as f64) } else { match Far_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if Far_rangeType == 2 { 0.5 } else { 1.0 })) || // 3 far smaller than 2 advance blocked with the 3rd
                     (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() && // ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows
                      (sp.lag1_inClose - sp.lag1_inOpen).abs() < (sp.lag2_inClose - sp.lag2_inOpen).abs() &&
-                     ((inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[0]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 })) ||
-                      (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) > ((ShadowShort_factor) * (if (ShadowShort_avgPeriod) != 0 { (sp.ShadowShortPeriodTotal[1]) / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) * (if (ShadowShort_rangeType) == 2 { 0.5 } else { 1.0 }))) ||
+                     ((inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[0] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (inClose - inOpen).abs(), 1 => inHigh - inLow, 2 => (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 })) ||
+                      (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) > (ShadowShort_factor * (if ShadowShort_avgPeriod != 0 { sp.ShadowShortPeriodTotal[1] / (ShadowShort_avgPeriod as f64) } else { match ShadowShort_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => sp.lag1_inHigh - sp.lag1_inLow, 2 => (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow), _ => 0.0 } }) * (if ShadowShort_rangeType == 2 { 0.5 } else { 1.0 }))) ||
                     (inClose - inOpen).abs() < (sp.lag1_inClose - sp.lag1_inOpen).abs() && // ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body
-                     (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (sp.ShadowLongPeriodTotal[0]) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) * (if (ShadowLong_rangeType) == 2 { 0.5 } else { 1.0 })))
+                     (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > (ShadowLong_factor * (if ShadowLong_avgPeriod != 0 { sp.ShadowLongPeriodTotal[0] / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => (inClose - inOpen).abs(), 1 => inHigh - inLow, 2 => (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow), _ => 0.0 } }) * (if ShadowLong_rangeType == 2 { 0.5 } else { 1.0 })))
                 {
-                    (*outInteger) = -100;
+                    *outInteger = -100;
                 } else {
-                    (*outInteger) = 0;
+                    *outInteger = 0;
                 }
             } else {
-                (*outInteger) = 0;
+                *outInteger = 0;
             }
         }
         Ok(outInteger)

@@ -89,6 +89,21 @@ func (c *Core) WADLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// WADDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.WAD]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.WAD], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) WADDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // WAD computes the Williams' Accumulation/Distribution over bars startIdx
 // through endIdx.
 //
@@ -120,7 +135,9 @@ func (c *Core) WADLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) WAD(startIdx, endIdx int, inHigh, inLow, inClose, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -194,11 +211,24 @@ func (sp *WADStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	wadStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var close_ float64
+	var trueExtreme float64
+	close_ = inClose
+	if close_ > sp.prevClose {
+		trueExtreme = inLow
+		trueExtreme = selF(sp.prevClose < trueExtreme, sp.prevClose, trueExtreme)
+		sp.sum += close_ - trueExtreme
+	} else if close_ < sp.prevClose {
+		trueExtreme = inHigh
+		trueExtreme = selF(sp.prevClose > trueExtreme, sp.prevClose, trueExtreme)
+		sp.sum += close_ - trueExtreme
+	}
+	sp.cur_outReal = sp.sum
+	sp.prevClose = close_
 	return sp.cur_outReal, nil
 }
 
@@ -206,7 +236,7 @@ func (sp *WADStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *WADStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var close_ float64
@@ -216,15 +246,11 @@ func (sp *WADStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 	close_ = inClose
 	if close_ > sp.prevClose {
 		trueExtreme = inLow
-		if sp.prevClose < trueExtreme {
-			trueExtreme = sp.prevClose
-		}
+		trueExtreme = selF(sp.prevClose < trueExtreme, sp.prevClose, trueExtreme)
 		sum += close_ - trueExtreme
 	} else if close_ < sp.prevClose {
 		trueExtreme = inHigh
-		if sp.prevClose > trueExtreme {
-			trueExtreme = sp.prevClose
-		}
+		trueExtreme = selF(sp.prevClose > trueExtreme, sp.prevClose, trueExtreme)
 		sum += close_ - trueExtreme
 	}
 	cur_outReal = sum
@@ -241,27 +267,6 @@ func (sp *WADStream) Value() float64 {
 func (sp *WADStream) Clone() *WADStream {
 	cl := *sp
 	return &cl
-}
-
-func wadStepImpl(sp *WADStream, inHigh, inLow, inClose float64) {
-	var close_ float64
-	var trueExtreme float64
-	close_ = inClose
-	if close_ > sp.prevClose {
-		trueExtreme = inLow
-		if sp.prevClose < trueExtreme {
-			trueExtreme = sp.prevClose
-		}
-		sp.sum += close_ - trueExtreme
-	} else if close_ < sp.prevClose {
-		trueExtreme = inHigh
-		if sp.prevClose > trueExtreme {
-			trueExtreme = sp.prevClose
-		}
-		sp.sum += close_ - trueExtreme
-	}
-	sp.cur_outReal = sp.sum
-	sp.prevClose = close_
 }
 
 func (c *Core) wadOpenImpl(sp *WADStream, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -343,7 +348,8 @@ func (c *Core) wadOpenInternal(inHigh, inLow, inClose []float64, startIdx int32)
 // inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.WADLookback] bars, and [BadParam] for histories of different lengths.
+// [Core.WADLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) WADOpen(inHigh, inLow, inClose []float64) (*WADStream, float64, error) {
 	sp, err := c.wadOpenInternal(inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -360,7 +366,8 @@ func (c *Core) WADOpen(inHigh, inLow, inClose []float64) (*WADStream, float64, e
 // no memory with an input or another output.
 //
 // The errors are those of [Core.WADOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) WADOpenAndFill(inHigh, inLow, inClose, outReal []float64) (*WADStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

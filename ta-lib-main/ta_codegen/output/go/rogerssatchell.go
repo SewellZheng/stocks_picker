@@ -70,6 +70,7 @@ func (c *Core) rogerssatchellImpl(startIdx, endIdx int32, inOpen, inHigh, inLow,
 	var nbInitialElementNeeded int32
 	var barsSinceRebuild int32
 	var termRing []float64
+	var local_termRing [32]float64
 	var termRing_Idx int32
 	var maxIdx_termRing int32
 	maxIdx_termRing = 31
@@ -101,7 +102,11 @@ func (c *Core) rogerssatchellImpl(startIdx, endIdx int32, inOpen, inHigh, inLow,
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	termRing = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 32 {
+		termRing = local_termRing[:optInTimePeriod]
+	} else {
+		termRing = make([]float64, optInTimePeriod)
+	}
 	maxIdx_termRing = optInTimePeriod - 1
 	termRing_Idx = 0
 	sqrtA = math.Sqrt(optInAnnualization)
@@ -145,13 +150,7 @@ func (c *Core) rogerssatchellImpl(startIdx, endIdx int32, inOpen, inHigh, inLow,
 		periodTotal += term
 		windowTotal = periodTotal
 		windowMagnitude = math.Abs(windowTotal)
-		var _T0 float64
-		if windowMagnitude > peakTotal {
-			_T0 = windowMagnitude
-		} else {
-			_T0 = peakTotal
-		}
-		peakTotal = _T0
+		peakTotal = selF(windowMagnitude > peakTotal, windowMagnitude, peakTotal)
 		termRing_Idx++
 		if termRing_Idx > maxIdx_termRing {
 			termRing_Idx = 0
@@ -204,6 +203,25 @@ func (c *Core) ROGERSSATCHELLLookback(optInTimePeriod int, optInAnnualization fl
 	return int(lookback), nil
 }
 
+// ROGERSSATCHELLDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.ROGERSSATCHELL]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ROGERSSATCHELL] followed by the output's
+// position among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ROGERSSATCHELLLookback] rejects or an index that names no output.
+func (c *Core) ROGERSSATCHELLDisplayShift(optInTimePeriod int, optInAnnualization float64, outputIdx int) (int, error) {
+	if _, err := c.ROGERSSATCHELLLookback(optInTimePeriod, optInAnnualization); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ROGERSSATCHELL computes the Rogers-Satchell Volatility over bars startIdx
 // through endIdx.
 //
@@ -241,7 +259,8 @@ func (c *Core) ROGERSSATCHELLLookback(optInTimePeriod int, optInAnnualization fl
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ROGERSSATCHELL(startIdx, endIdx int, inOpen, inHigh, inLow, inClose []float64, optInTimePeriod int, optInAnnualization float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -331,11 +350,68 @@ func (sp *ROGERSSATCHELLStream) Update(inOpen, inHigh, inLow, inClose float64) (
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	rogerssatchellStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var o float64
+	var h float64
+	var l float64
+	var c_ float64
+	var p1 float64
+	var p2 float64
+	var term float64
+	var windowTotal float64
+	var windowMagnitude float64
+	var j int32
+	var cb_termRing []float64
+	var optInTimePeriod int32
+	var termRing_Idx int32
+	o = inOpen
+	h = inHigh
+	l = inLow
+	c_ = inClose
+	if o > 0.0 && h > 0.0 && l > 0.0 && c_ > 0.0 {
+		p1 = float64(math.Log(h/c_) * math.Log(h/o))
+		p2 = float64(math.Log(l/c_) * math.Log(l/o))
+		term = p1 + p2
+	} else {
+		term = 0.0
+	}
+	sp.cb_termRing[sp.termRing_Idx] = term
+	sp.periodTotal += term
+	windowTotal = sp.periodTotal
+	windowMagnitude = math.Abs(windowTotal)
+	sp.peakTotal = selF(windowMagnitude > sp.peakTotal, windowMagnitude, sp.peakTotal)
+	sp.termRing_Idx = sp.termRing_Idx + 1
+	if sp.termRing_Idx > sp.maxIdx_termRing {
+		sp.termRing_Idx = 0
+	}
+	sp.periodTotal -= sp.cb_termRing[sp.termRing_Idx]
+	sp.barsSinceRebuild -= 1
+	if windowMagnitude < float64(1e-6*sp.peakTotal) || sp.barsSinceRebuild <= 0 {
+		sp.barsSinceRebuild = 32 * sp.optInTimePeriod
+		windowTotal = 0.0
+		cb_termRing = sp.cb_termRing
+		optInTimePeriod = sp.optInTimePeriod
+		termRing_Idx = sp.termRing_Idx
+		for j = termRing_Idx; j < optInTimePeriod; j += 1 {
+			windowTotal += cb_termRing[j]
+		}
+		cb_termRing = sp.cb_termRing
+		termRing_Idx = sp.termRing_Idx
+		for j = 0; j < termRing_Idx; j += 1 {
+			windowTotal += cb_termRing[j]
+		}
+		sp.peakTotal = math.Abs(windowTotal)
+		sp.periodTotal = windowTotal
+		sp.periodTotal -= sp.cb_termRing[sp.termRing_Idx]
+	}
+	if windowTotal > 0.0 {
+		sp.cur_outReal = float64(sp.sqrtA * math.Sqrt(windowTotal/float64(sp.optInTimePeriod)))
+	} else {
+		sp.cur_outReal = 0.0
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -343,7 +419,7 @@ func (sp *ROGERSSATCHELLStream) Update(inOpen, inHigh, inLow, inClose float64) (
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *ROGERSSATCHELLStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var o float64
@@ -356,6 +432,8 @@ func (sp *ROGERSSATCHELLStream) Peek(inOpen, inHigh, inLow, inClose float64) (fl
 	var windowTotal float64
 	var windowMagnitude float64
 	var j int32
+	var cb_termRing []float64
+	var optInTimePeriod int32
 	barsSinceRebuild := sp.barsSinceRebuild
 	var cur_outReal float64
 	peakTotal := sp.peakTotal
@@ -379,55 +457,52 @@ func (sp *ROGERSSATCHELLStream) Peek(inOpen, inHigh, inLow, inClose float64) (fl
 	periodTotal += term
 	windowTotal = periodTotal
 	windowMagnitude = math.Abs(windowTotal)
-	var _T0 float64
-	if windowMagnitude > peakTotal {
-		_T0 = windowMagnitude
-	} else {
-		_T0 = peakTotal
-	}
-	peakTotal = _T0
+	peakTotal = selF(windowMagnitude > peakTotal, windowMagnitude, peakTotal)
 	termRing_Idx = termRing_Idx + 1
 	if termRing_Idx > sp.maxIdx_termRing {
 		termRing_Idx = 0
 	}
-	var _T1 float64
+	var _T0 float64
 	if termRing_Idx != pkSlot0 {
-		_T1 = sp.cb_termRing[termRing_Idx]
+		_T0 = sp.cb_termRing[termRing_Idx]
 	} else {
-		_T1 = pkVal0
+		_T0 = pkVal0
 	}
-	periodTotal -= _T1
+	periodTotal -= _T0
 	barsSinceRebuild -= 1
 	if windowMagnitude < float64(1e-6*peakTotal) || barsSinceRebuild <= 0 {
 		barsSinceRebuild = 32 * sp.optInTimePeriod
 		windowTotal = 0.0
-		for j = termRing_Idx; j < sp.optInTimePeriod; j += 1 {
+		cb_termRing = sp.cb_termRing
+		optInTimePeriod = sp.optInTimePeriod
+		for j = termRing_Idx; j < optInTimePeriod; j += 1 {
+			var _T1 float64
+			if j != pkSlot0 {
+				_T1 = cb_termRing[j]
+			} else {
+				_T1 = pkVal0
+			}
+			windowTotal += _T1
+		}
+		cb_termRing = sp.cb_termRing
+		for j = 0; j < termRing_Idx; j += 1 {
 			var _T2 float64
 			if j != pkSlot0 {
-				_T2 = sp.cb_termRing[j]
+				_T2 = cb_termRing[j]
 			} else {
 				_T2 = pkVal0
 			}
 			windowTotal += _T2
 		}
-		for j = 0; j < termRing_Idx; j += 1 {
-			var _T3 float64
-			if j != pkSlot0 {
-				_T3 = sp.cb_termRing[j]
-			} else {
-				_T3 = pkVal0
-			}
-			windowTotal += _T3
-		}
 		peakTotal = math.Abs(windowTotal)
 		periodTotal = windowTotal
-		var _T4 float64
+		var _T3 float64
 		if termRing_Idx != pkSlot0 {
-			_T4 = sp.cb_termRing[termRing_Idx]
+			_T3 = sp.cb_termRing[termRing_Idx]
 		} else {
-			_T4 = pkVal0
+			_T3 = pkVal0
 		}
-		periodTotal -= _T4
+		periodTotal -= _T3
 	}
 	if windowTotal > 0.0 {
 		cur_outReal = float64(sp.sqrtA * math.Sqrt(windowTotal/float64(sp.optInTimePeriod)))
@@ -448,65 +523,6 @@ func (sp *ROGERSSATCHELLStream) Clone() *ROGERSSATCHELLStream {
 	cl := *sp
 	cl.cb_termRing = append(sp.cb_termRing[:0:0], sp.cb_termRing...)
 	return &cl
-}
-
-func rogerssatchellStepImpl(sp *ROGERSSATCHELLStream, inOpen, inHigh, inLow, inClose float64) {
-	var o float64
-	var h float64
-	var l float64
-	var c_ float64
-	var p1 float64
-	var p2 float64
-	var term float64
-	var windowTotal float64
-	var windowMagnitude float64
-	var j int32
-	o = inOpen
-	h = inHigh
-	l = inLow
-	c_ = inClose
-	if o > 0.0 && h > 0.0 && l > 0.0 && c_ > 0.0 {
-		p1 = float64(math.Log(h/c_) * math.Log(h/o))
-		p2 = float64(math.Log(l/c_) * math.Log(l/o))
-		term = p1 + p2
-	} else {
-		term = 0.0
-	}
-	sp.cb_termRing[sp.termRing_Idx] = term
-	sp.periodTotal += term
-	windowTotal = sp.periodTotal
-	windowMagnitude = math.Abs(windowTotal)
-	var _T5 float64
-	if windowMagnitude > sp.peakTotal {
-		_T5 = windowMagnitude
-	} else {
-		_T5 = sp.peakTotal
-	}
-	sp.peakTotal = _T5
-	sp.termRing_Idx = sp.termRing_Idx + 1
-	if sp.termRing_Idx > sp.maxIdx_termRing {
-		sp.termRing_Idx = 0
-	}
-	sp.periodTotal -= sp.cb_termRing[sp.termRing_Idx]
-	sp.barsSinceRebuild -= 1
-	if windowMagnitude < float64(1e-6*sp.peakTotal) || sp.barsSinceRebuild <= 0 {
-		sp.barsSinceRebuild = 32 * sp.optInTimePeriod
-		windowTotal = 0.0
-		for j = sp.termRing_Idx; j < sp.optInTimePeriod; j += 1 {
-			windowTotal += sp.cb_termRing[j]
-		}
-		for j = 0; j < sp.termRing_Idx; j += 1 {
-			windowTotal += sp.cb_termRing[j]
-		}
-		sp.peakTotal = math.Abs(windowTotal)
-		sp.periodTotal = windowTotal
-		sp.periodTotal -= sp.cb_termRing[sp.termRing_Idx]
-	}
-	if windowTotal > 0.0 {
-		sp.cur_outReal = float64(sp.sqrtA * math.Sqrt(windowTotal/float64(sp.optInTimePeriod)))
-	} else {
-		sp.cur_outReal = 0.0
-	}
 }
 
 func (c *Core) rogerssatchellOpenImpl(sp *ROGERSSATCHELLStream, inOpen, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, optInAnnualization float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -610,13 +626,7 @@ func (c *Core) rogerssatchellOpenImpl(sp *ROGERSSATCHELLStream, inOpen, inHigh, 
 		periodTotal += term
 		windowTotal = periodTotal
 		windowMagnitude = math.Abs(windowTotal)
-		var _T6 float64
-		if windowMagnitude > peakTotal {
-			_T6 = windowMagnitude
-		} else {
-			_T6 = peakTotal
-		}
-		peakTotal = _T6
+		peakTotal = selF(windowMagnitude > peakTotal, windowMagnitude, peakTotal)
 		termRing_Idx++
 		if termRing_Idx > maxIdx_termRing {
 			termRing_Idx = 0
@@ -697,8 +707,9 @@ func (c *Core) rogerssatchellOpenInternal(inOpen, inHigh, inLow, inClose []float
 // parameters are those of [Core.ROGERSSATCHELL].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ROGERSSATCHELLLookback] bars, and [BadParam] for a parameter out of
-// range or histories of different lengths.
+// [Core.ROGERSSATCHELLLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ROGERSSATCHELLOpen(inOpen, inHigh, inLow, inClose []float64, optInTimePeriod int, optInAnnualization float64) (*ROGERSSATCHELLStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -718,7 +729,9 @@ func (c *Core) ROGERSSATCHELLOpen(inOpen, inHigh, inLow, inClose []float64, optI
 // and share no memory with an input or another output.
 //
 // The errors are those of [Core.ROGERSSATCHELLOpen], and [BadParam] for an
-// output that is empty, too short or sharing memory.
+// output that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) ROGERSSATCHELLOpenAndFill(inOpen, inHigh, inLow, inClose []float64, optInTimePeriod int, optInAnnualization float64, outReal []float64) (*ROGERSSATCHELLStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

@@ -82,9 +82,9 @@ impl Core {
     #[doc(alias = "TA_ADR_Lookback")]
     #[inline]
     pub fn adr_lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 14;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         return Ok((optInTimePeriod - 1) as usize);
@@ -109,7 +109,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_ADR_DisplayShift")]
-    pub fn adr_display_shift(&self, mut optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn adr_display_shift(&self, optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.adr_lookback(optInTimePeriod)?;
         if outputIdx >= 1 {
             return Err(RetCode::BadParam);
@@ -136,9 +136,9 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 14;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.adr_lookback(optInTimePeriod).unwrap_or(usize::MAX);
@@ -178,8 +178,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inHigh = &inHigh[..=endIdx];
@@ -208,17 +208,15 @@ impl Core {
             let _w4 = &mut outReal[outIdx..][.._wn];
             for _wk in 0.._wn {
                 periodTotal += (_w0[_wk] - _w2[_wk]) as f64;
-                i = i + 1;
                 tempReal = periodTotal;
                 periodTotal -= (_w1[_wk] - _w3[_wk]) as f64;
-                trailingIdx = trailingIdx + 1;
                 _w4[_wk] = tempReal / (optInTimePeriod as f64);
                 outIdx = outIdx + 1;
             }
         }
         // All done. Indicate the output limits and return.
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Average Day Range: the arithmetic mean of the last `optInTimePeriod` bar ranges, high minus
@@ -270,15 +268,19 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.adr(0, high.len() - 1, &high, &low, 14, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -391,8 +393,8 @@ impl Core {
         sp.periodTotal += (inHigh - inLow) as f64;
         tempReal = sp.periodTotal;
         sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx];
-        (*outReal) = tempReal / (sp.optInTimePeriod as f64);
-        sp.cur_outReal = (*outReal);
+        *outReal = tempReal / (sp.optInTimePeriod as f64);
+        sp.cur_outReal = *outReal;
         ringPosL_trailingIdx = sp.ringPos_trailingIdx;
         sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = (inHigh - inLow) as f64;
         ringPosL_trailingIdx = ringPosL_trailingIdx + 1;
@@ -410,9 +412,9 @@ impl Core {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 14;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         if inLow.len() != inHigh.len() {
@@ -420,14 +422,12 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut periodTotal: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
@@ -459,8 +459,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         // Do the MA calculation using tight loops.
@@ -484,12 +484,12 @@ impl Core {
             tempReal = periodTotal;
             periodTotal -= (inHigh[trailingIdx] - inLow[trailingIdx]) as f64;
             trailingIdx = trailingIdx + 1;
-            outReal[(outIdx * outStride) as usize] = tempReal / (optInTimePeriod as f64);
+            outReal[outIdx * outStride] = tempReal / (optInTimePeriod as f64);
             outIdx = outIdx + 1;
         }
         // All done. Indicate the output limits and return.
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
 
         // Capture the live batch state into the handle.
         let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);
@@ -501,7 +501,7 @@ impl Core {
         {
             let mut fillJ: usize = historyLen - cap_trailingIdx as usize;
             while fillJ < historyLen {
-                ring_trailingIdx_derived[fillJ - (historyLen - cap_trailingIdx as usize)] = (inHigh[(fillJ) as usize] - inLow[(fillJ) as usize]) as f64;
+                ring_trailingIdx_derived[fillJ - (historyLen - cap_trailingIdx as usize)] = (inHigh[fillJ] - inLow[fillJ]) as f64;
                 fillJ += 1;
             }
         }
@@ -518,7 +518,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::adr_open`] (composition seam).
     pub(crate) fn adr_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32,
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32,
     ) -> Result<(AdrStream, f64), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -539,8 +539,12 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.adr_open(&high, &low, 14).expect("enough history");
@@ -571,8 +575,12 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let mut batch_out = vec![0.0; 252];
@@ -589,7 +597,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_ADR_OpenAndFill")]
     pub fn adr_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(AdrStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -611,7 +619,7 @@ impl Core {
     /// [`Core::adr_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn adr_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<AdrStream, RetCode> {
         self.adr_open_impl(inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
@@ -680,16 +688,9 @@ impl AdrStream {
             let outReal = &mut outReal;
             let mut tempReal: f64 = 0.0_f64;
             let mut periodTotal = sp.periodTotal;
-            let mut pkSlot0: usize = usize::MAX;
-            let mut pkVal0: f64 = 0.0_f64;
-            if sp.ringCap_trailingIdx == 0 {
-                pkSlot0 = 0;
-                pkVal0 = (inHigh - inLow) as f64;
-            }
             periodTotal += (inHigh - inLow) as f64;
             tempReal = periodTotal;
-            periodTotal -= (if (sp.ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx] } else { pkVal0 });
-            (*outReal) = tempReal / (sp.optInTimePeriod as f64);
+            *outReal = tempReal / (sp.optInTimePeriod as f64);
         }
         Ok(outReal)
     }

@@ -117,6 +117,25 @@ func (c *Core) RVIRLookback(optInTimePeriod, optInStdDevPeriod int) (int, error)
 	return int(lookback), nil
 }
 
+// RVIRDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.RVIR].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.RVIR] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.RVIRLookback] rejects or an index that names no output.
+func (c *Core) RVIRDisplayShift(optInTimePeriod, optInStdDevPeriod, outputIdx int) (int, error) {
+	if _, err := c.RVIRLookback(optInTimePeriod, optInStdDevPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // RVIR computes the Relative Volatility Index, refined high/low form over bars
 // startIdx through endIdx.
 //
@@ -151,7 +170,8 @@ func (c *Core) RVIRLookback(optInTimePeriod, optInStdDevPeriod int) (int, error)
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) RVIR(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod, optInStdDevPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -231,12 +251,22 @@ func (sp *RVIRStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	if err := rvirStepImpl(sp, inHigh, inLow); err != nil {
-		return 0, err
+	var cur_tempHigh float64
+	var cur_outReal float64
+	var subErr error
+	cur_tempHigh, subErr = sp.sub0.Update(inHigh)
+	if subErr != nil {
+		return 0, subErr
 	}
+	cur_outReal, subErr = sp.sub1.Update(inLow)
+	if subErr != nil {
+		return 0, subErr
+	}
+	cur_outReal = float64(0.5 * (cur_tempHigh + cur_outReal))
+	sp.cur_outReal = cur_outReal
 	sp.outRangeCount++
 	return sp.cur_outReal, nil
 }
@@ -244,7 +274,7 @@ func (sp *RVIRStream) Update(inHigh, inLow float64) (float64, error) {
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *RVIRStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var cur_tempHigh float64
@@ -274,23 +304,6 @@ func (sp *RVIRStream) Clone() *RVIRStream {
 	cl.sub0 = sp.sub0.Clone()
 	cl.sub1 = sp.sub1.Clone()
 	return &cl
-}
-
-func rvirStepImpl(sp *RVIRStream, inHigh, inLow float64) error {
-	var cur_tempHigh float64
-	var cur_outReal float64
-	var subErr error
-	cur_tempHigh, subErr = sp.sub0.Update(inHigh)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outReal, subErr = sp.sub1.Update(inLow)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outReal = float64(0.5 * (cur_tempHigh + cur_outReal))
-	sp.cur_outReal = cur_outReal
-	return nil
 }
 
 func (c *Core) rvirOpenImpl(sp *RVIRStream, inHigh, inLow []float64, startIdx, optInTimePeriod, optInStdDevPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -396,8 +409,9 @@ func (c *Core) rvirOpenInternal(inHigh, inLow []float64, startIdx, optInTimePeri
 // of [Core.RVIR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.RVIRLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.RVIRLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) RVIROpen(inHigh, inLow []float64, optInTimePeriod, optInStdDevPeriod int) (*RVIRStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -420,7 +434,8 @@ func (c *Core) RVIROpen(inHigh, inLow []float64, optInTimePeriod, optInStdDevPer
 // no memory with an input or another output.
 //
 // The errors are those of [Core.RVIROpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) RVIROpenAndFill(inHigh, inLow []float64, optInTimePeriod, optInStdDevPeriod int, outReal []float64) (*RVIRStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

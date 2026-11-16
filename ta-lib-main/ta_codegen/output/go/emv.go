@@ -61,6 +61,7 @@ func (c *Core) emvImpl(startIdx, endIdx int32, inHigh, inLow, inVolume []float64
 	var outIdx int32
 	var i int32
 	var rawBuffer []float64
+	var local_rawBuffer [50]float64
 	var rawBuffer_Idx int32
 	var maxIdx_rawBuffer int32
 	maxIdx_rawBuffer = 49
@@ -92,7 +93,11 @@ func (c *Core) emvImpl(startIdx, endIdx int32, inHigh, inLow, inVolume []float64
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	rawBuffer = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 50 {
+		rawBuffer = local_rawBuffer[:optInTimePeriod]
+	} else {
+		rawBuffer = make([]float64, optInTimePeriod)
+	}
 	maxIdx_rawBuffer = optInTimePeriod - 1
 	rawBuffer_Idx = 0
 	i = startIdx - lookbackTotal
@@ -163,6 +168,25 @@ func (c *Core) EMVLookback(optInTimePeriod int, optInVolumeDivisor float64) (int
 	return int(lookback), nil
 }
 
+// EMVDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.EMV]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.EMV] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.EMVLookback] rejects or an index that names no output.
+func (c *Core) EMVDisplayShift(optInTimePeriod int, optInVolumeDivisor float64, outputIdx int) (int, error) {
+	if _, err := c.EMVLookback(optInTimePeriod, optInVolumeDivisor); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // EMV computes the Arms Ease of Movement over bars startIdx through endIdx.
 //
 // Ease of Movement: the bar-to-bar move of the high-low midpoint divided by a
@@ -196,7 +220,8 @@ func (c *Core) EMVLookback(optInTimePeriod int, optInVolumeDivisor float64) (int
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) EMV(startIdx, endIdx int, inHigh, inLow, inVolume []float64, optInTimePeriod int, optInVolumeDivisor float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -279,11 +304,34 @@ func (sp *EMVStream) Update(inHigh, inLow, inVolume float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	emvStepImpl(sp, inHigh, inLow, inVolume)
 	sp.outRangeCount++
+	var mid float64
+	var range_ float64
+	var boxRatio float64
+	var raw float64
+	var tempReal float64
+	mid = (inHigh + inLow) / 2.0
+	range_ = inHigh - inLow
+	raw = 0.0
+	if range_ != 0.0 {
+		boxRatio = inVolume / sp.optInVolumeDivisor / range_
+		if boxRatio != 0.0 {
+			raw = (mid - sp.prevMid) / boxRatio
+		}
+	}
+	sp.prevMid = mid
+	sp.cb_rawBuffer[sp.rawBuffer_Idx] = raw
+	sp.periodTotal += raw
+	tempReal = sp.periodTotal
+	sp.rawBuffer_Idx = sp.rawBuffer_Idx + 1
+	if sp.rawBuffer_Idx > sp.maxIdx_rawBuffer {
+		sp.rawBuffer_Idx = 0
+	}
+	sp.periodTotal -= sp.cb_rawBuffer[sp.rawBuffer_Idx]
+	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
 	return sp.cur_outReal, nil
 }
 
@@ -291,7 +339,7 @@ func (sp *EMVStream) Update(inHigh, inLow, inVolume float64) (float64, error) {
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *EMVStream) Peek(inHigh, inLow, inVolume float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var mid float64
@@ -345,33 +393,6 @@ func (sp *EMVStream) Clone() *EMVStream {
 	cl := *sp
 	cl.cb_rawBuffer = append(sp.cb_rawBuffer[:0:0], sp.cb_rawBuffer...)
 	return &cl
-}
-
-func emvStepImpl(sp *EMVStream, inHigh, inLow, inVolume float64) {
-	var mid float64
-	var range_ float64
-	var boxRatio float64
-	var raw float64
-	var tempReal float64
-	mid = (inHigh + inLow) / 2.0
-	range_ = inHigh - inLow
-	raw = 0.0
-	if range_ != 0.0 {
-		boxRatio = inVolume / sp.optInVolumeDivisor / range_
-		if boxRatio != 0.0 {
-			raw = (mid - sp.prevMid) / boxRatio
-		}
-	}
-	sp.prevMid = mid
-	sp.cb_rawBuffer[sp.rawBuffer_Idx] = raw
-	sp.periodTotal += raw
-	tempReal = sp.periodTotal
-	sp.rawBuffer_Idx = sp.rawBuffer_Idx + 1
-	if sp.rawBuffer_Idx > sp.maxIdx_rawBuffer {
-		sp.rawBuffer_Idx = 0
-	}
-	sp.periodTotal -= sp.cb_rawBuffer[sp.rawBuffer_Idx]
-	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
 }
 
 func (c *Core) emvOpenImpl(sp *EMVStream, inHigh, inLow, inVolume []float64, startIdx, optInTimePeriod int32, optInVolumeDivisor float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -522,8 +543,9 @@ func (c *Core) emvOpenInternal(inHigh, inLow, inVolume []float64, startIdx, optI
 // are those of [Core.EMV].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.EMVLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.EMVLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) EMVOpen(inHigh, inLow, inVolume []float64, optInTimePeriod int, optInVolumeDivisor float64) (*EMVStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -543,7 +565,8 @@ func (c *Core) EMVOpen(inHigh, inLow, inVolume []float64, optInTimePeriod int, o
 // no memory with an input or another output.
 //
 // The errors are those of [Core.EMVOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) EMVOpenAndFill(inHigh, inLow, inVolume []float64, optInTimePeriod int, optInVolumeDivisor float64, outReal []float64) (*EMVStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

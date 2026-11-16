@@ -142,6 +142,21 @@ func (c *Core) CDLENGULFINGLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// CDLENGULFINGDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.CDLENGULFING]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.CDLENGULFING], from
+// 0, and returns [BadParam] for an index that names no output.
+func (c *Core) CDLENGULFINGDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CDLENGULFING recognizes the Engulfing pattern over bars startIdx through
 // endIdx.
 //
@@ -247,11 +262,69 @@ func (sp *CDLENGULFINGStream) Update(inOpen, inHigh, inLow, inClose float64) (in
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cdlengulfingStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var _T9 int32
+	if inClose >= inOpen {
+		_T9 = 1
+	} else {
+		_T9 = -1
+	}
+	_B11 := _T9 == 1
+	if _B11 {
+		var _T10 int32
+		if sp.lag1_inClose >= sp.lag1_inOpen {
+			_T10 = 1
+		} else {
+			_T10 = -1
+		}
+		_B11 = _T10 == -1
+	}
+	_B15 := _B11 && (inClose >= sp.lag1_inOpen && inOpen < sp.lag1_inClose || inClose > sp.lag1_inOpen && inOpen <= sp.lag1_inClose)
+	if !_B15 {
+		var _T12 int32
+		if inClose >= inOpen {
+			_T12 = 1
+		} else {
+			_T12 = -1
+		}
+		_B14 := _T12 == -1
+		if _B14 {
+			var _T13 int32
+			if sp.lag1_inClose >= sp.lag1_inOpen {
+				_T13 = 1
+			} else {
+				_T13 = -1
+			}
+			_B14 = _T13 == 1
+		}
+		_B15 = _B14 && (inOpen >= sp.lag1_inClose && inClose < sp.lag1_inOpen || inOpen > sp.lag1_inClose && inClose <= sp.lag1_inOpen)
+	}
+	if _B15 {
+		if inOpen != sp.lag1_inClose && inClose != sp.lag1_inOpen {
+			var _T16 int32
+			if inClose >= inOpen {
+				_T16 = 1
+			} else {
+				_T16 = -1
+			}
+			sp.cur_outInteger = _T16 * 100
+		} else {
+			var _T17 int32
+			if inClose >= inOpen {
+				_T17 = 1
+			} else {
+				_T17 = -1
+			}
+			sp.cur_outInteger = _T17 * 80
+		}
+	} else {
+		sp.cur_outInteger = 0
+	}
+	sp.lag1_inOpen = inOpen
+	sp.lag1_inClose = inClose
 	return sp.cur_outInteger, nil
 }
 
@@ -259,7 +332,7 @@ func (sp *CDLENGULFINGStream) Update(inOpen, inHigh, inLow, inClose float64) (in
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CDLENGULFINGStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var cur_outInteger int32
@@ -333,68 +406,6 @@ func (sp *CDLENGULFINGStream) Value() int32 {
 func (sp *CDLENGULFINGStream) Clone() *CDLENGULFINGStream {
 	cl := *sp
 	return &cl
-}
-
-func cdlengulfingStepImpl(sp *CDLENGULFINGStream, inOpen, inHigh, inLow, inClose float64) {
-	var _T9 int32
-	if inClose >= inOpen {
-		_T9 = 1
-	} else {
-		_T9 = -1
-	}
-	_B11 := _T9 == 1
-	if _B11 {
-		var _T10 int32
-		if sp.lag1_inClose >= sp.lag1_inOpen {
-			_T10 = 1
-		} else {
-			_T10 = -1
-		}
-		_B11 = _T10 == -1
-	}
-	_B15 := _B11 && (inClose >= sp.lag1_inOpen && inOpen < sp.lag1_inClose || inClose > sp.lag1_inOpen && inOpen <= sp.lag1_inClose)
-	if !_B15 {
-		var _T12 int32
-		if inClose >= inOpen {
-			_T12 = 1
-		} else {
-			_T12 = -1
-		}
-		_B14 := _T12 == -1
-		if _B14 {
-			var _T13 int32
-			if sp.lag1_inClose >= sp.lag1_inOpen {
-				_T13 = 1
-			} else {
-				_T13 = -1
-			}
-			_B14 = _T13 == 1
-		}
-		_B15 = _B14 && (inOpen >= sp.lag1_inClose && inClose < sp.lag1_inOpen || inOpen > sp.lag1_inClose && inClose <= sp.lag1_inOpen)
-	}
-	if _B15 {
-		if inOpen != sp.lag1_inClose && inClose != sp.lag1_inOpen {
-			var _T16 int32
-			if inClose >= inOpen {
-				_T16 = 1
-			} else {
-				_T16 = -1
-			}
-			sp.cur_outInteger = _T16 * 100
-		} else {
-			var _T17 int32
-			if inClose >= inOpen {
-				_T17 = 1
-			} else {
-				_T17 = -1
-			}
-			sp.cur_outInteger = _T17 * 80
-		}
-	} else {
-		sp.cur_outInteger = 0
-	}
-	sp.lag1_inOpen = inOpen
-	sp.lag1_inClose = inClose
 }
 
 func (c *Core) cdlengulfingOpenImpl(sp *CDLENGULFINGStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -499,6 +510,107 @@ func (c *Core) cdlengulfingOpenImpl(sp *CDLENGULFINGStream, inOpen, inHigh, inLo
 	return Success
 }
 
+func (c *Core) cdlengulfingOpenSinkFrame(sp *CDLENGULFINGStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) RetCode {
+	var i int32
+	var outIdx int32
+	var lookbackTotal int32
+	if len(inOpen) > IndexMax+1 {
+		return OutOfRangeEndIndex
+	}
+	historyLen := int32(len(inOpen))
+	endIdx := historyLen - 1
+	if len(inHigh) != len(inOpen) || len(inLow) != len(inOpen) || len(inClose) != len(inOpen) {
+		return BadParam
+	}
+	if startIdx >= historyLen {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	lookbackTotal = c.cdlengulfingLookback()
+	if startIdx < lookbackTotal {
+		startIdx = lookbackTotal
+	}
+	if startIdx > endIdx {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	i = startIdx
+	outIdx = 0
+	if i < endIdx {
+		outIdx = outIdx + (endIdx - i)
+		i = endIdx
+	}
+	var _T27 int32
+	if inClose[i] >= inOpen[i] {
+		_T27 = 1
+	} else {
+		_T27 = -1
+	}
+	_B29 := _T27 == 1
+	if _B29 {
+		var _T28 int32
+		if inClose[i-1] >= inOpen[i-1] {
+			_T28 = 1
+		} else {
+			_T28 = -1
+		}
+		_B29 = _T28 == -1
+	}
+	_B33 := _B29 && (inClose[i] >= inOpen[i-1] && inOpen[i] < inClose[i-1] || inClose[i] > inOpen[i-1] && inOpen[i] <= inClose[i-1])
+	if !_B33 {
+		var _T30 int32
+		if inClose[i] >= inOpen[i] {
+			_T30 = 1
+		} else {
+			_T30 = -1
+		}
+		_B32 := _T30 == -1
+		if _B32 {
+			var _T31 int32
+			if inClose[i-1] >= inOpen[i-1] {
+				_T31 = 1
+			} else {
+				_T31 = -1
+			}
+			_B32 = _T31 == 1
+		}
+		_B33 = _B32 && (inOpen[i] >= inClose[i-1] && inClose[i] < inOpen[i-1] || inOpen[i] > inClose[i-1] && inClose[i] <= inOpen[i-1])
+	}
+	if _B33 {
+		if inOpen[i] != inClose[i-1] && inClose[i] != inOpen[i-1] {
+			var _T34 int32
+			if inClose[i] >= inOpen[i] {
+				_T34 = 1
+			} else {
+				_T34 = -1
+			}
+			outInteger[0] = _T34 * 100
+			outIdx += 1
+		} else {
+			var _T35 int32
+			if inClose[i] >= inOpen[i] {
+				_T35 = 1
+			} else {
+				_T35 = -1
+			}
+			outInteger[0] = _T35 * 80
+			outIdx += 1
+		}
+	} else {
+		outInteger[0] = 0
+		outIdx += 1
+	}
+	i += 1
+	*outNBElement = outIdx
+	*outBegIdx = startIdx
+	sp.lag1_inOpen = inOpen[historyLen-1]
+	sp.lag1_inClose = inClose[historyLen-1]
+	sp.cur_outInteger = outInteger[0]
+	return Success
+}
+
 func (c *Core) cdlengulfingOpenAndFillInternal(inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) (*CDLENGULFINGStream, error) {
 	sp := &CDLENGULFINGStream{core: c}
 	if retCode := c.cdlengulfingOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1); retCode != Success {
@@ -513,7 +625,7 @@ func (c *Core) cdlengulfingOpenInternal(inOpen, inHigh, inLow, inClose []float64
 	sp := &CDLENGULFINGStream{core: c}
 	var outBegIdx, outNBElement int32
 	var sink_outInteger [1]int32
-	if retCode := c.cdlengulfingOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:], 0); retCode != Success {
+	if retCode := c.cdlengulfingOpenSinkFrame(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:]); retCode != Success {
 		return nil, retCode
 	}
 	sp.outRangeBegIdx = int(outBegIdx)
@@ -528,8 +640,8 @@ func (c *Core) cdlengulfingOpenInternal(inOpen, inHigh, inLow, inClose []float64
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CDLENGULFINGLookback] bars, and [BadParam] for histories of different
-// lengths.
+// [Core.CDLENGULFINGLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) CDLENGULFINGOpen(inOpen, inHigh, inLow, inClose []float64) (*CDLENGULFINGStream, int32, error) {
 	sp, err := c.cdlengulfingOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {

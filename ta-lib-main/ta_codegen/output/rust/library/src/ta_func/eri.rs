@@ -77,9 +77,9 @@ impl Core {
     #[doc(alias = "TA_ERI_Lookback")]
     #[inline]
     pub fn eri_lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 13;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         // Exactly the EMA of close underneath: its lookback, unstable period
@@ -102,7 +102,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_ERI_DisplayShift")]
-    pub fn eri_display_shift(&self, mut optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn eri_display_shift(&self, optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.eri_lookback(optInTimePeriod)?;
         if outputIdx >= 2 {
             return Err(RetCode::BadParam);
@@ -167,9 +167,9 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 13;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.eri_lookback(optInTimePeriod).unwrap_or(usize::MAX);
@@ -179,7 +179,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outBullPower.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outBearPower.len());
-        if (outBullPower.as_ptr() == outBearPower.as_ptr()) {
+        if outBullPower.as_ptr() == outBearPower.as_ptr() {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -214,8 +214,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inHigh = &inHigh[..=endIdx];
@@ -243,11 +243,10 @@ impl Core {
                     _w4[_wk] = tempHT - tempReal;
                     _w3[_wk] = tempLT - tempReal;
                     outIdx += 1;
-                    today += 1;
                 }
             }
-            (*outBegIdx) = startIdx;
-            (*outNBElement) = outIdx;
+            *outBegIdx = startIdx;
+            *outNBElement = outIdx;
             return RetCode::Success;
         }
         beta = ((optInTimePeriod - 1) as f64) / ((optInTimePeriod + 1) as f64);
@@ -257,15 +256,15 @@ impl Core {
         }
         // Seed: ema.c's DEFAULT arm, op for op.
         today = startIdx - lookbackTotal;
-        i = (optInTimePeriod) as usize;
+        i = optInTimePeriod as usize;
         tempReal = 0.0;
         while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
             tempReal += inClose[{ let _v = today; today += 1; _v }];
         }
-        prevMA = tempReal / ((optInTimePeriod) as f64);
+        prevMA = tempReal / (optInTimePeriod as f64);
         // The warm-up also consumes the EMA unstable period.
         while today <= startIdx {
-            prevMA = fmadd!(beta as f64, prevMA, k * inClose[{ let _v = today; today += 1; _v }]);
+            prevMA = fmadd!(beta, prevMA, k * inClose[{ let _v = today; today += 1; _v }]);
         }
         // prevMA is the EMA at bar startIdx; today == startIdx + 1. Load the
         // extremes into temps BEFORE writing either output: with two outputs
@@ -284,17 +283,16 @@ impl Core {
             let _w3 = &mut outBearPower[outIdx..][.._wn];
             let _w4 = &mut outBullPower[outIdx..][.._wn];
             for _wk in 0.._wn {
-                prevMA = fmadd!(beta as f64, prevMA, k * _w0[_wk]);
+                prevMA = fmadd!(beta, prevMA, k * _w0[_wk]);
                 tempHT = _w1[_wk];
                 tempLT = _w2[_wk];
                 _w4[_wk] = tempHT - prevMA;
                 _w3[_wk] = tempLT - prevMA;
                 outIdx += 1;
-                today += 1;
             }
         }
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// Elder Ray Index: Alexander Elder's Bull Power / Bear Power pair from *Trading for a Living*
@@ -342,12 +340,16 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut bull_power = vec![0.0; 252];
     /// let mut bear_power = vec![0.0; 252];
@@ -355,8 +357,10 @@ impl Core {
     /// let core = Core::new();
     /// let range = core.eri(0, high.len() - 1, &high, &low, &close, 13,
     ///                      &mut bull_power, &mut bear_power)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last bull_power = {}", range.count, range.beg_idx, bull_power[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}:", range.count, range.beg_idx);
+    /// println!("bull_power = [{:.4}, ..., {:.4}]", bull_power[0], bull_power[range.count - 1]);
+    /// println!("bear_power = [{:.4}, ..., {:.4}]", bear_power[0], bear_power[range.count - 1]);
     /// # assert!(bull_power[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -467,20 +471,20 @@ impl Core {
             tempHT = inHigh;
             tempLT = inLow;
             tempReal = inClose;
-            (*outBullPower) = tempHT - tempReal;
-            (*outBearPower) = tempLT - tempReal;
-            sp.cur_outBullPower = (*outBullPower);
-            sp.cur_outBearPower = (*outBearPower);
+            *outBullPower = tempHT - tempReal;
+            *outBearPower = tempLT - tempReal;
+            sp.cur_outBullPower = *outBullPower;
+            sp.cur_outBearPower = *outBearPower;
         } else {
             let mut tempHT: f64 = 0.0_f64;
             let mut tempLT: f64 = 0.0_f64;
-            sp.prevMA = fmadd!(sp.beta as f64, sp.prevMA, sp.k * inClose);
+            sp.prevMA = fmadd!(sp.beta, sp.prevMA, sp.k * inClose);
             tempHT = inHigh;
             tempLT = inLow;
-            (*outBullPower) = tempHT - sp.prevMA;
-            (*outBearPower) = tempLT - sp.prevMA;
-            sp.cur_outBullPower = (*outBullPower);
-            sp.cur_outBearPower = (*outBearPower);
+            *outBullPower = tempHT - sp.prevMA;
+            *outBearPower = tempLT - sp.prevMA;
+            sp.cur_outBullPower = *outBullPower;
+            sp.cur_outBearPower = *outBearPower;
         }
     }
 
@@ -510,9 +514,9 @@ impl Core {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 13;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
@@ -520,23 +524,20 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
             let mut outIdx: usize = 0_usize;
             let mut today: usize = 0_usize;
             let mut lookbackTotal: usize = 0_usize;
-            let mut i: usize = 0_usize;
-            let mut prevMA: f64 = 0.0_f64;
+            let prevMA: f64 = 0.0_f64;
             let mut tempReal: f64 = 0.0_f64;
-            let mut k: f64 = 0.0_f64;
-            let mut beta: f64 = 0.0_f64;
+            let k: f64 = 0.0_f64;
+            let beta: f64 = 0.0_f64;
             let mut tempHT: f64 = 0.0_f64;
             let mut tempLT: f64 = 0.0_f64;
             // Elder Ray Index (Alexander Elder, Trading for a Living, 1993): how far
@@ -560,8 +561,8 @@ impl Core {
             }
             // Make sure there is still something to evaluate.
             if startIdx > endIdx {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
+                *outBegIdx = 0;
+                *outNBElement = 0;
                 return Err(RetCode::InsufficientHistory);
             }
             // Period 1: ema.c's explicit copy arm, kept here for the same reason it
@@ -575,13 +576,13 @@ impl Core {
                 tempHT = inHigh[today];
                 tempLT = inLow[today];
                 tempReal = inClose[today];
-                outBullPower[(outIdx * outStride) as usize] = tempHT - tempReal;
-                outBearPower[(outIdx * outStride) as usize] = tempLT - tempReal;
+                outBullPower[outIdx * outStride] = tempHT - tempReal;
+                outBearPower[outIdx * outStride] = tempLT - tempReal;
                 outIdx += 1;
                 today += 1;
             }
-            (*outBegIdx) = startIdx;
-            (*outNBElement) = outIdx;
+            *outBegIdx = startIdx;
+            *outNBElement = outIdx;
 
             // Capture the live batch state into the handle.
             let state = EriStreamState {
@@ -625,8 +626,8 @@ impl Core {
             }
             // Make sure there is still something to evaluate.
             if startIdx > endIdx {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
+                *outBegIdx = 0;
+                *outNBElement = 0;
                 return Err(RetCode::InsufficientHistory);
             }
             // Period 1: ema.c's explicit copy arm, kept here for the same reason it
@@ -641,15 +642,15 @@ impl Core {
             }
             // Seed: ema.c's DEFAULT arm, op for op.
             today = startIdx - lookbackTotal;
-            i = (optInTimePeriod) as usize;
+            i = optInTimePeriod as usize;
             tempReal = 0.0;
             while { let _v = i; i = i.wrapping_sub(1); _v } > 0 {
                 tempReal += inClose[{ let _v = today; today += 1; _v }];
             }
-            prevMA = tempReal / ((optInTimePeriod) as f64);
+            prevMA = tempReal / (optInTimePeriod as f64);
             // The warm-up also consumes the EMA unstable period.
             while today <= startIdx {
-                prevMA = fmadd!(beta as f64, prevMA, k * inClose[{ let _v = today; today += 1; _v }]);
+                prevMA = fmadd!(beta, prevMA, k * inClose[{ let _v = today; today += 1; _v }]);
             }
             // prevMA is the EMA at bar startIdx; today == startIdx + 1. Load the
             // extremes into temps BEFORE writing either output: with two outputs
@@ -657,20 +658,20 @@ impl Core {
             // must not read a clobbered bar.
             tempHT = inHigh[startIdx];
             tempLT = inLow[startIdx];
-            outBullPower[(0 * outStride) as usize] = tempHT - prevMA;
-            outBearPower[(0 * outStride) as usize] = tempLT - prevMA;
+            outBullPower[0] = tempHT - prevMA;
+            outBearPower[0] = tempLT - prevMA;
             outIdx = 1;
             while today <= endIdx {
-                prevMA = fmadd!(beta as f64, prevMA, k * inClose[today]);
+                prevMA = fmadd!(beta, prevMA, k * inClose[today]);
                 tempHT = inHigh[today];
                 tempLT = inLow[today];
-                outBullPower[(outIdx * outStride) as usize] = tempHT - prevMA;
-                outBearPower[(outIdx * outStride) as usize] = tempLT - prevMA;
+                outBullPower[outIdx * outStride] = tempHT - prevMA;
+                outBearPower[outIdx * outStride] = tempLT - prevMA;
                 outIdx += 1;
                 today += 1;
             }
-            (*outBegIdx) = startIdx;
-            (*outNBElement) = outIdx;
+            *outBegIdx = startIdx;
+            *outNBElement = outIdx;
 
             // Capture the live batch state into the handle.
             let state = EriStreamState {
@@ -687,7 +688,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::eri_open`] (composition seam).
     pub(crate) fn eri_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32,
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInTimePeriod: i32,
     ) -> Result<(EriStream, (f64, f64)), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -709,10 +710,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -745,10 +750,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -770,7 +779,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_ERI_OpenAndFill")]
     pub fn eri_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outBullPower: &mut [f64], outBearPower: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInTimePeriod: i32, outBullPower: &mut [f64], outBearPower: &mut [f64],
     ) -> Result<(EriStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -795,7 +804,7 @@ impl Core {
     /// [`Core::eri_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn eri_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outBullPower: &mut [f64], outBearPower: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outBullPower: &mut [f64], outBearPower: &mut [f64],
     ) -> Result<EriStream, RetCode> {
         self.eri_open_impl(inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outBullPower, outBearPower, 1)
     }
@@ -872,17 +881,17 @@ impl EriStream {
                 tempHT = inHigh;
                 tempLT = inLow;
                 tempReal = inClose;
-                (*outBullPower) = tempHT - tempReal;
-                (*outBearPower) = tempLT - tempReal;
+                *outBullPower = tempHT - tempReal;
+                *outBearPower = tempLT - tempReal;
             } else {
                 let mut tempHT: f64 = 0.0_f64;
                 let mut tempLT: f64 = 0.0_f64;
                 let mut prevMA = sp.prevMA;
-                prevMA = fmadd!(sp.beta as f64, prevMA, sp.k * inClose);
+                prevMA = fmadd!(sp.beta, prevMA, sp.k * inClose);
                 tempHT = inHigh;
                 tempLT = inLow;
-                (*outBullPower) = tempHT - prevMA;
-                (*outBearPower) = tempLT - prevMA;
+                *outBullPower = tempHT - prevMA;
+                *outBearPower = tempLT - prevMA;
             }
         }
         Ok((outBullPower, outBearPower))

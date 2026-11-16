@@ -87,9 +87,9 @@ impl Core {
     #[doc(alias = "TA_TRIMA_Lookback")]
     #[inline]
     pub fn trima_lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 30;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         return Ok((optInTimePeriod - 1) as usize);
@@ -111,7 +111,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_TRIMA_DisplayShift")]
-    pub fn trima_display_shift(&self, mut optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn trima_display_shift(&self, optInTimePeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.trima_lookback(optInTimePeriod)?;
         if outputIdx >= 1 {
             return Err(RetCode::BadParam);
@@ -137,9 +137,9 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 30;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.trima_lookback(optInTimePeriod).unwrap_or(usize::MAX);
@@ -168,8 +168,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inReal = &inReal[..=endIdx];
@@ -289,7 +289,7 @@ impl Core {
             //       past period ~92682). For every period where the int product
             //       fits, the widened value is identical.
             i = (optInTimePeriod >> 1) as usize;
-            factor = ((i + 1) as f64) * (((i + 1)) as f64);
+            factor = ((i + 1) as f64) * ((i + 1) as f64);
             factor = 1.0 / factor;
             // Initialize all the variable before
             // starting to iterate for each output.
@@ -309,12 +309,11 @@ impl Core {
             }
             numeratorAdd = 0.0;
             middleIdx += 1;
-            for i in (middleIdx as usize)..(todayIdx as usize) + 1 {
+            for i in middleIdx..todayIdx + 1 {
                 tempReal = inReal[i];
                 numeratorAdd += tempReal;
                 numerator += numeratorAdd;
             }
-            i = (todayIdx as usize) + 1;
             // Write the first output
             outIdx = 0;
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
@@ -337,19 +336,16 @@ impl Core {
                     numerator -= numeratorSub;
                     numeratorSub -= tempReal;
                     tempReal = _w0[_wk];
-                    middleIdx += 1;
                     numeratorSub += tempReal;
                     // Step (2)
                     numerator += numeratorAdd;
                     numeratorAdd -= tempReal;
                     tempReal = _w1[_wk];
-                    todayIdx += 1;
                     numeratorAdd += tempReal;
                     // Step (3)
                     numerator += tempReal;
                     // Step (4)
                     tempReal = _w2[_wk];
-                    trailingIdx += 1;
                     _w3[_wk] = numerator * factor;
                     outIdx += 1;
                 }
@@ -363,7 +359,7 @@ impl Core {
             //    slightly different.
             //  - Adjustment of numeratorAdd is different. See Step (2).
             i = (optInTimePeriod >> 1) as usize;
-            factor = (i as f64) * (((i + 1)) as f64);
+            factor = (i as f64) * ((i + 1) as f64);
             // widen: i*(i+1) overflows int past period ~92682
             factor = 1.0 / factor;
             // Initialize all the variable before
@@ -384,12 +380,11 @@ impl Core {
             }
             numeratorAdd = 0.0;
             middleIdx += 1;
-            for i in (middleIdx as usize)..(todayIdx as usize) + 1 {
+            for i in middleIdx..todayIdx + 1 {
                 tempReal = inReal[i];
                 numeratorAdd += tempReal;
                 numerator += numeratorAdd;
             }
-            i = (todayIdx as usize) + 1;
             // Write the first output
             outIdx = 0;
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
@@ -412,26 +407,23 @@ impl Core {
                     numerator -= numeratorSub;
                     numeratorSub -= tempReal;
                     tempReal = _w0[_wk];
-                    middleIdx += 1;
                     numeratorSub += tempReal;
                     // Step (2)
                     numeratorAdd -= tempReal;
                     numerator += numeratorAdd;
                     tempReal = _w1[_wk];
-                    todayIdx += 1;
                     numeratorAdd += tempReal;
                     // Step (3)
                     numerator += tempReal;
                     // Step (4)
                     tempReal = _w2[_wk];
-                    trailingIdx += 1;
                     _w3[_wk] = numerator * factor;
                     outIdx += 1;
                 }
             }
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Triangular Moving Average: a double-smoothed moving average that weights prices toward the
@@ -476,13 +468,15 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let series = vec![0.0; 252]; // your data, oldest first
-    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let series: Vec<f64> = (0..252)
+    /// #     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.trima(0, series.len() - 1, &series, 30, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -597,8 +591,8 @@ impl Core {
             sp.numerator += sp.tempReal;
             // Step (4)
             sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-            (*outReal) = sp.numerator * sp.factor;
-            sp.cur_outReal = (*outReal);
+            *outReal = sp.numerator * sp.factor;
+            sp.cur_outReal = *outReal;
             ringPosL_middleIdx = sp.ringPos_middleIdx;
             sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal;
             ringPosL_middleIdx = ringPosL_middleIdx + 1;
@@ -632,8 +626,8 @@ impl Core {
             sp.numerator += sp.tempReal;
             // Step (4)
             sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-            (*outReal) = sp.numerator * sp.factor;
-            sp.cur_outReal = (*outReal);
+            *outReal = sp.numerator * sp.factor;
+            sp.cur_outReal = *outReal;
             ringCapL_middleIdx = sp.ringCap_middleIdx;
             ringPosL_middleIdx = sp.ringPos_middleIdx;
             sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal;
@@ -669,8 +663,8 @@ impl Core {
             sp.numerator += sp.tempReal;
             // Step (4)
             sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
-            (*outReal) = sp.numerator * sp.factor;
-            sp.cur_outReal = (*outReal);
+            *outReal = sp.numerator * sp.factor;
+            sp.cur_outReal = *outReal;
         } else {
             // Step (1)
             sp.numerator -= sp.numeratorSub;
@@ -686,8 +680,8 @@ impl Core {
             sp.numerator += sp.tempReal;
             // Step (4)
             sp.tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
-            (*outReal) = sp.numerator * sp.factor;
-            sp.cur_outReal = (*outReal);
+            *outReal = sp.numerator * sp.factor;
+            sp.cur_outReal = *outReal;
         }
     }
 
@@ -699,21 +693,19 @@ impl Core {
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInTimePeriod) as i32) == (i32::MIN) {
+        if optInTimePeriod == i32::MIN {
             optInTimePeriod = 30;
-        } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+        } else if optInTimePeriod < 1 || optInTimePeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         if optInTimePeriod % 2 == 1 {
             let mut lookbackTotal: usize = 0_usize;
             let mut numerator: f64 = 0.0_f64;
@@ -736,8 +728,8 @@ impl Core {
             }
             // Make sure there is still something to evaluate.
             if startIdx > endIdx {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
+                *outBegIdx = 0;
+                *outNBElement = 0;
                 return Err(RetCode::InsufficientHistory);
             }
             // TRIMA Description
@@ -824,7 +816,6 @@ impl Core {
             //
             // The update of numeratorAdd needs values from the input at
             // the middleIdx and todayIdx.
-            outIdx = 0;
             // Logic for Odd period
             // Calculate the factor which is 1 divided by the
             // sumation of the weight.
@@ -855,7 +846,7 @@ impl Core {
             //       past period ~92682). For every period where the int product
             //       fits, the widened value is identical.
             i = (optInTimePeriod >> 1) as usize;
-            factor = ((i + 1) as f64) * (((i + 1)) as f64);
+            factor = ((i + 1) as f64) * ((i + 1) as f64);
             factor = 1.0 / factor;
             // Initialize all the variable before
             // starting to iterate for each output.
@@ -875,16 +866,15 @@ impl Core {
             }
             numeratorAdd = 0.0;
             middleIdx += 1;
-            for i in (middleIdx as usize)..(todayIdx as usize) + 1 {
+            for i in middleIdx..todayIdx + 1 {
                 tempReal = inReal[i];
                 numeratorAdd += tempReal;
                 numerator += numeratorAdd;
             }
-            i = (todayIdx as usize) + 1;
             // Write the first output
             outIdx = 0;
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = numerator * factor;
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = numerator * factor;
             todayIdx += 1;
             // Note: The value at the trailingIdx was saved
             //       in tempReal to account for the case where
@@ -906,10 +896,10 @@ impl Core {
                 numerator += tempReal;
                 // Step (4)
                 tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-                outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = numerator * factor;
+                outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = numerator * factor;
             }
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let cap_middleIdx: i64 = (todayIdx as i64) - (middleIdx as i64);
@@ -966,8 +956,8 @@ impl Core {
             }
             // Make sure there is still something to evaluate.
             if startIdx > endIdx {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
+                *outBegIdx = 0;
+                *outNBElement = 0;
                 return Err(RetCode::InsufficientHistory);
             }
             // TRIMA Description
@@ -1054,7 +1044,6 @@ impl Core {
             //
             // The update of numeratorAdd needs values from the input at
             // the middleIdx and todayIdx.
-            outIdx = 0;
             // Even logic.
             //
             // Very similar to the odd logic, except:
@@ -1063,7 +1052,7 @@ impl Core {
             //    slightly different.
             //  - Adjustment of numeratorAdd is different. See Step (2).
             i = (optInTimePeriod >> 1) as usize;
-            factor = (i as f64) * (((i + 1)) as f64);
+            factor = (i as f64) * ((i + 1) as f64);
             // widen: i*(i+1) overflows int past period ~92682
             factor = 1.0 / factor;
             // Initialize all the variable before
@@ -1084,16 +1073,15 @@ impl Core {
             }
             numeratorAdd = 0.0;
             middleIdx += 1;
-            for i in (middleIdx as usize)..(todayIdx as usize) + 1 {
+            for i in middleIdx..todayIdx + 1 {
                 tempReal = inReal[i];
                 numeratorAdd += tempReal;
                 numerator += numeratorAdd;
             }
-            i = (todayIdx as usize) + 1;
             // Write the first output
             outIdx = 0;
             tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = numerator * factor;
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = numerator * factor;
             todayIdx += 1;
             // Note: The value at the trailingIdx was saved
             //       in tempReal to account for the case where
@@ -1115,10 +1103,10 @@ impl Core {
                 numerator += tempReal;
                 // Step (4)
                 tempReal = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
-                outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = numerator * factor;
+                outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = numerator * factor;
             }
-            (*outNBElement) = outIdx;
-            (*outBegIdx) = startIdx;
+            *outNBElement = outIdx;
+            *outBegIdx = startIdx;
 
             // Capture the live batch state into the handle.
             let cap_middleIdx: i64 = (todayIdx as i64) - (middleIdx as i64);
@@ -1158,7 +1146,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::trima_open`] (composition seam).
     pub(crate) fn trima_open_internal(
-        &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32,
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32,
     ) -> Result<(TrimaStream, f64), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -1179,7 +1167,9 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252)
+    ///     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.trima_open(&series, 30).expect("enough history");
@@ -1210,7 +1200,9 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252)
+    ///     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let mut batch_out = vec![0.0; 252];
@@ -1227,7 +1219,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_TRIMA_OpenAndFill")]
     pub fn trima_open_and_fill(
-        &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
+        &self, inReal: &[f64], optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(TrimaStream, OutRange), RetCode> {
         if inReal.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -1246,7 +1238,7 @@ impl Core {
     /// [`Core::trima_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn trima_open_and_fill_internal(
-        &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
+        &self, inReal: &[f64], startIdx: usize, optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<TrimaStream, RetCode> {
         self.trima_open_impl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
@@ -1315,56 +1307,34 @@ impl TrimaStream {
             let outReal = &mut outReal;
             if sp.optInTimePeriod % 2 == 1 {
                 let mut numerator = sp.numerator;
-                let mut numeratorAdd = sp.numeratorAdd;
-                let mut numeratorSub = sp.numeratorSub;
+                let numeratorAdd = sp.numeratorAdd;
+                let numeratorSub = sp.numeratorSub;
                 let mut tempReal = sp.tempReal;
-                let mut pkSlot0: usize = usize::MAX;
-                let mut pkVal0: f64 = 0.0_f64;
-                let mut pkSlot1: usize = usize::MAX;
-                let mut pkVal1: f64 = 0.0_f64;
-                if sp.ringCap_middleIdx == 0 {
-                    pkSlot0 = 0;
-                    pkVal0 = inReal;
-                }
-                if sp.ringCap_trailingIdx == 0 {
-                    pkSlot1 = 0;
-                    pkVal1 = inReal;
-                }
                 // Step (1)
                 numerator -= numeratorSub;
-                numeratorSub -= tempReal;
-                tempReal = (if (sp.ringPos_middleIdx as usize) != pkSlot0 { sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] } else { pkVal0 });
-                numeratorSub += tempReal;
                 // Step (2)
                 numerator += numeratorAdd;
-                numeratorAdd -= tempReal;
                 tempReal = inReal;
-                numeratorAdd += tempReal;
                 // Step (3)
                 numerator += tempReal;
                 // Step (4)
-                tempReal = (if (sp.ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] } else { pkVal1 });
-                (*outReal) = numerator * sp.factor;
+                *outReal = numerator * sp.factor;
             } else {
                 let mut numerator = sp.numerator;
                 let mut numeratorAdd = sp.numeratorAdd;
-                let mut numeratorSub = sp.numeratorSub;
+                let numeratorSub = sp.numeratorSub;
                 let mut tempReal = sp.tempReal;
                 // Step (1)
                 numerator -= numeratorSub;
-                numeratorSub -= tempReal;
                 tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx];
-                numeratorSub += tempReal;
                 // Step (2)
                 numeratorAdd -= tempReal;
                 numerator += numeratorAdd;
                 tempReal = inReal;
-                numeratorAdd += tempReal;
                 // Step (3)
                 numerator += tempReal;
                 // Step (4)
-                tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
-                (*outReal) = numerator * sp.factor;
+                *outReal = numerator * sp.factor;
             }
         }
         Ok(outReal)
@@ -1443,48 +1413,34 @@ impl TrimaStream {
             let outReal = &mut outReal;
             if sp.optInTimePeriod % 2 == 1 {
                 let mut numerator = sp.numerator;
-                let mut numeratorAdd = sp.numeratorAdd;
-                let mut numeratorSub = sp.numeratorSub;
+                let numeratorAdd = sp.numeratorAdd;
+                let numeratorSub = sp.numeratorSub;
                 let mut tempReal = sp.tempReal;
-                let mut pkSlot0: usize = usize::MAX;
-                let mut pkVal0: f64 = 0.0_f64;
-                pkSlot0 = (tapeBase & tapeMask) as usize;
-                pkVal0 = inReal;
                 // Step (1)
                 numerator -= numeratorSub;
-                numeratorSub -= tempReal;
-                tempReal = (if ((tapeBase - sp.ringCap_middleIdx & tapeMask) as usize) != pkSlot0 { tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize] } else { pkVal0 });
-                numeratorSub += tempReal;
                 // Step (2)
                 numerator += numeratorAdd;
-                numeratorAdd -= tempReal;
                 tempReal = inReal;
-                numeratorAdd += tempReal;
                 // Step (3)
                 numerator += tempReal;
                 // Step (4)
-                tempReal = (if ((tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize) != pkSlot0 { tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize] } else { pkVal0 });
-                (*outReal) = numerator * sp.factor;
+                *outReal = numerator * sp.factor;
             } else {
                 let mut numerator = sp.numerator;
                 let mut numeratorAdd = sp.numeratorAdd;
-                let mut numeratorSub = sp.numeratorSub;
+                let numeratorSub = sp.numeratorSub;
                 let mut tempReal = sp.tempReal;
                 // Step (1)
                 numerator -= numeratorSub;
-                numeratorSub -= tempReal;
                 tempReal = tape[(tapeBase - sp.ringCap_middleIdx & tapeMask) as usize];
-                numeratorSub += tempReal;
                 // Step (2)
                 numeratorAdd -= tempReal;
                 numerator += numeratorAdd;
                 tempReal = inReal;
-                numeratorAdd += tempReal;
                 // Step (3)
                 numerator += tempReal;
                 // Step (4)
-                tempReal = tape[(tapeBase - sp.ringCap_trailingIdx & tapeMask) as usize];
-                (*outReal) = numerator * sp.factor;
+                *outReal = numerator * sp.factor;
             }
         }
         Ok(outReal)

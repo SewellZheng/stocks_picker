@@ -69,7 +69,7 @@ impl Core {
     pub fn marketfi_lookback(&self) -> Result<usize, RetCode> {
         // Each output depends only on its own bar, so nothing is consumed
         // before the first one can be produced.
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::marketfi`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -117,7 +117,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inVolume.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let inHigh = &inHigh[..=endIdx];
@@ -154,13 +153,12 @@ impl Core {
                 // 1e-14 band is an absolute threshold and meaningless against an
                 // unbounded volume scale. Same reasoning as the prevClose guard in
                 // ta_codegen/input/nvi/nvi.c.
-                _w3[_wk] = std::hint::select_unpredictable(_w2[_wk] != 0.0, (((_w0[_wk] - _w1[_wk]) / _w2[_wk]) as f64), 0.0);
+                _w3[_wk] = std::hint::select_unpredictable(_w2[_wk] != 0.0, ((_w0[_wk] - _w1[_wk]) / _w2[_wk]) as f64, 0.0);
                 outIdx += 1;
-                i += 1;
             }
         }
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// Bill Williams' Market Facilitation Index (*Trading Chaos*, 1995): the price range a bar
@@ -209,19 +207,23 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let volume = vec![0.0; 252]; // your data, oldest first
     /// # let volume: Vec<f64> = (0..252)
-    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.marketfi(0, high.len() - 1, &high, &low, &volume, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -329,11 +331,11 @@ impl Core {
         // unbounded volume scale. Same reasoning as the prevClose guard in
         // ta_codegen/input/nvi/nvi.c.
         if inVolume != 0.0 {
-            (*outReal) = (inHigh - inLow) / inVolume;
+            *outReal = (inHigh - inLow) / inVolume;
         } else {
-            (*outReal) = 0.0;
+            *outReal = 0.0;
         }
-        sp.cur_outReal = (*outReal);
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::marketfi_open_internal`]
@@ -349,16 +351,12 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
-        let mut i: usize = 0_usize;
         // Bill Williams' Market Facilitation Index: the price range a bar
         // travelled per unit of volume traded, i.e. how much movement the
         // market "facilitated" per tick.
@@ -373,7 +371,7 @@ impl Core {
         // already the Money Flow Index, so this carries the name Tulip and
         // pandas-ta-classic use.
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             // A zero-volume bar would divide by zero. Neither reference guards
             // it -- they emit +/-Inf, or NaN when the range is zero too -- but
             // issue #112 settled that a successful call never emits NaN or Inf,
@@ -383,11 +381,10 @@ impl Core {
             // 1e-14 band is an absolute threshold and meaningless against an
             // unbounded volume scale. Same reasoning as the prevClose guard in
             // ta_codegen/input/nvi/nvi.c.
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = std::hint::select_unpredictable(inVolume[i] != 0.0, (((inHigh[i] - inLow[i]) / inVolume[i]) as f64), 0.0);
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = std::hint::select_unpredictable(inVolume[i] != 0.0, ((inHigh[i] - inLow[i]) / inVolume[i]) as f64, 0.0);
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = MarketfiStreamState {
@@ -422,10 +419,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -457,10 +458,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -576,9 +581,9 @@ impl MarketfiStream {
             // unbounded volume scale. Same reasoning as the prevClose guard in
             // ta_codegen/input/nvi/nvi.c.
             if inVolume != 0.0 {
-                (*outReal) = (inHigh - inLow) / inVolume;
+                *outReal = (inHigh - inLow) / inVolume;
             } else {
-                (*outReal) = 0.0;
+                *outReal = 0.0;
             }
         }
         Ok(outReal)

@@ -69,7 +69,7 @@ impl Core {
     #[doc(alias = "TA_PVT_Lookback")]
     pub fn pvt_lookback(&self) -> Result<usize, RetCode> {
         // This function have no lookback needed.
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::pvt`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -115,8 +115,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx < inVolume.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut prevPVT: f64 = 0.0_f64;
         let mut prevClose: f64 = 0.0_f64;
@@ -126,7 +124,7 @@ impl Core {
         prevPVT = 0.0;
         prevClose = inClose[startIdx];
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             tempClose = inClose[i];
             // Exact test, never an epsilon band: a band carries the quote unit and
             // would zero the indicator for every instrument priced under it (#253).
@@ -140,9 +138,8 @@ impl Core {
             outIdx += 1;
             prevClose = tempClose;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// Price Volume Trend: a running cumulative total of each bar's volume weighted by that bar's
@@ -188,18 +185,18 @@ impl Core {
     ///
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let volume = vec![0.0; 252]; // your data, oldest first
     /// # let volume: Vec<f64> = (0..252)
-    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.pvt(0, close.len() - 1, &close, &volume, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -304,9 +301,9 @@ impl Core {
         } else {
             cold_arm();
         }
-        (*outReal) = sp.prevPVT;
+        *outReal = sp.prevPVT;
         sp.prevClose = tempClose;
-        sp.cur_outReal = (*outReal);
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::pvt_open_internal`]
@@ -322,15 +319,11 @@ impl Core {
         }
         let historyLen: usize = inClose.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut prevPVT: f64 = 0.0_f64;
         let mut prevClose: f64 = 0.0_f64;
@@ -338,7 +331,7 @@ impl Core {
         prevPVT = 0.0;
         prevClose = inClose[startIdx];
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             tempClose = inClose[i];
             // Exact test, never an epsilon band: a band carries the quote unit and
             // would zero the indicator for every instrument priced under it (#253).
@@ -348,12 +341,11 @@ impl Core {
             } else {
                 cold_arm();
             }
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = prevPVT;
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = prevPVT;
             prevClose = tempClose;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = PvtStreamState {
@@ -388,10 +380,10 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -424,10 +416,10 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -545,7 +537,7 @@ impl PvtStream {
             } else {
                 cold_arm();
             }
-            (*outReal) = prevPVT;
+            *outReal = prevPVT;
         }
         Ok(outReal)
     }

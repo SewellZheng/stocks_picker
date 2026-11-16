@@ -66,9 +66,13 @@ func (c *Core) framaLookback(optInTimePeriod int32) int32 {
 func (c *Core) framaImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var expScale float64
 	var slot_sufHigh []float64
+	var local_slot_sufHigh [32]float64
 	var slot_sufLow []float64
+	var local_slot_sufLow [32]float64
 	var slot_oldHigh []float64
+	var local_slot_oldHigh [32]float64
 	var slot_oldLow []float64
+	var local_slot_oldLow [32]float64
 	var slot_Idx int32
 	var maxIdx_slot int32
 	maxIdx_slot = 31
@@ -122,10 +126,26 @@ func (c *Core) framaImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInT
 	if half < 1 {
 		return InternalError
 	}
-	slot_sufHigh = make([]float64, half)
-	slot_sufLow = make([]float64, half)
-	slot_oldHigh = make([]float64, half)
-	slot_oldLow = make([]float64, half)
+	if half <= 32 {
+		slot_sufHigh = local_slot_sufHigh[:half]
+	} else {
+		slot_sufHigh = make([]float64, half)
+	}
+	if half <= 32 {
+		slot_sufLow = local_slot_sufLow[:half]
+	} else {
+		slot_sufLow = make([]float64, half)
+	}
+	if half <= 32 {
+		slot_oldHigh = local_slot_oldHigh[:half]
+	} else {
+		slot_oldHigh = make([]float64, half)
+	}
+	if half <= 32 {
+		slot_oldLow = local_slot_oldLow[:half]
+	} else {
+		slot_oldLow = make([]float64, half)
+	}
 	maxIdx_slot = half - 1
 	slot_Idx = 0
 	today = startIdx - lookbackTotal + 1
@@ -199,43 +219,23 @@ func (c *Core) framaImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInT
 			preHigh = tmpHigh
 			preLow = tmpLow
 		} else {
-			if tmpHigh > preHigh {
-				preHigh = tmpHigh
-			}
-			if tmpLow < preLow {
-				preLow = tmpLow
-			}
+			preHigh = selF(tmpHigh > preHigh, tmpHigh, preHigh)
+			preLow = selF(tmpLow < preLow, tmpLow, preLow)
 		}
 		if slot_Idx == lastSlot {
 			hi1 = preHigh
 			lo1 = preLow
 		} else {
 			hi1 = slot_sufHigh[slot_Idx+1]
-			if preHigh > hi1 {
-				hi1 = preHigh
-			}
+			hi1 = selF(preHigh > hi1, preHigh, hi1)
 			lo1 = slot_sufLow[slot_Idx+1]
-			if preLow < lo1 {
-				lo1 = preLow
-			}
+			lo1 = selF(preLow < lo1, preLow, lo1)
 		}
 		hi2 = slot_oldHigh[slot_Idx]
 		lo2 = slot_oldLow[slot_Idx]
 		r1 = hi1 - lo1
 		r2 = hi2 - lo2
-		var _T0 float64
-		if hi1 > hi2 {
-			_T0 = hi1
-		} else {
-			_T0 = hi2
-		}
-		var _T1 float64
-		if lo1 < lo2 {
-			_T1 = lo1
-		} else {
-			_T1 = lo2
-		}
-		r = _T0 - _T1
+		r = selF(hi1 > hi2, hi1, hi2) - selF(lo1 < lo2, lo1, lo2)
 		if r1 > 0.0 && r2 > 0.0 && r1+r2 > r {
 			alpha = math.Exp(float64(expScale * math.Log((r1+r2)/r)))
 			prevFRAMA = math.FMA(1.0-alpha, prevFRAMA, float64(alpha*price))
@@ -292,6 +292,25 @@ func (c *Core) FRAMALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// FRAMADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.FRAMA].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.FRAMA] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.FRAMALookback] rejects or an index that names no output.
+func (c *Core) FRAMADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.FRAMALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // FRAMA computes the Fractal Adaptive Moving Average over bars startIdx through
 // endIdx.
 //
@@ -329,7 +348,8 @@ func (c *Core) FRAMALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) FRAMA(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -415,18 +435,84 @@ func (sp *FRAMAStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	framaStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var tmpHigh float64
+	var tmpLow float64
+	var hi1 float64
+	var lo1 float64
+	var hi2 float64
+	var lo2 float64
+	var r1 float64
+	var r2 float64
+	var r float64
+	var price float64
+	var alpha float64
+	var i int32
+	var cb_slot_sufHigh []float64
+	var cb_slot_sufLow []float64
+	tmpHigh = inHigh
+	tmpLow = inLow
+	price = (tmpHigh + tmpLow) / 2.0
+	if sp.slot_Idx == 0 {
+		sp.preHigh = tmpHigh
+		sp.preLow = tmpLow
+	} else {
+		sp.preHigh = selF(tmpHigh > sp.preHigh, tmpHigh, sp.preHigh)
+		sp.preLow = selF(tmpLow < sp.preLow, tmpLow, sp.preLow)
+	}
+	if sp.slot_Idx == sp.lastSlot {
+		hi1 = sp.preHigh
+		lo1 = sp.preLow
+	} else {
+		hi1 = sp.cb_slot_sufHigh[sp.slot_Idx+1]
+		hi1 = selF(sp.preHigh > hi1, sp.preHigh, hi1)
+		lo1 = sp.cb_slot_sufLow[sp.slot_Idx+1]
+		lo1 = selF(sp.preLow < lo1, sp.preLow, lo1)
+	}
+	hi2 = sp.cb_slot_oldHigh[sp.slot_Idx]
+	lo2 = sp.cb_slot_oldLow[sp.slot_Idx]
+	r1 = hi1 - lo1
+	r2 = hi2 - lo2
+	r = selF(hi1 > hi2, hi1, hi2) - selF(lo1 < lo2, lo1, lo2)
+	if r1 > 0.0 && r2 > 0.0 && r1+r2 > r {
+		alpha = math.Exp(float64(sp.expScale * math.Log((r1+r2)/r)))
+		sp.prevFRAMA = math.FMA(1.0-alpha, sp.prevFRAMA, float64(alpha*price))
+	} else {
+		sp.prevFRAMA = price
+	}
+	sp.cur_outReal = sp.prevFRAMA
+	sp.cb_slot_oldHigh[sp.slot_Idx] = hi1
+	sp.cb_slot_oldLow[sp.slot_Idx] = lo1
+	sp.cb_slot_sufHigh[sp.slot_Idx] = tmpHigh
+	sp.cb_slot_sufLow[sp.slot_Idx] = tmpLow
+	if sp.slot_Idx == sp.lastSlot {
+		i = sp.lastSlot
+		cb_slot_sufHigh = sp.cb_slot_sufHigh
+		cb_slot_sufLow = sp.cb_slot_sufLow
+		for i > 0 {
+			i -= 1
+			if cb_slot_sufHigh[i+1] > cb_slot_sufHigh[i] {
+				cb_slot_sufHigh[i] = cb_slot_sufHigh[i+1]
+			}
+			if cb_slot_sufLow[i+1] < cb_slot_sufLow[i] {
+				cb_slot_sufLow[i] = cb_slot_sufLow[i+1]
+			}
+		}
+	}
+	sp.slot_Idx = sp.slot_Idx + 1
+	if sp.slot_Idx > sp.maxIdx_slot {
+		sp.slot_Idx = 0
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *FRAMAStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var tmpHigh float64
@@ -451,43 +537,23 @@ func (sp *FRAMAStream) Peek(inHigh, inLow float64) (float64, error) {
 		preHigh = tmpHigh
 		preLow = tmpLow
 	} else {
-		if tmpHigh > preHigh {
-			preHigh = tmpHigh
-		}
-		if tmpLow < preLow {
-			preLow = tmpLow
-		}
+		preHigh = selF(tmpHigh > preHigh, tmpHigh, preHigh)
+		preLow = selF(tmpLow < preLow, tmpLow, preLow)
 	}
 	if sp.slot_Idx == sp.lastSlot {
 		hi1 = preHigh
 		lo1 = preLow
 	} else {
 		hi1 = sp.cb_slot_sufHigh[sp.slot_Idx+1]
-		if preHigh > hi1 {
-			hi1 = preHigh
-		}
+		hi1 = selF(preHigh > hi1, preHigh, hi1)
 		lo1 = sp.cb_slot_sufLow[sp.slot_Idx+1]
-		if preLow < lo1 {
-			lo1 = preLow
-		}
+		lo1 = selF(preLow < lo1, preLow, lo1)
 	}
 	hi2 = sp.cb_slot_oldHigh[sp.slot_Idx]
 	lo2 = sp.cb_slot_oldLow[sp.slot_Idx]
 	r1 = hi1 - lo1
 	r2 = hi2 - lo2
-	var _T0 float64
-	if hi1 > hi2 {
-		_T0 = hi1
-	} else {
-		_T0 = hi2
-	}
-	var _T1 float64
-	if lo1 < lo2 {
-		_T1 = lo1
-	} else {
-		_T1 = lo2
-	}
-	r = _T0 - _T1
+	r = selF(hi1 > hi2, hi1, hi2) - selF(lo1 < lo2, lo1, lo2)
 	if r1 > 0.0 && r2 > 0.0 && r1+r2 > r {
 		alpha = math.Exp(float64(sp.expScale * math.Log((r1+r2)/r)))
 		prevFRAMA = math.FMA(1.0-alpha, prevFRAMA, float64(alpha*price))
@@ -512,92 +578,6 @@ func (sp *FRAMAStream) Clone() *FRAMAStream {
 	cl.cb_slot_oldHigh = append(sp.cb_slot_oldHigh[:0:0], sp.cb_slot_oldHigh...)
 	cl.cb_slot_oldLow = append(sp.cb_slot_oldLow[:0:0], sp.cb_slot_oldLow...)
 	return &cl
-}
-
-func framaStepImpl(sp *FRAMAStream, inHigh, inLow float64) {
-	var tmpHigh float64
-	var tmpLow float64
-	var hi1 float64
-	var lo1 float64
-	var hi2 float64
-	var lo2 float64
-	var r1 float64
-	var r2 float64
-	var r float64
-	var price float64
-	var alpha float64
-	var i int32
-	tmpHigh = inHigh
-	tmpLow = inLow
-	price = (tmpHigh + tmpLow) / 2.0
-	if sp.slot_Idx == 0 {
-		sp.preHigh = tmpHigh
-		sp.preLow = tmpLow
-	} else {
-		if tmpHigh > sp.preHigh {
-			sp.preHigh = tmpHigh
-		}
-		if tmpLow < sp.preLow {
-			sp.preLow = tmpLow
-		}
-	}
-	if sp.slot_Idx == sp.lastSlot {
-		hi1 = sp.preHigh
-		lo1 = sp.preLow
-	} else {
-		hi1 = sp.cb_slot_sufHigh[sp.slot_Idx+1]
-		if sp.preHigh > hi1 {
-			hi1 = sp.preHigh
-		}
-		lo1 = sp.cb_slot_sufLow[sp.slot_Idx+1]
-		if sp.preLow < lo1 {
-			lo1 = sp.preLow
-		}
-	}
-	hi2 = sp.cb_slot_oldHigh[sp.slot_Idx]
-	lo2 = sp.cb_slot_oldLow[sp.slot_Idx]
-	r1 = hi1 - lo1
-	r2 = hi2 - lo2
-	var _T2 float64
-	if hi1 > hi2 {
-		_T2 = hi1
-	} else {
-		_T2 = hi2
-	}
-	var _T3 float64
-	if lo1 < lo2 {
-		_T3 = lo1
-	} else {
-		_T3 = lo2
-	}
-	r = _T2 - _T3
-	if r1 > 0.0 && r2 > 0.0 && r1+r2 > r {
-		alpha = math.Exp(float64(sp.expScale * math.Log((r1+r2)/r)))
-		sp.prevFRAMA = math.FMA(1.0-alpha, sp.prevFRAMA, float64(alpha*price))
-	} else {
-		sp.prevFRAMA = price
-	}
-	sp.cur_outReal = sp.prevFRAMA
-	sp.cb_slot_oldHigh[sp.slot_Idx] = hi1
-	sp.cb_slot_oldLow[sp.slot_Idx] = lo1
-	sp.cb_slot_sufHigh[sp.slot_Idx] = tmpHigh
-	sp.cb_slot_sufLow[sp.slot_Idx] = tmpLow
-	if sp.slot_Idx == sp.lastSlot {
-		i = sp.lastSlot
-		for i > 0 {
-			i -= 1
-			if sp.cb_slot_sufHigh[i+1] > sp.cb_slot_sufHigh[i] {
-				sp.cb_slot_sufHigh[i] = sp.cb_slot_sufHigh[i+1]
-			}
-			if sp.cb_slot_sufLow[i+1] < sp.cb_slot_sufLow[i] {
-				sp.cb_slot_sufLow[i] = sp.cb_slot_sufLow[i+1]
-			}
-		}
-	}
-	sp.slot_Idx = sp.slot_Idx + 1
-	if sp.slot_Idx > sp.maxIdx_slot {
-		sp.slot_Idx = 0
-	}
 }
 
 func (c *Core) framaOpenImpl(sp *FRAMAStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -743,43 +723,23 @@ func (c *Core) framaOpenImpl(sp *FRAMAStream, inHigh, inLow []float64, startIdx,
 			preHigh = tmpHigh
 			preLow = tmpLow
 		} else {
-			if tmpHigh > preHigh {
-				preHigh = tmpHigh
-			}
-			if tmpLow < preLow {
-				preLow = tmpLow
-			}
+			preHigh = selF(tmpHigh > preHigh, tmpHigh, preHigh)
+			preLow = selF(tmpLow < preLow, tmpLow, preLow)
 		}
 		if slot_Idx == lastSlot {
 			hi1 = preHigh
 			lo1 = preLow
 		} else {
 			hi1 = slot_sufHigh[slot_Idx+1]
-			if preHigh > hi1 {
-				hi1 = preHigh
-			}
+			hi1 = selF(preHigh > hi1, preHigh, hi1)
 			lo1 = slot_sufLow[slot_Idx+1]
-			if preLow < lo1 {
-				lo1 = preLow
-			}
+			lo1 = selF(preLow < lo1, preLow, lo1)
 		}
 		hi2 = slot_oldHigh[slot_Idx]
 		lo2 = slot_oldLow[slot_Idx]
 		r1 = hi1 - lo1
 		r2 = hi2 - lo2
-		var _T4 float64
-		if hi1 > hi2 {
-			_T4 = hi1
-		} else {
-			_T4 = hi2
-		}
-		var _T5 float64
-		if lo1 < lo2 {
-			_T5 = lo1
-		} else {
-			_T5 = lo2
-		}
-		r = _T4 - _T5
+		r = selF(hi1 > hi2, hi1, hi2) - selF(lo1 < lo2, lo1, lo2)
 		if r1 > 0.0 && r2 > 0.0 && r1+r2 > r {
 			alpha = math.Exp(float64(expScale * math.Log((r1+r2)/r)))
 			prevFRAMA = math.FMA(1.0-alpha, prevFRAMA, float64(alpha*price))
@@ -865,8 +825,9 @@ func (c *Core) framaOpenInternal(inHigh, inLow []float64, startIdx, optInTimePer
 // of [Core.FRAMA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.FRAMALookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.FRAMALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) FRAMAOpen(inHigh, inLow []float64, optInTimePeriod int) (*FRAMAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -886,7 +847,8 @@ func (c *Core) FRAMAOpen(inHigh, inLow []float64, optInTimePeriod int) (*FRAMASt
 // no memory with an input or another output.
 //
 // The errors are those of [Core.FRAMAOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) FRAMAOpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (*FRAMAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

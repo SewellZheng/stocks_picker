@@ -71,6 +71,21 @@ func (c *Core) CUMSUMLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// CUMSUMDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.CUMSUM]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.CUMSUM], from 0,
+// and returns [BadParam] for an index that names no output.
+func (c *Core) CUMSUMDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CUMSUM computes the Cumulative Sum over bars startIdx through endIdx.
 //
 // Cumulative Sum: the running total of a series from the anchor bar forward. A
@@ -99,7 +114,9 @@ func (c *Core) CUMSUMLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) CUMSUM(startIdx, endIdx int, inReal, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -167,18 +184,19 @@ func (sp *CUMSUMStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	cumsumStepImpl(sp, inReal)
 	sp.outRangeCount++
+	sp.total += inReal
+	sp.cur_outReal = sp.total
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *CUMSUMStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -198,11 +216,6 @@ func (sp *CUMSUMStream) Value() float64 {
 func (sp *CUMSUMStream) Clone() *CUMSUMStream {
 	cl := *sp
 	return &cl
-}
-
-func cumsumStepImpl(sp *CUMSUMStream, inReal float64) {
-	sp.total += inReal
-	sp.cur_outReal = sp.total
 }
 
 func (c *Core) cumsumOpenImpl(sp *CUMSUMStream, inReal []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -262,7 +275,8 @@ func (c *Core) cumsumOpenInternal(inReal []float64, startIdx int32) (*CUMSUMStre
 // inReal is the history.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CUMSUMLookback] bars.
+// [Core.CUMSUMLookback] bars and [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars.
 func (c *Core) CUMSUMOpen(inReal []float64) (*CUMSUMStream, float64, error) {
 	sp, err := c.cumsumOpenInternal(inReal, 0)
 	if err != nil {
@@ -279,7 +293,8 @@ func (c *Core) CUMSUMOpen(inReal []float64) (*CUMSUMStream, float64, error) {
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.CUMSUMOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CUMSUMOpenAndFill(inReal, outReal []float64) (*CUMSUMStream, OutRange, error) {
 	if len(inReal) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

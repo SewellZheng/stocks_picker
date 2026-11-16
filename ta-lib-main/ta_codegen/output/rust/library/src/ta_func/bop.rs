@@ -71,7 +71,7 @@ impl Core {
     /// first output value can be produced.
     #[doc(alias = "TA_BOP_Lookback")]
     pub fn bop_lookback(&self) -> Result<usize, RetCode> {
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::bop`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -121,7 +121,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut tempReal: f64 = 0.0_f64;
@@ -146,13 +145,12 @@ impl Core {
                 // and that band zeroed the output for any instrument quoted below it
                 // (issue #253).
                 tempReal = _w1[_wk] - _w2[_wk];
-                _w4[_wk] = std::hint::select_unpredictable(tempReal <= 0.0, 0.0, (((_w0[_wk] - _w3[_wk]) / tempReal) as f64));
+                _w4[_wk] = std::hint::select_unpredictable(tempReal <= 0.0, 0.0, ((_w0[_wk] - _w3[_wk]) / tempReal) as f64);
                 outIdx += 1;
-                i += 1;
             }
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Balance Of Power compares where the close sits relative to the open, normalized by the bar's
@@ -196,22 +194,26 @@ impl Core {
     ///
     /// let open = vec![0.0; 252]; // your data, oldest first
     /// # let open: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    /// #     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     /// #     .collect();
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.bop(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -308,11 +310,11 @@ impl Core {
         // (issue #253).
         tempReal = inHigh - inLow;
         if tempReal <= 0.0 {
-            (*outReal) = 0.0;
+            *outReal = 0.0;
         } else {
-            (*outReal) = (inClose - inOpen) / tempReal;
+            *outReal = (inClose - inOpen) / tempReal;
         }
-        sp.cur_outReal = (*outReal);
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::bop_open_internal`]
@@ -328,31 +330,26 @@ impl Core {
         }
         let historyLen: usize = inOpen.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
-        let mut i: usize = 0_usize;
         let mut tempReal: f64 = 0.0_f64;
         // BOP = (Close - Open)/(High - Low)
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             // BOP is a fraction of the bar's own range, so it is scale-free and the
             // divisor only has to be positive. An exact test, not the fixed
             // TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
             // and that band zeroed the output for any instrument quoted below it
             // (issue #253).
             tempReal = inHigh[i] - inLow[i];
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = std::hint::select_unpredictable(tempReal <= 0.0, 0.0, (((inClose[i] - inOpen[i]) / tempReal) as f64));
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = std::hint::select_unpredictable(tempReal <= 0.0, 0.0, ((inClose[i] - inOpen[i]) / tempReal) as f64);
         }
-        i = (endIdx as usize) + 1;
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
 
         // Capture the live batch state into the handle.
         let state = BopStreamState {
@@ -388,12 +385,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -426,12 +427,16 @@ impl Core {
     /// ```
     /// use ta_lib::Core;
     /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .map(|i| 90.0 + (((i + 39) % 40 - 20) * ((i + 39) % 40 - 20)) as f64 / 20.0)
     ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -545,9 +550,9 @@ impl BopStream {
             // (issue #253).
             tempReal = inHigh - inLow;
             if tempReal <= 0.0 {
-                (*outReal) = 0.0;
+                *outReal = 0.0;
             } else {
-                (*outReal) = (inClose - inOpen) / tempReal;
+                *outReal = (inClose - inOpen) / tempReal;
             }
         }
         Ok(outReal)

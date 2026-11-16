@@ -46,7 +46,9 @@ func (c *Core) maxLookback(optInTimePeriod int32) int32 {
 
 func (c *Core) maxImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var highest float64
 	var tmp float64
 	var outIdx int32
@@ -83,11 +85,19 @@ func (c *Core) maxImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufHighest = local_sufHighest[:optInTimePeriod]
+	} else {
+		sufHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preHighest = local_preHighest[:optInTimePeriod]
+	} else {
+		preHighest = make([]float64, optInTimePeriod)
+	}
 	blockStart = trailingIdx
 	for today <= endIdx {
 		i = blockStart + optInTimePeriod - 1
@@ -160,6 +170,25 @@ func (c *Core) MAXLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MAXDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MAX]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MAX] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MAXLookback] rejects or an index that names no output.
+func (c *Core) MAXDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MAXLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MAX computes the Highest value over a specified period over bars startIdx
 // through endIdx.
 //
@@ -189,7 +218,8 @@ func (c *Core) MAXLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MAX(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -267,21 +297,63 @@ func (sp *MAXStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	maxStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tmp float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inReal []float64
+	sp.x_inReal[sp.today&sp.xMask] = inReal
+	tmp = sp.x_inReal[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inReal[i&xMask]
+			if tmp > highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	sp.cur_outReal = sp.highest
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MAXStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tmp float64
+	var today int32
+	var xMask int32
+	var x_inReal []float64
 	var cur_outReal float64
 	highest := sp.highest
 	highestIdx := sp.highestIdx
@@ -307,14 +379,17 @@ func (sp *MAXStream) Peek(inReal float64) (float64, error) {
 		}
 		highest = _T1
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot0 {
-				_T2 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T2 = x_inReal[i&xMask]
 			} else {
 				_T2 = pkVal0
 			}
@@ -343,34 +418,6 @@ func (sp *MAXStream) Clone() *MAXStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func maxStepImpl(sp *MAXStream, inReal float64) {
-	var tmp float64
-	sp.x_inReal[sp.today&sp.xMask] = inReal
-	tmp = sp.x_inReal[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inReal[sp.i&sp.xMask]
-			if tmp > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	sp.cur_outReal = sp.highest
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) maxOpenImpl(sp *MAXStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -492,7 +539,8 @@ func (c *Core) maxOpenInternal(inReal []float64, startIdx, optInTimePeriod int32
 // inReal is the history; the parameters are those of [Core.MAX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MAXLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MAXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MAXOpen(inReal []float64, optInTimePeriod int) (*MAXStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -512,7 +560,8 @@ func (c *Core) MAXOpen(inReal []float64, optInTimePeriod int) (*MAXStream, float
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MAXOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MAXOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*MAXStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

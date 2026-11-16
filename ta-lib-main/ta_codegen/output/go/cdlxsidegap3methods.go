@@ -143,6 +143,22 @@ func (c *Core) CDLXSIDEGAP3METHODSLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// CDLXSIDEGAP3METHODSDisplayShift returns how many bars ahead (positive) or
+// behind (negative) of the bar that computed it a chart draws output outputIdx
+// of [Core.CDLXSIDEGAP3METHODS]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of
+// [Core.CDLXSIDEGAP3METHODS], from 0, and returns [BadParam] for an index that
+// names no output.
+func (c *Core) CDLXSIDEGAP3METHODSDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CDLXSIDEGAP3METHODS recognizes the Upside/Downside Gap Three Methods pattern
 // over bars startIdx through endIdx.
 //
@@ -251,11 +267,73 @@ func (sp *CDLXSIDEGAP3METHODSStream) Update(inOpen, inHigh, inLow, inClose float
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cdlxsidegap3methodsStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var _T10 int32
+	if sp.lag2_inClose >= sp.lag2_inOpen {
+		_T10 = 1
+	} else {
+		_T10 = -1
+	}
+	var _T11 int32
+	if sp.lag1_inClose >= sp.lag1_inOpen {
+		_T11 = 1
+	} else {
+		_T11 = -1
+	}
+	_B14 := _T10 == _T11
+	if _B14 {
+		var _T12 int32
+		if sp.lag1_inClose >= sp.lag1_inOpen {
+			_T12 = 1
+		} else {
+			_T12 = -1
+		}
+		var _T13 int32
+		if inClose >= inOpen {
+			_T13 = 1
+		} else {
+			_T13 = -1
+		}
+		_B14 = _T12 == -_T13
+	}
+	_B18 := _B14 && inOpen < selF(sp.lag1_inClose > sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) && inOpen > selF(sp.lag1_inClose < sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) && inClose < selF(sp.lag2_inClose > sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen) && inClose > selF(sp.lag2_inClose < sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)
+	if _B18 {
+		var _T15 int32
+		if sp.lag2_inClose >= sp.lag2_inOpen {
+			_T15 = 1
+		} else {
+			_T15 = -1
+		}
+		_B17 := _T15 == 1 && selF(sp.lag1_inOpen < sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) > selF(sp.lag2_inOpen > sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose)
+		if !_B17 {
+			var _T16 int32
+			if sp.lag2_inClose >= sp.lag2_inOpen {
+				_T16 = 1
+			} else {
+				_T16 = -1
+			}
+			_B17 = _T16 == -1 && selF(sp.lag1_inOpen > sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) < selF(sp.lag2_inOpen < sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose)
+		}
+		_B18 = _B17
+	}
+	if _B18 {
+		var _T19 int32
+		if sp.lag2_inClose >= sp.lag2_inOpen {
+			_T19 = 1
+		} else {
+			_T19 = -1
+		}
+		sp.cur_outInteger = _T19 * 100
+	} else {
+		sp.cur_outInteger = 0
+	}
+	sp.lag2_inOpen = sp.lag1_inOpen
+	sp.lag1_inOpen = inOpen
+	sp.lag2_inClose = sp.lag1_inClose
+	sp.lag1_inClose = inClose
 	return sp.cur_outInteger, nil
 }
 
@@ -263,7 +341,7 @@ func (sp *CDLXSIDEGAP3METHODSStream) Update(inOpen, inHigh, inLow, inClose float
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CDLXSIDEGAP3METHODSStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var cur_outInteger int32
@@ -295,7 +373,7 @@ func (sp *CDLXSIDEGAP3METHODSStream) Peek(inOpen, inHigh, inLow, inClose float64
 		}
 		_B4 = _T2 == -_T3
 	}
-	_B8 := _B4 && inOpen < maxF(sp.lag1_inClose, sp.lag1_inOpen) && inOpen > minF(sp.lag1_inClose, sp.lag1_inOpen) && inClose < maxF(sp.lag2_inClose, sp.lag2_inOpen) && inClose > minF(sp.lag2_inClose, sp.lag2_inOpen)
+	_B8 := _B4 && inOpen < selF(sp.lag1_inClose > sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) && inOpen > selF(sp.lag1_inClose < sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) && inClose < selF(sp.lag2_inClose > sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen) && inClose > selF(sp.lag2_inClose < sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)
 	if _B8 {
 		var _T5 int32
 		if sp.lag2_inClose >= sp.lag2_inOpen {
@@ -303,7 +381,7 @@ func (sp *CDLXSIDEGAP3METHODSStream) Peek(inOpen, inHigh, inLow, inClose float64
 		} else {
 			_T5 = -1
 		}
-		_B7 := _T5 == 1 && minF(sp.lag1_inOpen, sp.lag1_inClose) > maxF(sp.lag2_inOpen, sp.lag2_inClose)
+		_B7 := _T5 == 1 && selF(sp.lag1_inOpen < sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) > selF(sp.lag2_inOpen > sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose)
 		if !_B7 {
 			var _T6 int32
 			if sp.lag2_inClose >= sp.lag2_inOpen {
@@ -311,7 +389,7 @@ func (sp *CDLXSIDEGAP3METHODSStream) Peek(inOpen, inHigh, inLow, inClose float64
 			} else {
 				_T6 = -1
 			}
-			_B7 = _T6 == -1 && maxF(sp.lag1_inOpen, sp.lag1_inClose) < minF(sp.lag2_inOpen, sp.lag2_inClose)
+			_B7 = _T6 == -1 && selF(sp.lag1_inOpen > sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) < selF(sp.lag2_inOpen < sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose)
 		}
 		_B8 = _B7
 	}
@@ -339,72 +417,6 @@ func (sp *CDLXSIDEGAP3METHODSStream) Value() int32 {
 func (sp *CDLXSIDEGAP3METHODSStream) Clone() *CDLXSIDEGAP3METHODSStream {
 	cl := *sp
 	return &cl
-}
-
-func cdlxsidegap3methodsStepImpl(sp *CDLXSIDEGAP3METHODSStream, inOpen, inHigh, inLow, inClose float64) {
-	var _T10 int32
-	if sp.lag2_inClose >= sp.lag2_inOpen {
-		_T10 = 1
-	} else {
-		_T10 = -1
-	}
-	var _T11 int32
-	if sp.lag1_inClose >= sp.lag1_inOpen {
-		_T11 = 1
-	} else {
-		_T11 = -1
-	}
-	_B14 := _T10 == _T11
-	if _B14 {
-		var _T12 int32
-		if sp.lag1_inClose >= sp.lag1_inOpen {
-			_T12 = 1
-		} else {
-			_T12 = -1
-		}
-		var _T13 int32
-		if inClose >= inOpen {
-			_T13 = 1
-		} else {
-			_T13 = -1
-		}
-		_B14 = _T12 == -_T13
-	}
-	_B18 := _B14 && inOpen < maxF(sp.lag1_inClose, sp.lag1_inOpen) && inOpen > minF(sp.lag1_inClose, sp.lag1_inOpen) && inClose < maxF(sp.lag2_inClose, sp.lag2_inOpen) && inClose > minF(sp.lag2_inClose, sp.lag2_inOpen)
-	if _B18 {
-		var _T15 int32
-		if sp.lag2_inClose >= sp.lag2_inOpen {
-			_T15 = 1
-		} else {
-			_T15 = -1
-		}
-		_B17 := _T15 == 1 && minF(sp.lag1_inOpen, sp.lag1_inClose) > maxF(sp.lag2_inOpen, sp.lag2_inClose)
-		if !_B17 {
-			var _T16 int32
-			if sp.lag2_inClose >= sp.lag2_inOpen {
-				_T16 = 1
-			} else {
-				_T16 = -1
-			}
-			_B17 = _T16 == -1 && maxF(sp.lag1_inOpen, sp.lag1_inClose) < minF(sp.lag2_inOpen, sp.lag2_inClose)
-		}
-		_B18 = _B17
-	}
-	if _B18 {
-		var _T19 int32
-		if sp.lag2_inClose >= sp.lag2_inOpen {
-			_T19 = 1
-		} else {
-			_T19 = -1
-		}
-		sp.cur_outInteger = _T19 * 100
-	} else {
-		sp.cur_outInteger = 0
-	}
-	sp.lag2_inOpen = sp.lag1_inOpen
-	sp.lag1_inOpen = inOpen
-	sp.lag2_inClose = sp.lag1_inClose
-	sp.lag1_inClose = inClose
 }
 
 func (c *Core) cdlxsidegap3methodsOpenImpl(sp *CDLXSIDEGAP3METHODSStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -512,6 +524,110 @@ func (c *Core) cdlxsidegap3methodsOpenImpl(sp *CDLXSIDEGAP3METHODSStream, inOpen
 	return Success
 }
 
+func (c *Core) cdlxsidegap3methodsOpenSinkFrame(sp *CDLXSIDEGAP3METHODSStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) RetCode {
+	var i int32
+	var outIdx int32
+	var lookbackTotal int32
+	if len(inOpen) > IndexMax+1 {
+		return OutOfRangeEndIndex
+	}
+	historyLen := int32(len(inOpen))
+	endIdx := historyLen - 1
+	if len(inHigh) != len(inOpen) || len(inLow) != len(inOpen) || len(inClose) != len(inOpen) {
+		return BadParam
+	}
+	if startIdx >= historyLen {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	lookbackTotal = c.cdlxsidegap3methodsLookback()
+	if startIdx < lookbackTotal {
+		startIdx = lookbackTotal
+	}
+	if startIdx > endIdx {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	i = startIdx
+	outIdx = 0
+	if i < endIdx {
+		outIdx = outIdx + (endIdx - i)
+		i = endIdx
+	}
+	var _T30 int32
+	if inClose[i-2] >= inOpen[i-2] {
+		_T30 = 1
+	} else {
+		_T30 = -1
+	}
+	var _T31 int32
+	if inClose[i-1] >= inOpen[i-1] {
+		_T31 = 1
+	} else {
+		_T31 = -1
+	}
+	_B34 := _T30 == _T31
+	if _B34 {
+		var _T32 int32
+		if inClose[i-1] >= inOpen[i-1] {
+			_T32 = 1
+		} else {
+			_T32 = -1
+		}
+		var _T33 int32
+		if inClose[i] >= inOpen[i] {
+			_T33 = 1
+		} else {
+			_T33 = -1
+		}
+		_B34 = _T32 == -_T33
+	}
+	_B38 := _B34 && inOpen[i] < maxF(inClose[i-1], inOpen[i-1]) && inOpen[i] > minF(inClose[i-1], inOpen[i-1]) && inClose[i] < maxF(inClose[i-2], inOpen[i-2]) && inClose[i] > minF(inClose[i-2], inOpen[i-2])
+	if _B38 {
+		var _T35 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T35 = 1
+		} else {
+			_T35 = -1
+		}
+		_B37 := _T35 == 1 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2])
+		if !_B37 {
+			var _T36 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T36 = 1
+			} else {
+				_T36 = -1
+			}
+			_B37 = _T36 == -1 && maxF(inOpen[i-1], inClose[i-1]) < minF(inOpen[i-2], inClose[i-2])
+		}
+		_B38 = _B37
+	}
+	if _B38 {
+		var _T39 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T39 = 1
+		} else {
+			_T39 = -1
+		}
+		outInteger[0] = _T39 * 100
+		outIdx += 1
+	} else {
+		outInteger[0] = 0
+		outIdx += 1
+	}
+	i += 1
+	*outNBElement = outIdx
+	*outBegIdx = startIdx
+	sp.lag1_inOpen = inOpen[historyLen-1]
+	sp.lag2_inOpen = inOpen[historyLen-2]
+	sp.lag1_inClose = inClose[historyLen-1]
+	sp.lag2_inClose = inClose[historyLen-2]
+	sp.cur_outInteger = outInteger[0]
+	return Success
+}
+
 func (c *Core) cdlxsidegap3methodsOpenAndFillInternal(inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) (*CDLXSIDEGAP3METHODSStream, error) {
 	sp := &CDLXSIDEGAP3METHODSStream{core: c}
 	if retCode := c.cdlxsidegap3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1); retCode != Success {
@@ -526,7 +642,7 @@ func (c *Core) cdlxsidegap3methodsOpenInternal(inOpen, inHigh, inLow, inClose []
 	sp := &CDLXSIDEGAP3METHODSStream{core: c}
 	var outBegIdx, outNBElement int32
 	var sink_outInteger [1]int32
-	if retCode := c.cdlxsidegap3methodsOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:], 0); retCode != Success {
+	if retCode := c.cdlxsidegap3methodsOpenSinkFrame(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:]); retCode != Success {
 		return nil, retCode
 	}
 	sp.outRangeBegIdx = int(outBegIdx)
@@ -541,8 +657,8 @@ func (c *Core) cdlxsidegap3methodsOpenInternal(inOpen, inHigh, inLow, inClose []
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CDLXSIDEGAP3METHODSLookback] bars, and [BadParam] for histories of
-// different lengths.
+// [Core.CDLXSIDEGAP3METHODSLookback] bars, [OutOfRangeEndIndex] for one longer
+// than [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) CDLXSIDEGAP3METHODSOpen(inOpen, inHigh, inLow, inClose []float64) (*CDLXSIDEGAP3METHODSStream, int32, error) {
 	sp, err := c.cdlxsidegap3methodsOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {

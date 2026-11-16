@@ -110,19 +110,11 @@ func (c *Core) haImpl(startIdx, endIdx int32, inOpen, inHigh, inLow, inClose []f
 		haOpen = (haOpen + haClose) / 2.0
 		haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0
 		haHigh = tempHigh
-		if haOpen > haHigh {
-			haHigh = haOpen
-		}
-		if haClose > haHigh {
-			haHigh = haClose
-		}
+		haHigh = selF(haOpen > haHigh, haOpen, haHigh)
+		haHigh = selF(haClose > haHigh, haClose, haHigh)
 		haLow = tempLow
-		if haOpen < haLow {
-			haLow = haOpen
-		}
-		if haClose < haLow {
-			haLow = haClose
-		}
+		haLow = selF(haOpen < haLow, haOpen, haLow)
+		haLow = selF(haClose < haLow, haClose, haLow)
 		outHAOpen[outIdx] = haOpen
 		outHAHigh[outIdx] = haHigh
 		outHALow[outIdx] = haLow
@@ -146,6 +138,21 @@ func (c *Core) HALookback() (int, error) {
 		return 0, BadParam
 	}
 	return int(lookback), nil
+}
+
+// HADisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.HA]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.HA], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) HADisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 4 {
+		return 0, BadParam
+	}
+	return 0, nil
 }
 
 // HA computes the Heikin-Ashi Candles over bars startIdx through endIdx.
@@ -183,7 +190,9 @@ func (c *Core) HALookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) HA(startIdx, endIdx int, inOpen, inHigh, inLow, inClose, outHAOpen, outHAHigh, outHALow, outHAClose []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -272,11 +281,32 @@ func (sp *HAStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, flo
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, 0, BadParam
 	}
-	haStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var haHigh float64
+	var haLow float64
+	var tempOpen float64
+	var tempHigh float64
+	var tempLow float64
+	var tempClose float64
+	tempOpen = inOpen
+	tempHigh = inHigh
+	tempLow = inLow
+	tempClose = inClose
+	sp.haOpen = (sp.haOpen + sp.haClose) / 2.0
+	sp.haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0
+	haHigh = tempHigh
+	haHigh = selF(sp.haOpen > haHigh, sp.haOpen, haHigh)
+	haHigh = selF(sp.haClose > haHigh, sp.haClose, haHigh)
+	haLow = tempLow
+	haLow = selF(sp.haOpen < haLow, sp.haOpen, haLow)
+	haLow = selF(sp.haClose < haLow, sp.haClose, haLow)
+	sp.cur_outHAOpen = sp.haOpen
+	sp.cur_outHAHigh = haHigh
+	sp.cur_outHALow = haLow
+	sp.cur_outHAClose = sp.haClose
 	return sp.cur_outHAOpen, sp.cur_outHAHigh, sp.cur_outHALow, sp.cur_outHAClose, nil
 }
 
@@ -284,7 +314,7 @@ func (sp *HAStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, flo
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *HAStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, float64, float64, float64, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, 0, BadParam
 	}
 	var haHigh float64
@@ -306,19 +336,11 @@ func (sp *HAStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, float
 	haOpen = (haOpen + haClose) / 2.0
 	haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0
 	haHigh = tempHigh
-	if haOpen > haHigh {
-		haHigh = haOpen
-	}
-	if haClose > haHigh {
-		haHigh = haClose
-	}
+	haHigh = selF(haOpen > haHigh, haOpen, haHigh)
+	haHigh = selF(haClose > haHigh, haClose, haHigh)
 	haLow = tempLow
-	if haOpen < haLow {
-		haLow = haOpen
-	}
-	if haClose < haLow {
-		haLow = haClose
-	}
+	haLow = selF(haOpen < haLow, haOpen, haLow)
+	haLow = selF(haClose < haLow, haClose, haLow)
 	cur_outHAOpen = haOpen
 	cur_outHAHigh = haHigh
 	cur_outHALow = haLow
@@ -337,39 +359,6 @@ func (sp *HAStream) Value() (float64, float64, float64, float64) {
 func (sp *HAStream) Clone() *HAStream {
 	cl := *sp
 	return &cl
-}
-
-func haStepImpl(sp *HAStream, inOpen, inHigh, inLow, inClose float64) {
-	var haHigh float64
-	var haLow float64
-	var tempOpen float64
-	var tempHigh float64
-	var tempLow float64
-	var tempClose float64
-	tempOpen = inOpen
-	tempHigh = inHigh
-	tempLow = inLow
-	tempClose = inClose
-	sp.haOpen = (sp.haOpen + sp.haClose) / 2.0
-	sp.haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0
-	haHigh = tempHigh
-	if sp.haOpen > haHigh {
-		haHigh = sp.haOpen
-	}
-	if sp.haClose > haHigh {
-		haHigh = sp.haClose
-	}
-	haLow = tempLow
-	if sp.haOpen < haLow {
-		haLow = sp.haOpen
-	}
-	if sp.haClose < haLow {
-		haLow = sp.haClose
-	}
-	sp.cur_outHAOpen = sp.haOpen
-	sp.cur_outHAHigh = haHigh
-	sp.cur_outHALow = haLow
-	sp.cur_outHAClose = sp.haClose
 }
 
 func (c *Core) haOpenImpl(sp *HAStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outHAOpen, outHAHigh, outHALow, outHAClose []float64, outStride int32) RetCode {
@@ -447,19 +436,11 @@ func (c *Core) haOpenImpl(sp *HAStream, inOpen, inHigh, inLow, inClose []float64
 		haOpen = (haOpen + haClose) / 2.0
 		haClose = (tempOpen + tempHigh + tempLow + tempClose) / 4.0
 		haHigh = tempHigh
-		if haOpen > haHigh {
-			haHigh = haOpen
-		}
-		if haClose > haHigh {
-			haHigh = haClose
-		}
+		haHigh = selF(haOpen > haHigh, haOpen, haHigh)
+		haHigh = selF(haClose > haHigh, haClose, haHigh)
 		haLow = tempLow
-		if haOpen < haLow {
-			haLow = haOpen
-		}
-		if haClose < haLow {
-			haLow = haClose
-		}
+		haLow = selF(haOpen < haLow, haOpen, haLow)
+		haLow = selF(haClose < haLow, haClose, haLow)
 		outHAOpen[outIdx*outStride] = haOpen
 		outHAHigh[outIdx*outStride] = haHigh
 		outHALow[outIdx*outStride] = haLow
@@ -510,7 +491,8 @@ func (c *Core) haOpenInternal(inOpen, inHigh, inLow, inClose []float64, startIdx
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most [Core.HALookback]
-// bars, and [BadParam] for histories of different lengths.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for histories of different lengths.
 func (c *Core) HAOpen(inOpen, inHigh, inLow, inClose []float64) (*HAStream, float64, float64, float64, float64, error) {
 	sp, err := c.haOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -527,7 +509,8 @@ func (c *Core) HAOpen(inOpen, inHigh, inLow, inClose []float64) (*HAStream, floa
 // memory with an input or another output.
 //
 // The errors are those of [Core.HAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) HAOpenAndFill(inOpen, inHigh, inLow, inClose, outHAOpen, outHAHigh, outHALow, outHAClose []float64) (*HAStream, OutRange, error) {
 	if len(inOpen) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

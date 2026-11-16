@@ -70,6 +70,21 @@ func (c *Core) EXPLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// EXPDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.EXP]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.EXP], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) EXPDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // EXP computes the Vector Arithmetic Exp over bars startIdx through endIdx.
 //
 // Element-wise base-e exponential of the input series.
@@ -92,7 +107,9 @@ func (c *Core) EXPLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) EXP(startIdx, endIdx int, inReal, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -157,18 +174,18 @@ func (sp *EXPStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	expStepImpl(sp, inReal)
 	sp.outRangeCount++
+	sp.cur_outReal = math.Exp(inReal)
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *EXPStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -186,10 +203,6 @@ func (sp *EXPStream) Value() float64 {
 func (sp *EXPStream) Clone() *EXPStream {
 	cl := *sp
 	return &cl
-}
-
-func expStepImpl(sp *EXPStream, inReal float64) {
-	sp.cur_outReal = math.Exp(inReal)
 }
 
 func (c *Core) expOpenImpl(sp *EXPStream, inReal []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -253,7 +266,8 @@ func (c *Core) expOpenInternal(inReal []float64, startIdx int32) (*EXPStream, er
 // inReal is the history.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.EXPLookback] bars.
+// [Core.EXPLookback] bars and [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars.
 func (c *Core) EXPOpen(inReal []float64) (*EXPStream, float64, error) {
 	sp, err := c.expOpenInternal(inReal, 0)
 	if err != nil {
@@ -270,7 +284,8 @@ func (c *Core) EXPOpen(inReal []float64) (*EXPStream, float64, error) {
 // no memory with an input or another output.
 //
 // The errors are those of [Core.EXPOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) EXPOpenAndFill(inReal, outReal []float64) (*EXPStream, OutRange, error) {
 	if len(inReal) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

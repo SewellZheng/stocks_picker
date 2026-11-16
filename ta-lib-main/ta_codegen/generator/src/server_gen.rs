@@ -6142,11 +6142,14 @@ const GO_SERVER_PRELUDE: &str = r#"import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	talib "ta-lib.github.io/go"
+	"ta-lib.github.io/go/metadata"
 )
 
 const maxArraySize = 200000
@@ -6158,16 +6161,50 @@ const tailI32 = 0x5eadbeef
 
 type params map[string]json.RawMessage
 
-func (p params) i64(name string, def int64) int64 {
-	if v, err := strconv.ParseInt(string(p[name]), 10, 64); err == nil {
-		return v
+// intText is what the C server's strtoll reads from a present value: its
+// leading integer, and 0 when it has none. Only an absent field is a default.
+func intText(raw json.RawMessage) string {
+	n := 0
+	if n < len(raw) && raw[n] == '-' {
+		n++
 	}
-	return def
+	digits := n
+	for n < len(raw) && raw[n] >= '0' && raw[n] <= '9' {
+		n++
+	}
+	if n == digits {
+		return "0"
+	}
+	return string(raw[:n])
+}
+
+func (p params) i64(name string, def int64) int64 {
+	raw, ok := p[name]
+	if !ok {
+		return def
+	}
+	v, _ := strconv.ParseInt(intText(raw), 10, 64)
+	return v
+}
+
+// A value outside int32 saturates, as the C server's does. Never down to
+// MinInt32: that is IntegerDefault, and would turn the request into "use the
+// default".
+func (p params) i32(name string, def int32) int32 {
+	raw, ok := p[name]
+	if !ok {
+		return def
+	}
+	v, err := strconv.ParseInt(intText(raw), 10, 32)
+	if err != nil {
+		return max(int32(v), math.MinInt32+1)
+	}
+	return int32(v)
 }
 
 // integer reads an optional parameter: absent is the default sentinel.
 func (p params) integer(name string) int {
-	return int(p.i64(name, talib.IntegerDefault))
+	return int(p.i32(name, talib.IntegerDefault))
 }
 
 func (p params) real(name string) float64 {
@@ -6288,7 +6325,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 	in := make([][]float64, len(slots))
 	switch {
 	case p.i64("gen_present", 0) != 0:
-		n := int(p.i64("gen_n", 0))
+		n := int(p.i32("gen_n", 0))
 		if n < 0 {
 			n = 0
 		}
@@ -6296,7 +6333,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 		for k := range series {
 			series[k] = make([]float64, n)
 		}
-		fuzzGen(int32(p.i64("gen_shape", 0)), int32(p.i64("gen_seed", 0)), n,
+		fuzzGen(p.i32("gen_shape", 0), p.i32("gen_seed", 0), n,
 			series[0], series[1], series[2], series[3], series[4], series[5])
 		for k, slot := range slots {
 			in[k] = series[slot.fuzz]
@@ -6317,7 +6354,7 @@ func (s *server) inputs(p params, slots []inSlot) [][]float64 {
 // previous setting, as C's TA_SetUnstablePeriod does.
 func (s *server) pin(p params, id talib.FuncUnstId) {
 	if _, ok := p["unstablePeriod"]; ok {
-		_ = s.core.SetUnstablePeriod(id, int(p.i64("unstablePeriod", 0)))
+		_ = s.core.SetUnstablePeriod(id, int(p.i32("unstablePeriod", 0)))
 	}
 }
 
@@ -6327,7 +6364,7 @@ func (s *server) pin(p params, id talib.FuncUnstId) {
 func (s *server) batch(p params, ins []inSlot, outs []outSlot, lookback func() (int, error),
 	run func(c *call) (talib.OutRange, error), open func(in [][]float64) error,
 	fill func(in [][]float64, c *call) (talib.OutRange, error), ride func(c *call) string) string {
-	c := &call{start: int(p.i64("startIdx", 0)), end: int(p.i64("endIdx", 0))}
+	c := &call{start: int(p.i32("startIdx", 0)), end: int(p.i32("endIdx", 0))}
 	c.in = s.inputs(p, ins)
 	mode := p.i64("bench_mode", 0)
 	if mode < 0 || mode > 2 || mode != 0 && open == nil {
@@ -6344,7 +6381,7 @@ func (s *server) batch(p params, ins []inSlot, outs []outSlot, lookback func() (
 	if lb, err := lookback(); err == nil && max(c.start, lb) <= c.end {
 		size = c.end - max(c.start, lb) + 1
 	}
-	size += int(p.i64("out_pad", 0))
+	size += int(p.i32("out_pad", 0))
 	for _, o := range outs {
 		if o.isInt {
 			buf := make([]int32, size)
@@ -6486,23 +6523,19 @@ func errorReply(msg string) string {
 }
 
 func (s *server) setUnstablePeriod(p params) string {
-	id := p.i64("id", 99)
-	if id < 0 || id > math.MaxInt32 {
+	id := p.i32("id", 99)
+	if id < 0 {
 		return errorReply("Invalid unstable period id")
 	}
-	if s.core.SetUnstablePeriod(talib.FuncUnstId(id), int(p.i64("period", 0))) != nil {
+	if s.core.SetUnstablePeriod(talib.FuncUnstId(id), int(p.i32("period", 0))) != nil {
 		return errorReply("Invalid unstable period")
 	}
 	return `{"status":"ok"}`
 }
 
-func fitsInt32(v int64) bool {
-	return v >= math.MinInt32 && v <= math.MaxInt32
-}
-
 func (s *server) setCandleSettings(p params) string {
-	st, rt, ap := p.i64("settingType", -1), p.i64("rangeType", -1), p.i64("avgPeriod", 0)
-	if !fitsInt32(st) || !fitsInt32(rt) || s.core.SetCandleSetting(talib.CandleSettingType(st),
+	st, rt, ap := p.i32("settingType", -1), p.i32("rangeType", -1), p.i32("avgPeriod", 0)
+	if s.core.SetCandleSetting(talib.CandleSettingType(st),
 		talib.RangeType(rt), int(ap), p.f64Bits("factorBits", 1.0)) != nil {
 		return errorReply("Invalid candle setting")
 	}
@@ -6510,20 +6543,20 @@ func (s *server) setCandleSettings(p params) string {
 }
 
 func (s *server) restoreCandleDefaultSettings(p params) string {
-	st := p.i64("settingType", -1)
-	if !fitsInt32(st) || s.core.RestoreCandleDefault(talib.CandleSettingType(st)) != nil {
+	st := p.i32("settingType", -1)
+	if s.core.RestoreCandleDefault(talib.CandleSettingType(st)) != nil {
 		return errorReply("Invalid candle setting type")
 	}
 	return `{"status":"ok"}`
 }
 
 func fuzzInHash(p params) string {
-	n := max(int(p.i64("gen_n", 0)), 0)
+	n := max(int(p.i32("gen_n", 0)), 0)
 	var a [6][]float64
 	for k := range a {
 		a[k] = make([]float64, n)
 	}
-	fuzzGen(int32(p.i64("gen_shape", 0)), int32(p.i64("gen_seed", 0)), n, a[0], a[1], a[2], a[3], a[4], a[5])
+	fuzzGen(p.i32("gen_shape", 0), p.i32("gen_seed", 0), n, a[0], a[1], a[2], a[3], a[4], a[5])
 	h := fuzzHashInit()
 	for _, x := range a {
 		h = fuzzHashF64(h, x)
@@ -6554,6 +6587,9 @@ func (s *server) handle(line []byte) (reply string) {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--bench-stream" {
+		os.Exit(benchStream(os.Args[2:]))
+	}
 	s := &server{core: talib.NewCore()}
 	for k := range s.ref {
 		s.ref[k] = make([]float64, maxArraySize)
@@ -6579,6 +6615,331 @@ func main() {
 }
 "#;
 
+/// The Go server's metadata tier, every RPC answered through the shipped
+/// `metadata` package. `abstract_call` serves two callers: `test_abstract.c`
+/// drives the binder and gets values, and `--xlang-hash` sends its seed
+/// transport there and gets the per-function handler's hash. `binder:1` marks a
+/// reply from the binder, so the first cannot drift onto the second unseen.
+const GO_ABSTRACT_HANDLERS: &str = r#"func runtimeInfo(p params) string {
+	v, err := metadata.RuntimeInfo(p.str("key"))
+	rc := 0
+	if err != nil {
+		rc = retCodeOf(err)
+	}
+	return `{"retCode":` + strconv.Itoa(rc) + `,"value":` + strconv.Itoa(v) + `}`
+}
+
+// jstr is s as a JSON string, with no HTML escaping.
+func jstr(s string) string {
+	var b bytes.Buffer
+	e := json.NewEncoder(&b)
+	e.SetEscapeHTML(false)
+	_ = e.Encode(s)
+	return string(bytes.TrimRight(b.Bytes(), "\n"))
+}
+
+func num(v float64) string {
+	return strconv.FormatFloat(v, 'g', -1, 64)
+}
+
+const absNotFound = `{"retCode":2}`
+
+func absLookup(p params) (metadata.FuncInfo, bool) {
+	return metadata.Lookup(p.str("funcName"))
+}
+
+func absFuncInfo(p params) string {
+	f, ok := absLookup(p)
+	if !ok {
+		return absNotFound
+	}
+	return `{"name":` + jstr(f.Name()) + `,"group":` + jstr(f.Group().String()) + `,"hint":` + jstr(f.Hint()) +
+		`,"flags":` + strconv.FormatUint(uint64(f.Flags()), 10) + `,"nbInput":` + strconv.Itoa(len(f.Inputs())) +
+		`,"nbOptInput":` + strconv.Itoa(len(f.OptInputs())) + `,"nbOutput":` + strconv.Itoa(len(f.Outputs())) + `}`
+}
+
+func absFuncAttributes(p params) string {
+	f, ok := absLookup(p)
+	if !ok {
+		return absNotFound
+	}
+	return `{"attributes":` + jstr(f.Attributes()) + `}`
+}
+
+func absInputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.Inputs()) {
+		return absNotFound
+	}
+	x := f.Inputs()[i]
+	return `{"type":` + strconv.Itoa(int(x.Kind)) + `,"paramName":` + jstr(x.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(x.Components), 10) + `}`
+}
+
+func absOutputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.Outputs()) {
+		return absNotFound
+	}
+	x := f.Outputs()[i]
+	return `{"type":` + strconv.Itoa(int(x.Kind)) + `,"paramName":` + jstr(x.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(x.Flags), 10) + `}`
+}
+
+func absOptInputInfo(p params) string {
+	f, ok := absLookup(p)
+	i := int(p.i32("paramIndex", -1))
+	if !ok || i < 0 || i >= len(f.OptInputs()) {
+		return absNotFound
+	}
+	o := f.OptInputs()[i]
+	s := `{"type":` + strconv.Itoa(int(o.Kind)) + `,"paramName":` + jstr(o.ParamName) +
+		`,"flags":` + strconv.FormatUint(uint64(o.Flags), 10) + `,"displayName":` + jstr(o.DisplayName) +
+		`,"hint":` + jstr(o.Hint) + `,"defaultValue":` + num(o.DefaultValue)
+	switch d := o.Domain.(type) {
+	case metadata.RealRange:
+		s += `,"min":` + num(d.Min) + `,"max":` + num(d.Max) + `,"precision":` + strconv.Itoa(d.Precision) +
+			`,"suggestedStart":` + num(d.SuggestedStart) + `,"suggestedEnd":` + num(d.SuggestedEnd) +
+			`,"suggestedIncrement":` + num(d.SuggestedIncrement)
+	case metadata.IntegerRange:
+		s += `,"min":` + strconv.Itoa(d.Min) + `,"max":` + strconv.Itoa(d.Max) +
+			`,"suggestedStart":` + strconv.Itoa(d.SuggestedStart) + `,"suggestedEnd":` + strconv.Itoa(d.SuggestedEnd) +
+			`,"suggestedIncrement":` + strconv.Itoa(d.SuggestedIncrement)
+	case metadata.IntegerList:
+		s += `,"valueList":` + jstr(d.ValueList())
+	case metadata.RealList:
+		s += `,"valueList":` + jstr(d.ValueList())
+	default:
+		panic(fmt.Sprintf("unhandled optional-parameter domain %T", d))
+	}
+	return s + `}`
+}
+
+func absForEachFunc() string {
+	b := []byte(`{"functions":[`)
+	for k, f := range metadata.All() {
+		if k > 0 {
+			b = append(b, ',')
+		}
+		b = append(b, `{"name":`+jstr(f.Name())+`,"group":`+jstr(f.Group().String())+
+			`,"nbInput":`+strconv.Itoa(len(f.Inputs()))+`,"nbOptInput":`+strconv.Itoa(len(f.OptInputs()))+
+			`,"nbOutput":`+strconv.Itoa(len(f.Outputs()))+`}`...)
+	}
+	return string(append(b, "]}"...))
+}
+
+func absDescriptionXML() string {
+	xml := metadata.FunctionDescriptionXML()
+	var sum uint64
+	for i := 0; i < len(xml); i++ {
+		sum += uint64(xml[i])
+	}
+	return `{"length":` + strconv.Itoa(len(xml)) + `,"checksum":` + strconv.FormatUint(sum, 10) + `}`
+}
+
+// absBindOpts binds every optional parameter the request carries; an absent
+// one stays unset, which is its default. The first rejection is returned.
+func absBindOpts(f metadata.FuncInfo, h *metadata.ParamHolder, p params) error {
+	for k, o := range f.OptInputs() {
+		raw, ok := p[o.ParamName]
+		if !ok {
+			continue
+		}
+		var err error
+		switch o.Kind {
+		case metadata.OptRealRange, metadata.OptRealList:
+			v, perr := strconv.ParseFloat(string(raw), 64)
+			if perr != nil {
+				return talib.BadParam
+			}
+			err = h.SetOptInputReal(k, v)
+		default:
+			v, perr := strconv.ParseInt(string(raw), 10, 32)
+			if perr != nil {
+				return talib.BadParam
+			}
+			err = h.SetOptInputInteger(k, int(v))
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *server) absHolder(p params) (*metadata.ParamHolder, bool) {
+	f, ok := absLookup(p)
+	if !ok {
+		return nil, false
+	}
+	h := f.NewCall(s.core)
+	if absBindOpts(f, h, p) != nil {
+		return nil, true
+	}
+	return h, true
+}
+
+func (s *server) absLookback(p params) string {
+	h, ok := s.absHolder(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	lb := -1
+	if h != nil {
+		if v, err := h.Lookback(); err == nil {
+			lb = v
+		}
+	}
+	return `{"lookback":` + strconv.Itoa(lb) + `}`
+}
+
+func (s *server) absDisplayShift(p params) string {
+	h, ok := s.absHolder(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	ds := math.MinInt32
+	if h != nil {
+		if v, err := h.DisplayShift(int(p.i32("outputIdx", 0))); err == nil {
+			ds = v
+		}
+	}
+	return `{"displayShift":` + strconv.Itoa(ds) + `}`
+}
+
+func (s *server) absCall(p params) string {
+	if p.i64("gen_present", 0) != 0 || p.i64("want_hash", 0) != 0 {
+		if fn := function("TA_" + p.str("funcName")); fn != nil {
+			return fn(s, p)
+		}
+	}
+	f, ok := absLookup(p)
+	if !ok {
+		return errorReply("Unknown function: " + p.str("funcName"))
+	}
+	start, end := p.i32("startIdx", 0), p.i32("endIdx", 0)
+	early := func(rc talib.RetCode) string {
+		return `{"binder":1,"lookback":-1,"retCode":` + strconv.Itoa(int(rc)) + `,"outBegIdx":0,"outNBElement":0}`
+	}
+	if start < 0 || start > talib.IndexMax {
+		return early(talib.OutOfRangeStartIndex)
+	}
+	if end < 0 || end > talib.IndexMax || end < start {
+		return early(talib.OutOfRangeEndIndex)
+	}
+	// Capped, so a range the library rejects is answered with its code rather
+	// than with an allocation.
+	n := int(min(end-start+1, maxArraySize))
+	h := f.NewCall(s.core)
+	var bindErr error
+	note := func(err error) {
+		if bindErr == nil {
+			bindErr = err
+		}
+	}
+	inputs, outputs := f.Inputs(), f.Outputs()
+	skipIn, skipOut := int(p.i32("skipInput", 0)), int(p.i32("skipOutput", 0))
+	generic := 0
+	for _, in := range inputs {
+		if in.Kind != metadata.InputPrice {
+			generic++
+		}
+	}
+	gi := 0
+	for slot, in := range inputs {
+		key := "inReal"
+		if generic > 1 {
+			key = "inReal" + strconv.Itoa(gi)
+		}
+		if in.Kind != metadata.InputPrice {
+			gi++
+		}
+		if slot+1 == skipIn {
+			continue
+		}
+		switch in.Kind {
+		case metadata.InputPrice:
+			note(h.SetPriceInput(slot, metadata.PriceInput{
+				Open: p.f64Array("inOpen"), High: p.f64Array("inHigh"), Low: p.f64Array("inLow"),
+				Close: p.f64Array("inClose"), Volume: p.f64Array("inVolume"), OpenInterest: p.f64Array("inOpenInterest"),
+			}))
+		case metadata.InputReal:
+			note(h.SetInput(slot, p.f64Array(key)))
+		default:
+			src := p.f64Array(key)
+			ints := make([]int32, len(src))
+			for k, v := range src {
+				ints[k] = int32(v)
+			}
+			note(h.SetIntInput(slot, ints))
+		}
+	}
+	note(absBindOpts(f, h, p))
+	reals := make([][]float64, len(outputs))
+	ints := make([][]int32, len(outputs))
+	for k, o := range outputs {
+		if o.Kind == metadata.OutputReal {
+			reals[k] = make([]float64, n)
+			if k+1 != skipOut {
+				note(h.SetOutput(k, reals[k]))
+			}
+		} else {
+			ints[k] = make([]int32, n)
+			if k+1 != skipOut {
+				note(h.SetIntOutput(k, ints[k]))
+			}
+		}
+	}
+	lb := -1
+	if v, err := h.Lookback(); err == nil {
+		lb = v
+	}
+	rc, beg, nb := 0, 0, 0
+	if bindErr != nil {
+		rc = retCodeOf(bindErr)
+	} else if r, err := h.Call(int(start), int(end)); err != nil {
+		rc = retCodeOf(err)
+	} else {
+		beg, nb = r.BegIdx, r.NBElement
+	}
+	b := []byte(`{"binder":1,"lookback":` + strconv.Itoa(lb) + `,"retCode":` + strconv.Itoa(rc) +
+		`,"outBegIdx":` + strconv.Itoa(beg) + `,"outNBElement":` + strconv.Itoa(nb))
+	kr, ki := 0, 0
+	for k, o := range outputs {
+		if o.Kind == metadata.OutputReal {
+			b = append(b, `,"outReal`...)
+			if kr > 0 {
+				b = strconv.AppendInt(b, int64(kr), 10)
+			}
+			b = append(b, `":"`...)
+			for _, v := range reals[k][:nb] {
+				b = appendHex(b, math.Float64bits(v))
+			}
+			b = append(b, '"')
+			kr++
+		} else {
+			b = append(b, `,"outInteger`...)
+			if ki > 0 {
+				b = strconv.AppendInt(b, int64(ki), 10)
+			}
+			b = append(b, `":[`...)
+			for j, v := range ints[k][:nb] {
+				if j > 0 {
+					b = append(b, ',')
+				}
+				b = strconv.AppendInt(b, int64(v), 10)
+			}
+			b = append(b, ']')
+			ki++
+		}
+	}
+	return string(append(b, '}'))
+}
+
+"#;
+
 const GO_FUZZ: &str = include_str!("../templates/go/fuzz.go");
 
 /// The Go server: `package main` in its own module under `go/tools`, so it
@@ -6596,7 +6957,7 @@ pub fn generate_go_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -
     );
     s.push_str(GO_SERVER_PRELUDE);
     s.push('\n');
-    s.push_str(&crate::backends::runtime_info::go_server_handler());
+    s.push_str(GO_ABSTRACT_HANDLERS);
 
     s.push_str("func evalPredicate(p params) string {\n");
     s.push_str("\tvalues, scale := p.f64Array(\"values\"), p.f64Array(\"scale\")\n");
@@ -6631,6 +6992,16 @@ pub fn generate_go_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -
         ("eval_predicate", "evalPredicate(p)", false),
         ("TA_GetRuntimeInfo", "runtimeInfo(p)", false),
         ("fuzz_in_hash", "fuzzInHash(p)", false),
+        ("abstract_call", "s.absCall(p)", false),
+        ("abstract_get_lookback", "s.absLookback(p)", false),
+        ("abstract_get_display_shift", "s.absDisplayShift(p)", false),
+        ("abstract_for_each_func", "absForEachFunc()", false),
+        ("TA_GetFuncInfo", "absFuncInfo(p)", false),
+        ("TA_GetFuncAttributes", "absFuncAttributes(p)", false),
+        ("TA_GetInputParameterInfo", "absInputInfo(p)", false),
+        ("TA_GetOptInputParameterInfo", "absOptInputInfo(p)", false),
+        ("TA_GetOutputParameterInfo", "absOutputInfo(p)", false),
+        ("TA_FunctionDescriptionXML", "absDescriptionXML()", false),
         ("stream_verify", "s.streamVerify(p)", false),
     ] {
         let bump = if ambient { "\t\trideGen++\n" } else { "" };
@@ -6653,6 +7024,10 @@ pub fn generate_go_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -
     s.push_str(&crate::ride_gen::go::generate_go_ridealong(funcs));
     s.push('\n');
     s.push_str(GO_FUZZ);
+    s.push('\n');
+    s.push_str(&crate::bench_gen::generate_go_stream_bench(funcs, |f| {
+        crate::backends::go_stream::emits_stream(f, &lookup)
+    }));
     s
 }
 

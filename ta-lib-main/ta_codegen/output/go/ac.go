@@ -68,6 +68,7 @@ func (c *Core) acImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInFast
 	var oscStartIdx int32
 	var lookbackTotal int32
 	var oscBuffer []float64
+	var local_oscBuffer [32]float64
 	var oscBuffer_Idx int32
 	var maxIdx_oscBuffer int32
 	maxIdx_oscBuffer = 31
@@ -104,7 +105,11 @@ func (c *Core) acImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInFast
 	if optInSignalPeriod < 1 {
 		return InternalError
 	}
-	oscBuffer = make([]float64, optInSignalPeriod)
+	if optInSignalPeriod <= 32 {
+		oscBuffer = local_oscBuffer[:optInSignalPeriod]
+	} else {
+		oscBuffer = make([]float64, optInSignalPeriod)
+	}
 	maxIdx_oscBuffer = optInSignalPeriod - 1
 	oscBuffer_Idx = 0
 	oscStartIdx = startIdx - (optInSignalPeriod - 1)
@@ -190,6 +195,25 @@ func (c *Core) ACLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod in
 	return int(lookback), nil
 }
 
+// ACDisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.AC]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.AC] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.ACLookback]
+// rejects or an index that names no output.
+func (c *Core) ACDisplayShift(optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.ACLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // AC computes the Accelerator/Decelerator Oscillator over bars startIdx through
 // endIdx.
 //
@@ -229,7 +253,8 @@ func (c *Core) ACLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod in
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) AC(startIdx, endIdx int, inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -323,18 +348,55 @@ func (sp *ACStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	acStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var medianPrice float64
+	var osc float64
+	var tempReal float64
+	var ringPosL_trailingFastIdx int32
+	var ringPosL_trailingSlowIdx int32
+	var ringCapL_trailingFastIdx int32
+	var ringCapL_trailingSlowIdx int32
+	medianPrice = (inHigh + inLow) / 2.0
+	sp.sumFast += medianPrice
+	sp.sumSlow += medianPrice
+	osc = sp.sumFast/float64(sp.optInFastPeriod) - sp.sumSlow/float64(sp.optInSlowPeriod)
+	sp.sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx]
+	sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx]
+	sp.cb_oscBuffer[sp.oscBuffer_Idx] = osc
+	sp.sumSignal += osc
+	tempReal = osc - sp.sumSignal/float64(sp.optInSignalPeriod)
+	sp.oscBuffer_Idx = sp.oscBuffer_Idx + 1
+	if sp.oscBuffer_Idx > sp.maxIdx_oscBuffer {
+		sp.oscBuffer_Idx = 0
+	}
+	sp.sumSignal -= sp.cb_oscBuffer[sp.oscBuffer_Idx]
+	sp.cur_outReal = tempReal
+	ringCapL_trailingFastIdx = sp.ringCap_trailingFastIdx
+	ringPosL_trailingFastIdx = sp.ringPos_trailingFastIdx
+	sp.ring_trailingFastIdx_derived[ringPosL_trailingFastIdx] = medianPrice
+	ringPosL_trailingFastIdx = ringPosL_trailingFastIdx + 1
+	if ringPosL_trailingFastIdx >= ringCapL_trailingFastIdx {
+		ringPosL_trailingFastIdx = 0
+	}
+	sp.ringPos_trailingFastIdx = ringPosL_trailingFastIdx
+	ringCapL_trailingSlowIdx = sp.ringCap_trailingSlowIdx
+	ringPosL_trailingSlowIdx = sp.ringPos_trailingSlowIdx
+	sp.ring_trailingSlowIdx_derived[ringPosL_trailingSlowIdx] = medianPrice
+	ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx + 1
+	if ringPosL_trailingSlowIdx >= ringCapL_trailingSlowIdx {
+		ringPosL_trailingSlowIdx = 0
+	}
+	sp.ringPos_trailingSlowIdx = ringPosL_trailingSlowIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *ACStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var medianPrice float64
@@ -385,47 +447,6 @@ func (sp *ACStream) Clone() *ACStream {
 	cl.ring_trailingSlowIdx_derived = append(sp.ring_trailingSlowIdx_derived[:0:0], sp.ring_trailingSlowIdx_derived...)
 	cl.cb_oscBuffer = append(sp.cb_oscBuffer[:0:0], sp.cb_oscBuffer...)
 	return &cl
-}
-
-func acStepImpl(sp *ACStream, inHigh, inLow float64) {
-	var medianPrice float64
-	var osc float64
-	var tempReal float64
-	var ringPosL_trailingFastIdx int32
-	var ringPosL_trailingSlowIdx int32
-	var ringCapL_trailingFastIdx int32
-	var ringCapL_trailingSlowIdx int32
-	medianPrice = (inHigh + inLow) / 2.0
-	sp.sumFast += medianPrice
-	sp.sumSlow += medianPrice
-	osc = sp.sumFast/float64(sp.optInFastPeriod) - sp.sumSlow/float64(sp.optInSlowPeriod)
-	sp.sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx]
-	sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx]
-	sp.cb_oscBuffer[sp.oscBuffer_Idx] = osc
-	sp.sumSignal += osc
-	tempReal = osc - sp.sumSignal/float64(sp.optInSignalPeriod)
-	sp.oscBuffer_Idx = sp.oscBuffer_Idx + 1
-	if sp.oscBuffer_Idx > sp.maxIdx_oscBuffer {
-		sp.oscBuffer_Idx = 0
-	}
-	sp.sumSignal -= sp.cb_oscBuffer[sp.oscBuffer_Idx]
-	sp.cur_outReal = tempReal
-	ringCapL_trailingFastIdx = sp.ringCap_trailingFastIdx
-	ringPosL_trailingFastIdx = sp.ringPos_trailingFastIdx
-	sp.ring_trailingFastIdx_derived[ringPosL_trailingFastIdx] = medianPrice
-	ringPosL_trailingFastIdx = ringPosL_trailingFastIdx + 1
-	if ringPosL_trailingFastIdx >= ringCapL_trailingFastIdx {
-		ringPosL_trailingFastIdx = 0
-	}
-	sp.ringPos_trailingFastIdx = ringPosL_trailingFastIdx
-	ringCapL_trailingSlowIdx = sp.ringCap_trailingSlowIdx
-	ringPosL_trailingSlowIdx = sp.ringPos_trailingSlowIdx
-	sp.ring_trailingSlowIdx_derived[ringPosL_trailingSlowIdx] = medianPrice
-	ringPosL_trailingSlowIdx = ringPosL_trailingSlowIdx + 1
-	if ringPosL_trailingSlowIdx >= ringCapL_trailingSlowIdx {
-		ringPosL_trailingSlowIdx = 0
-	}
-	sp.ringPos_trailingSlowIdx = ringPosL_trailingSlowIdx
 }
 
 func (c *Core) acOpenImpl(sp *ACStream, inHigh, inLow []float64, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -616,8 +637,8 @@ func (c *Core) acOpenInternal(inHigh, inLow []float64, startIdx, optInFastPeriod
 // of [Core.AC].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.ACLookback]
-// bars, and [BadParam] for a parameter out of range or histories of different
-// lengths.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range or histories of different lengths.
 func (c *Core) ACOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int) (*ACStream, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, BadParam
@@ -643,7 +664,8 @@ func (c *Core) ACOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod,
 // memory with an input or another output.
 //
 // The errors are those of [Core.ACOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ACOpenAndFill(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outReal []float64) (*ACStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

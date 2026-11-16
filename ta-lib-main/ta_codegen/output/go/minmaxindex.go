@@ -155,6 +155,25 @@ func (c *Core) MINMAXINDEXLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MINMAXINDEXDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MINMAXINDEX]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MINMAXINDEX] followed by the output's
+// position among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MINMAXINDEXLookback] rejects or an index that names no output.
+func (c *Core) MINMAXINDEXDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MINMAXINDEXLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MINMAXINDEX computes the Indexes of lowest and highest values over a
 // specified period over bars startIdx through endIdx.
 //
@@ -184,7 +203,8 @@ func (c *Core) MINMAXINDEXLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MINMAXINDEX(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outMinIdx, outMaxIdx []int32) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -269,22 +289,97 @@ func (sp *MINMAXINDEXStream) Update(inReal float64) (int32, int32, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
-	minmaxindexStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tmpHigh float64
+	var tmpLow float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inReal []float64
+	var lowest float64
+	var lowestIdx int32
+	sp.x_inReal[sp.today&sp.xMask] = inReal
+	tmpHigh = sp.x_inReal[sp.today&sp.xMask]
+	tmpLow = tmpHigh
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpHigh = x_inReal[i&xMask]
+			if tmpHigh >= highest {
+				highestIdx = i
+				highest = tmpHigh
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmpHigh >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmpHigh
+	}
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inReal[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpLow = x_inReal[i&xMask]
+			if tmpLow <= lowest {
+				lowestIdx = i
+				lowest = tmpLow
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmpLow <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmpLow
+	}
+	sp.cur_outMaxIdx = sp.highestIdx
+	sp.cur_outMinIdx = sp.lowestIdx
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outMinIdx, sp.cur_outMaxIdx, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
 	var tmpHigh float64
 	var tmpLow float64
+	var today int32
+	var xMask int32
+	var x_inReal []float64
 	var cur_outMaxIdx int32
 	var cur_outMinIdx int32
 	highest := sp.highest
@@ -314,14 +409,17 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 		}
 		highest = _T1
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot0 {
-				_T2 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T2 = x_inReal[i&xMask]
 			} else {
 				_T2 = pkVal0
 			}
@@ -345,14 +443,17 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 		}
 		lowest = _T3
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T4 float64
-			if i&sp.xMask != pkSlot0 {
-				_T4 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T4 = x_inReal[i&xMask]
 			} else {
 				_T4 = pkVal0
 			}
@@ -383,56 +484,6 @@ func (sp *MINMAXINDEXStream) Clone() *MINMAXINDEXStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func minmaxindexStepImpl(sp *MINMAXINDEXStream, inReal float64) {
-	var tmpHigh float64
-	var tmpLow float64
-	sp.x_inReal[sp.today&sp.xMask] = inReal
-	tmpHigh = sp.x_inReal[sp.today&sp.xMask]
-	tmpLow = tmpHigh
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpHigh = sp.x_inReal[sp.i&sp.xMask]
-			if tmpHigh >= sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmpHigh
-			}
-		}
-	} else if tmpHigh >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmpHigh
-	}
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inReal[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpLow = sp.x_inReal[sp.i&sp.xMask]
-			if tmpLow <= sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmpLow
-			}
-		}
-	} else if tmpLow <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmpLow
-	}
-	sp.cur_outMaxIdx = sp.highestIdx
-	sp.cur_outMinIdx = sp.lowestIdx
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) minmaxindexOpenImpl(sp *MINMAXINDEXStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outMinIdx, outMaxIdx []int32, outStride int32) RetCode {
@@ -584,7 +635,8 @@ func (c *Core) minmaxindexOpenInternal(inReal []float64, startIdx, optInTimePeri
 // inReal is the history; the parameters are those of [Core.MINMAXINDEX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MINMAXINDEXLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MINMAXINDEXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MINMAXINDEXOpen(inReal []float64, optInTimePeriod int) (*MINMAXINDEXStream, int32, int32, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -604,7 +656,9 @@ func (c *Core) MINMAXINDEXOpen(inReal []float64, optInTimePeriod int) (*MINMAXIN
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MINMAXINDEXOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) MINMAXINDEXOpenAndFill(inReal []float64, optInTimePeriod int, outMinIdx, outMaxIdx []int32) (*MINMAXINDEXStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

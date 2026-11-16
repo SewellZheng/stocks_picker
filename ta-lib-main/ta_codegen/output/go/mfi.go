@@ -63,7 +63,9 @@ func (c *Core) mfiImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 	var today int32
 	var nullRun int32
 	var mflow_positive []float64
+	var local_mflow_positive [50]float64
 	var mflow_negative []float64
+	var local_mflow_negative [50]float64
 	var mflow_Idx int32
 	var maxIdx_mflow int32
 	maxIdx_mflow = 49
@@ -90,8 +92,16 @@ func (c *Core) mfiImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	mflow_positive = make([]float64, optInTimePeriod)
-	mflow_negative = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 50 {
+		mflow_positive = local_mflow_positive[:optInTimePeriod]
+	} else {
+		mflow_positive = make([]float64, optInTimePeriod)
+	}
+	if optInTimePeriod <= 50 {
+		mflow_negative = local_mflow_negative[:optInTimePeriod]
+	} else {
+		mflow_negative = make([]float64, optInTimePeriod)
+	}
 	maxIdx_mflow = optInTimePeriod - 1
 	mflow_Idx = 0
 	outIdx = 0
@@ -115,31 +125,19 @@ func (c *Core) mfiImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 			_T0 = tempValue1
 		}
 		moneyFlow = _T0
-		var _T1 float64
-		if tempValue2 < 0.0 {
-			_T1 = 0.0
-		} else {
-			_T1 = moneyFlow
-		}
-		posFlow = _T1
-		var _T2 float64
-		if tempValue2 < 0.0 {
-			_T2 = moneyFlow
-		} else {
-			_T2 = 0.0
-		}
-		negFlow = _T2
+		posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+		negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
 		mflow_positive[mflow_Idx] = posFlow
 		mflow_negative[mflow_Idx] = negFlow
 		posSumMF += posFlow
 		negSumMF += negFlow
-		var _T3 int32
+		var _T1 int32
 		if moneyFlow == 0.0 {
-			_T3 = nullRun + 1
+			_T1 = nullRun + 1
 		} else {
-			_T3 = 0
+			_T1 = 0
 		}
-		nullRun = _T3
+		nullRun = _T1
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
 			posSumMF = 0.0
@@ -151,19 +149,19 @@ func (c *Core) mfiImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 		}
 	}
 	tempValue1 = posSumMF + negSumMF
-	var _T5 float64
+	var _T3 float64
 	if posSumMF < 0.0 {
-		_T5 = 0.0
+		_T3 = 0.0
 	} else {
-		var _T4 float64
+		var _T2 float64
 		if posSumMF > tempValue1 {
-			_T4 = tempValue1
+			_T2 = tempValue1
 		} else {
-			_T4 = posSumMF
+			_T2 = posSumMF
 		}
-		_T5 = _T4
+		_T3 = _T2
 	}
-	posClamped = _T5
+	posClamped = _T3
 	if tempValue1 <= 0.0 {
 		outReal[outIdx] = 0.0
 		outIdx++
@@ -180,57 +178,39 @@ func (c *Core) mfiImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 		prevValue = tempValue1
 		tempValue1 = float64(tempValue1 * inVolume[today])
 		today++
-		var _T6 float64
+		var _T4 float64
 		if isZeroScaled(tempValue2, tempValue3) {
-			_T6 = 0.0
+			_T4 = 0.0
 		} else {
-			_T6 = tempValue1
+			_T4 = tempValue1
 		}
-		moneyFlow = _T6
-		var _T7 float64
-		if tempValue2 < 0.0 {
-			_T7 = 0.0
-		} else {
-			_T7 = moneyFlow
-		}
-		posFlow = _T7
-		var _T8 float64
-		if tempValue2 < 0.0 {
-			_T8 = moneyFlow
-		} else {
-			_T8 = 0.0
-		}
-		negFlow = _T8
+		moneyFlow = _T4
+		posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+		negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
 		mflow_positive[mflow_Idx] = posFlow
 		mflow_negative[mflow_Idx] = negFlow
 		posSumMF += posFlow
 		negSumMF += negFlow
-		var _T9 int32
+		var _T5 int32
 		if moneyFlow == 0.0 {
-			_T9 = nullRun + 1
+			_T5 = nullRun + 1
 		} else {
-			_T9 = 0
+			_T5 = 0
 		}
-		nullRun = _T9
+		nullRun = _T5
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
 			posSumMF = 0.0
 			negSumMF = 0.0
 		}
 		tempValue1 = posSumMF + negSumMF
-		var _T11 float64
+		var _T6 float64
 		if posSumMF < 0.0 {
-			_T11 = 0.0
+			_T6 = 0.0
 		} else {
-			var _T10 float64
-			if posSumMF > tempValue1 {
-				_T10 = tempValue1
-			} else {
-				_T10 = posSumMF
-			}
-			_T11 = _T10
+			_T6 = selF(posSumMF > tempValue1, tempValue1, posSumMF)
 		}
-		posClamped = _T11
+		posClamped = _T6
 		if tempValue1 <= 0.0 {
 			outReal[outIdx] = 0.0
 			outIdx++
@@ -262,6 +242,25 @@ func (c *Core) MFILookback(optInTimePeriod int) (int, error) {
 		return 0, BadParam
 	}
 	return int(lookback), nil
+}
+
+// MFIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MFI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MFI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MFILookback] rejects or an index that names no output.
+func (c *Core) MFIDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MFILookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
 }
 
 // MFI computes the Money Flow Index over bars startIdx through endIdx.
@@ -296,7 +295,8 @@ func (c *Core) MFILookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MFI(startIdx, endIdx int, inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -384,11 +384,66 @@ func (sp *MFIStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	mfiStepImpl(sp, inHigh, inLow, inClose, inVolume)
 	sp.outRangeCount++
+	var tempValue1 float64
+	var tempValue2 float64
+	var tempValue3 float64
+	var moneyFlow float64
+	var posFlow float64
+	var negFlow float64
+	var posClamped float64
+	sp.posSumMF -= sp.cb_mflow_positive[sp.mflow_Idx]
+	sp.negSumMF -= sp.cb_mflow_negative[sp.mflow_Idx]
+	tempValue1 = (inHigh + inLow + inClose) / 3.0
+	tempValue2 = tempValue1 - sp.prevValue
+	tempValue3 = math.Abs(tempValue1) + math.Abs(sp.prevValue)
+	sp.prevValue = tempValue1
+	tempValue1 = float64(tempValue1 * inVolume)
+	var _T3 float64
+	if isZeroScaled(tempValue2, tempValue3) {
+		_T3 = 0.0
+	} else {
+		_T3 = tempValue1
+	}
+	moneyFlow = _T3
+	posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+	negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
+	sp.cb_mflow_positive[sp.mflow_Idx] = posFlow
+	sp.cb_mflow_negative[sp.mflow_Idx] = negFlow
+	sp.posSumMF += posFlow
+	sp.negSumMF += negFlow
+	var _T4 int32
+	if moneyFlow == 0.0 {
+		_T4 = sp.nullRun + 1
+	} else {
+		_T4 = 0
+	}
+	sp.nullRun = _T4
+	if sp.nullRun >= sp.optInTimePeriod {
+		sp.nullRun = sp.optInTimePeriod
+		sp.posSumMF = 0.0
+		sp.negSumMF = 0.0
+	}
+	tempValue1 = sp.posSumMF + sp.negSumMF
+	var _T5 float64
+	if sp.posSumMF < 0.0 {
+		_T5 = 0.0
+	} else {
+		_T5 = selF(sp.posSumMF > tempValue1, tempValue1, sp.posSumMF)
+	}
+	posClamped = _T5
+	if tempValue1 <= 0.0 {
+		sp.cur_outReal = 0.0
+	} else {
+		sp.cur_outReal = float64(100.0 * (posClamped / tempValue1))
+	}
+	sp.mflow_Idx = sp.mflow_Idx + 1
+	if sp.mflow_Idx > sp.maxIdx_mflow {
+		sp.mflow_Idx = 0
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -396,7 +451,7 @@ func (sp *MFIStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *MFIStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var tempValue1 float64
@@ -425,48 +480,30 @@ func (sp *MFIStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, er
 		_T0 = tempValue1
 	}
 	moneyFlow = _T0
-	var _T1 float64
-	if tempValue2 < 0.0 {
-		_T1 = 0.0
-	} else {
-		_T1 = moneyFlow
-	}
-	posFlow = _T1
-	var _T2 float64
-	if tempValue2 < 0.0 {
-		_T2 = moneyFlow
-	} else {
-		_T2 = 0.0
-	}
-	negFlow = _T2
+	posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+	negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
 	posSumMF += posFlow
 	negSumMF += negFlow
-	var _T3 int32
+	var _T1 int32
 	if moneyFlow == 0.0 {
-		_T3 = nullRun + 1
+		_T1 = nullRun + 1
 	} else {
-		_T3 = 0
+		_T1 = 0
 	}
-	nullRun = _T3
+	nullRun = _T1
 	if nullRun >= sp.optInTimePeriod {
 		nullRun = sp.optInTimePeriod
 		posSumMF = 0.0
 		negSumMF = 0.0
 	}
 	tempValue1 = posSumMF + negSumMF
-	var _T5 float64
+	var _T2 float64
 	if posSumMF < 0.0 {
-		_T5 = 0.0
+		_T2 = 0.0
 	} else {
-		var _T4 float64
-		if posSumMF > tempValue1 {
-			_T4 = tempValue1
-		} else {
-			_T4 = posSumMF
-		}
-		_T5 = _T4
+		_T2 = selF(posSumMF > tempValue1, tempValue1, posSumMF)
 	}
-	posClamped = _T5
+	posClamped = _T2
 	if tempValue1 <= 0.0 {
 		cur_outReal = 0.0
 	} else {
@@ -487,83 +524,6 @@ func (sp *MFIStream) Clone() *MFIStream {
 	cl.cb_mflow_positive = append(sp.cb_mflow_positive[:0:0], sp.cb_mflow_positive...)
 	cl.cb_mflow_negative = append(sp.cb_mflow_negative[:0:0], sp.cb_mflow_negative...)
 	return &cl
-}
-
-func mfiStepImpl(sp *MFIStream, inHigh, inLow, inClose, inVolume float64) {
-	var tempValue1 float64
-	var tempValue2 float64
-	var tempValue3 float64
-	var moneyFlow float64
-	var posFlow float64
-	var negFlow float64
-	var posClamped float64
-	sp.posSumMF -= sp.cb_mflow_positive[sp.mflow_Idx]
-	sp.negSumMF -= sp.cb_mflow_negative[sp.mflow_Idx]
-	tempValue1 = (inHigh + inLow + inClose) / 3.0
-	tempValue2 = tempValue1 - sp.prevValue
-	tempValue3 = math.Abs(tempValue1) + math.Abs(sp.prevValue)
-	sp.prevValue = tempValue1
-	tempValue1 = float64(tempValue1 * inVolume)
-	var _T6 float64
-	if isZeroScaled(tempValue2, tempValue3) {
-		_T6 = 0.0
-	} else {
-		_T6 = tempValue1
-	}
-	moneyFlow = _T6
-	var _T7 float64
-	if tempValue2 < 0.0 {
-		_T7 = 0.0
-	} else {
-		_T7 = moneyFlow
-	}
-	posFlow = _T7
-	var _T8 float64
-	if tempValue2 < 0.0 {
-		_T8 = moneyFlow
-	} else {
-		_T8 = 0.0
-	}
-	negFlow = _T8
-	sp.cb_mflow_positive[sp.mflow_Idx] = posFlow
-	sp.cb_mflow_negative[sp.mflow_Idx] = negFlow
-	sp.posSumMF += posFlow
-	sp.negSumMF += negFlow
-	var _T9 int32
-	if moneyFlow == 0.0 {
-		_T9 = sp.nullRun + 1
-	} else {
-		_T9 = 0
-	}
-	sp.nullRun = _T9
-	if sp.nullRun >= sp.optInTimePeriod {
-		sp.nullRun = sp.optInTimePeriod
-		sp.posSumMF = 0.0
-		sp.negSumMF = 0.0
-	}
-	tempValue1 = sp.posSumMF + sp.negSumMF
-	var _T11 float64
-	if sp.posSumMF < 0.0 {
-		_T11 = 0.0
-	} else {
-		var _T10 float64
-		if sp.posSumMF > tempValue1 {
-			_T10 = tempValue1
-		} else {
-			_T10 = sp.posSumMF
-		}
-		_T11 = _T10
-	}
-	posClamped = _T11
-	if tempValue1 <= 0.0 {
-		sp.cur_outReal = 0.0
-	} else {
-		sp.cur_outReal = float64(100.0 * (posClamped / tempValue1))
-	}
-	sp.mflow_Idx = sp.mflow_Idx + 1
-	if sp.mflow_Idx > sp.maxIdx_mflow {
-		sp.mflow_Idx = 0
-	}
 }
 
 func (c *Core) mfiOpenImpl(sp *MFIStream, inHigh, inLow, inClose, inVolume []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -635,38 +595,26 @@ func (c *Core) mfiOpenImpl(sp *MFIStream, inHigh, inLow, inClose, inVolume []flo
 		prevValue = tempValue1
 		tempValue1 = float64(tempValue1 * inVolume[today])
 		today++
-		var _T12 float64
+		var _T6 float64
 		if isZeroScaled(tempValue2, tempValue3) {
-			_T12 = 0.0
+			_T6 = 0.0
 		} else {
-			_T12 = tempValue1
+			_T6 = tempValue1
 		}
-		moneyFlow = _T12
-		var _T13 float64
-		if tempValue2 < 0.0 {
-			_T13 = 0.0
-		} else {
-			_T13 = moneyFlow
-		}
-		posFlow = _T13
-		var _T14 float64
-		if tempValue2 < 0.0 {
-			_T14 = moneyFlow
-		} else {
-			_T14 = 0.0
-		}
-		negFlow = _T14
+		moneyFlow = _T6
+		posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+		negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
 		mflow_positive[mflow_Idx] = posFlow
 		mflow_negative[mflow_Idx] = negFlow
 		posSumMF += posFlow
 		negSumMF += negFlow
-		var _T15 int32
+		var _T7 int32
 		if moneyFlow == 0.0 {
-			_T15 = nullRun + 1
+			_T7 = nullRun + 1
 		} else {
-			_T15 = 0
+			_T7 = 0
 		}
-		nullRun = _T15
+		nullRun = _T7
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
 			posSumMF = 0.0
@@ -678,19 +626,19 @@ func (c *Core) mfiOpenImpl(sp *MFIStream, inHigh, inLow, inClose, inVolume []flo
 		}
 	}
 	tempValue1 = posSumMF + negSumMF
-	var _T17 float64
+	var _T9 float64
 	if posSumMF < 0.0 {
-		_T17 = 0.0
+		_T9 = 0.0
 	} else {
-		var _T16 float64
+		var _T8 float64
 		if posSumMF > tempValue1 {
-			_T16 = tempValue1
+			_T8 = tempValue1
 		} else {
-			_T16 = posSumMF
+			_T8 = posSumMF
 		}
-		_T17 = _T16
+		_T9 = _T8
 	}
-	posClamped = _T17
+	posClamped = _T9
 	if tempValue1 <= 0.0 {
 		outReal[outIdx*outStride] = 0.0
 		outIdx++
@@ -707,57 +655,39 @@ func (c *Core) mfiOpenImpl(sp *MFIStream, inHigh, inLow, inClose, inVolume []flo
 		prevValue = tempValue1
 		tempValue1 = float64(tempValue1 * inVolume[today])
 		today++
-		var _T18 float64
+		var _T10 float64
 		if isZeroScaled(tempValue2, tempValue3) {
-			_T18 = 0.0
+			_T10 = 0.0
 		} else {
-			_T18 = tempValue1
+			_T10 = tempValue1
 		}
-		moneyFlow = _T18
-		var _T19 float64
-		if tempValue2 < 0.0 {
-			_T19 = 0.0
-		} else {
-			_T19 = moneyFlow
-		}
-		posFlow = _T19
-		var _T20 float64
-		if tempValue2 < 0.0 {
-			_T20 = moneyFlow
-		} else {
-			_T20 = 0.0
-		}
-		negFlow = _T20
+		moneyFlow = _T10
+		posFlow = selF(tempValue2 < 0.0, 0.0, moneyFlow)
+		negFlow = selF(tempValue2 < 0.0, moneyFlow, 0.0)
 		mflow_positive[mflow_Idx] = posFlow
 		mflow_negative[mflow_Idx] = negFlow
 		posSumMF += posFlow
 		negSumMF += negFlow
-		var _T21 int32
+		var _T11 int32
 		if moneyFlow == 0.0 {
-			_T21 = nullRun + 1
+			_T11 = nullRun + 1
 		} else {
-			_T21 = 0
+			_T11 = 0
 		}
-		nullRun = _T21
+		nullRun = _T11
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
 			posSumMF = 0.0
 			negSumMF = 0.0
 		}
 		tempValue1 = posSumMF + negSumMF
-		var _T23 float64
+		var _T12 float64
 		if posSumMF < 0.0 {
-			_T23 = 0.0
+			_T12 = 0.0
 		} else {
-			var _T22 float64
-			if posSumMF > tempValue1 {
-				_T22 = tempValue1
-			} else {
-				_T22 = posSumMF
-			}
-			_T23 = _T22
+			_T12 = selF(posSumMF > tempValue1, tempValue1, posSumMF)
 		}
-		posClamped = _T23
+		posClamped = _T12
 		if tempValue1 <= 0.0 {
 			outReal[outIdx*outStride] = 0.0
 			outIdx++
@@ -820,8 +750,9 @@ func (c *Core) mfiOpenInternal(inHigh, inLow, inClose, inVolume []float64, start
 // parameters are those of [Core.MFI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MFILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.MFILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) MFIOpen(inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int) (*MFIStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -841,7 +772,8 @@ func (c *Core) MFIOpen(inHigh, inLow, inClose, inVolume []float64, optInTimePeri
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MFIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MFIOpenAndFill(inHigh, inLow, inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (*MFIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

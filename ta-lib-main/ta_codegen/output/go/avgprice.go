@@ -69,6 +69,21 @@ func (c *Core) AVGPRICELookback() (int, error) {
 	return int(lookback), nil
 }
 
+// AVGPRICEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.AVGPRICE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.AVGPRICE], from 0,
+// and returns [BadParam] for an index that names no output.
+func (c *Core) AVGPRICEDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // AVGPRICE computes the Average Price over bars startIdx through endIdx.
 //
 // Average Price: the arithmetic mean of each bar's open, high, low, and close.
@@ -95,7 +110,9 @@ func (c *Core) AVGPRICELookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) AVGPRICE(startIdx, endIdx int, inOpen, inHigh, inLow, inClose, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -172,11 +189,11 @@ func (sp *AVGPRICEStream) Update(inOpen, inHigh, inLow, inClose float64) (float6
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	avgpriceStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	sp.cur_outReal = (inHigh + inLow + inClose + inOpen) / 4.0
 	return sp.cur_outReal, nil
 }
 
@@ -184,7 +201,7 @@ func (sp *AVGPRICEStream) Update(inOpen, inHigh, inLow, inClose float64) (float6
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *AVGPRICEStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -202,10 +219,6 @@ func (sp *AVGPRICEStream) Value() float64 {
 func (sp *AVGPRICEStream) Clone() *AVGPRICEStream {
 	cl := *sp
 	return &cl
-}
-
-func avgpriceStepImpl(sp *AVGPRICEStream, inOpen, inHigh, inLow, inClose float64) {
-	sp.cur_outReal = (inHigh + inLow + inClose + inOpen) / 4.0
 }
 
 func (c *Core) avgpriceOpenImpl(sp *AVGPRICEStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -272,8 +285,8 @@ func (c *Core) avgpriceOpenInternal(inOpen, inHigh, inLow, inClose []float64, st
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.AVGPRICELookback] bars, and [BadParam] for histories of different
-// lengths.
+// [Core.AVGPRICELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) AVGPRICEOpen(inOpen, inHigh, inLow, inClose []float64) (*AVGPRICEStream, float64, error) {
 	sp, err := c.avgpriceOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -290,7 +303,9 @@ func (c *Core) AVGPRICEOpen(inOpen, inHigh, inLow, inClose []float64) (*AVGPRICE
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.AVGPRICEOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) AVGPRICEOpenAndFill(inOpen, inHigh, inLow, inClose, outReal []float64) (*AVGPRICEStream, OutRange, error) {
 	if len(inOpen) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

@@ -70,6 +70,21 @@ func (c *Core) SQRTLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// SQRTDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.SQRT].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.SQRT], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) SQRTDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SQRT computes the Vector Square Root over bars startIdx through endIdx.
 //
 // Element-wise square root of the input series.
@@ -92,7 +107,9 @@ func (c *Core) SQRTLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) SQRT(startIdx, endIdx int, inReal, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -158,18 +175,18 @@ func (sp *SQRTStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	sqrtStepImpl(sp, inReal)
 	sp.outRangeCount++
+	sp.cur_outReal = math.Sqrt(inReal)
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SQRTStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -187,10 +204,6 @@ func (sp *SQRTStream) Value() float64 {
 func (sp *SQRTStream) Clone() *SQRTStream {
 	cl := *sp
 	return &cl
-}
-
-func sqrtStepImpl(sp *SQRTStream, inReal float64) {
-	sp.cur_outReal = math.Sqrt(inReal)
 }
 
 func (c *Core) sqrtOpenImpl(sp *SQRTStream, inReal []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -254,7 +267,8 @@ func (c *Core) sqrtOpenInternal(inReal []float64, startIdx int32) (*SQRTStream, 
 // inReal is the history.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SQRTLookback] bars.
+// [Core.SQRTLookback] bars and [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars.
 func (c *Core) SQRTOpen(inReal []float64) (*SQRTStream, float64, error) {
 	sp, err := c.sqrtOpenInternal(inReal, 0)
 	if err != nil {
@@ -271,7 +285,8 @@ func (c *Core) SQRTOpen(inReal []float64) (*SQRTStream, float64, error) {
 // no memory with an input or another output.
 //
 // The errors are those of [Core.SQRTOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SQRTOpenAndFill(inReal, outReal []float64) (*SQRTStream, OutRange, error) {
 	if len(inReal) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

@@ -225,6 +225,25 @@ func (c *Core) T3Lookback(optInTimePeriod int, optInVFactor float64) (int, error
 	return int(lookback), nil
 }
 
+// T3DisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.T3]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.T3] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.T3Lookback]
+// rejects or an index that names no output.
+func (c *Core) T3DisplayShift(optInTimePeriod int, optInVFactor float64, outputIdx int) (int, error) {
+	if _, err := c.T3Lookback(optInTimePeriod, optInVFactor); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // T3 computes the Triple Exponential Moving Average (T3) over bars startIdx
 // through endIdx.
 //
@@ -261,7 +280,8 @@ func (c *Core) T3Lookback(optInTimePeriod int, optInVFactor float64) (int, error
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) T3(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInVFactor float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -343,18 +363,28 @@ func (sp *T3Stream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	t3StepImpl(sp, inReal)
 	sp.outRangeCount++
+	if sp.optInTimePeriod == 1 {
+		sp.cur_outReal = inReal
+		return sp.cur_outReal, nil
+	}
+	sp.e1 = math.FMA(sp.one_minus_k, sp.e1, float64(sp.k*inReal))
+	sp.e2 = math.FMA(sp.one_minus_k, sp.e2, float64(sp.k*sp.e1))
+	sp.e3 = math.FMA(sp.one_minus_k, sp.e3, float64(sp.k*sp.e2))
+	sp.e4 = math.FMA(sp.one_minus_k, sp.e4, float64(sp.k*sp.e3))
+	sp.e5 = math.FMA(sp.one_minus_k, sp.e5, float64(sp.k*sp.e4))
+	sp.e6 = math.FMA(sp.one_minus_k, sp.e6, float64(sp.k*sp.e5))
+	sp.cur_outReal = math.FMA(sp.c4, sp.e3, math.FMA(sp.c3, sp.e4, math.FMA(sp.c1, sp.e6, float64(sp.c2*sp.e5))))
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *T3Stream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -617,7 +647,8 @@ func (c *Core) t3OpenInternal(inReal []float64, startIdx, optInTimePeriod int32,
 // inReal is the history; the parameters are those of [Core.T3].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.T3Lookback]
-// bars, and [BadParam] for a parameter out of range.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range.
 func (c *Core) T3Open(inReal []float64, optInTimePeriod int, optInVFactor float64) (*T3Stream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -637,7 +668,8 @@ func (c *Core) T3Open(inReal []float64, optInTimePeriod int, optInVFactor float6
 // memory with an input or another output.
 //
 // The errors are those of [Core.T3Open], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) T3OpenAndFill(inReal []float64, optInTimePeriod int, optInVFactor float64, outReal []float64) (*T3Stream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

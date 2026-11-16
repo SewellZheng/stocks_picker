@@ -378,13 +378,21 @@ pub fn batch_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     if !sharing.is_empty() {
         causes.push("memory shared otherwise".to_string());
     }
-    b.para(&format!(
+    let mut errors = format!(
         "The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range outside 0 to [IndexMax] or \
          ending before it starts, and [BadParam] for {}.",
         or_list(&causes)
-    ));
+    );
+    if !super::go::batch_overlap_checks(func).is_empty() {
+        errors.push_str(CLIPPED);
+    }
+    b.para(&errors);
     b.render()
 }
+
+/// The limit of the runtime's `overlaps`, said wherever a doc promises the check.
+const CLIPPED: &str = " A slice whose capacity a three-index expression cut, as slices.Clip does, can escape the \
+                       sharing check.";
 
 /// `<N>Lookback`.
 #[allow(clippy::implicit_hasher)]
@@ -406,6 +414,40 @@ pub fn lookback_docs(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String
             names.public
         ));
     }
+    b.render()
+}
+
+/// `<N>DisplayShift`.
+#[must_use]
+pub fn display_shift_docs(func: &FuncDef) -> String {
+    let names = go_names(&func.name);
+    let idx = crate::ir::DISPLAY_SHIFT_INDEX_PARAM;
+    let mut b = Block::new();
+    b.para(&format!(
+        "{} returns how many bars ahead (positive) or behind (negative) of the bar that computed it a chart \
+         draws output {idx} of [Core.{}]. The values are never shifted.",
+        names.display_shift_public, names.public
+    ));
+    if !func.has_display_shift() {
+        b.para("Every output of this function is drawn at its own bar, so the answer is 0.");
+    }
+    let lead = if func.optional_inputs.is_empty() {
+        format!("It takes the output's position among the outputs of [Core.{}], from 0", names.public)
+    } else {
+        format!(
+            "It takes the parameters of [Core.{}] followed by the output's position among its outputs, from 0",
+            names.public
+        )
+    };
+    let rejects = if func.optional_inputs.is_empty() {
+        "returns [BadParam] for an index that names no output".to_string()
+    } else {
+        format!(
+            "returns [BadParam] for a parameter [Core.{}] rejects or an index that names no output",
+            names.lookback_public
+        )
+    };
+    b.para(&format!("{lead}, and {rejects}."));
     b.render()
 }
 
@@ -457,8 +499,10 @@ pub fn open_docs(func: &FuncDef) -> String {
         causes.push("histories of different lengths".to_string());
     }
     let bad = if causes.is_empty() { String::new() } else { format!(", and [BadParam] for {}", or_list(&causes)) };
+    let ceiling = if causes.is_empty() { " and" } else { "," };
     b.para(&format!(
-        "The error is [InsufficientHistory] for a history of at most [Core.{}] bars{bad}.",
+        "The error is [InsufficientHistory] for a history of at most [Core.{}] bars{ceiling} \
+         [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars{bad}.",
         names.lookback_public
     ));
     b.render()
@@ -482,11 +526,15 @@ pub fn open_and_fill_docs(func: &FuncDef) -> String {
          another output.",
         names.lookback_public
     ));
-    b.para(&format!(
+    let mut errors = format!(
         "The errors are those of [Core.{}], and [BadParam] for an output that is empty, too short or sharing \
          memory.",
         st.open
-    ));
+    );
+    if !super::go_stream::alias_pairs(func).is_empty() {
+        errors.push_str(CLIPPED);
+    }
+    b.para(&errors);
     b.render()
 }
 

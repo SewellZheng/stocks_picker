@@ -150,6 +150,37 @@ func (c *Core) FRACTALLookback(optInLeftBars, optInRightBars int) (int, error) {
 	return int(lookback), nil
 }
 
+func (c *Core) fractalDisplayShift(optInLeftBars, optInRightBars, outputIdx int32) int32 {
+	if optInLeftBars == IntegerDefault {
+		optInLeftBars = 2
+	} else if optInLeftBars < 1 || optInLeftBars > 100000 {
+		return 0
+	}
+	if optInRightBars == IntegerDefault {
+		optInRightBars = 2
+	} else if optInRightBars < 1 || optInRightBars > 100000 {
+		return 0
+	}
+	return -optInRightBars
+}
+
+// FRACTALDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.FRACTAL]. The values are never shifted.
+//
+// It takes the parameters of [Core.FRACTAL] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.FRACTALLookback] rejects or an index that names no output.
+func (c *Core) FRACTALDisplayShift(optInLeftBars, optInRightBars, outputIdx int) (int, error) {
+	if _, err := c.FRACTALLookback(optInLeftBars, optInRightBars); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return int(c.fractalDisplayShift(int32(optInLeftBars), int32(optInRightBars), int32(outputIdx))), nil
+}
+
 // FRACTAL computes the Williams Fractal over bars startIdx through endIdx.
 //
 // Williams Fractal: a causal swing-pivot detector. A bar is a swing high when
@@ -187,7 +218,8 @@ func (c *Core) FRACTALLookback(optInLeftBars, optInRightBars int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) FRACTAL(startIdx, endIdx int, inHigh, inLow []float64, optInLeftBars, optInRightBars int, outSwingHigh, outSwingLow []int32) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -274,18 +306,86 @@ func (sp *FRACTALStream) Update(inHigh, inLow float64) (int32, int32, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
-	fractalStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var i int32
+	var pivotHigh float64
+	var pivotLow float64
+	var otherHigh float64
+	var otherLow float64
+	var tempHigh float64
+	var tempLow float64
+	var optInLeftBars int32
+	var optInRightBars int32
+	var winCap_i int32
+	var winPos_i int32
+	var win_i_inHigh []float64
+	var win_i_inLow []float64
+	sp.win_i_inHigh[sp.winPos_i] = inHigh
+	sp.win_i_inLow[sp.winPos_i] = inLow
+	pivotHigh = 0.0
+	pivotLow = 0.0
+	otherHigh = 0.0
+	otherLow = 0.0
+	optInLeftBars = sp.optInLeftBars
+	optInRightBars = sp.optInRightBars
+	winCap_i = sp.winCap_i
+	winPos_i = sp.winPos_i
+	win_i_inHigh = sp.win_i_inHigh
+	win_i_inLow = sp.win_i_inLow
+	for i = optInLeftBars + optInRightBars; i >= 0; i -= 1 {
+		var _T6 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T6 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T6 = winPos_i + winCap_i - i
+		}
+		tempHigh = win_i_inHigh[_T6]
+		var _T7 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T7 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T7 = winPos_i + winCap_i - i
+		}
+		tempLow = win_i_inLow[_T7]
+		if i == optInRightBars {
+			pivotHigh = tempHigh
+			pivotLow = tempLow
+		} else if i == optInLeftBars+optInRightBars {
+			otherHigh = tempHigh
+			otherLow = tempLow
+		} else {
+			if tempHigh > otherHigh {
+				otherHigh = tempHigh
+			}
+			if tempLow < otherLow {
+				otherLow = tempLow
+			}
+		}
+	}
+	if pivotHigh > otherHigh {
+		sp.cur_outSwingHigh = 100
+	} else {
+		sp.cur_outSwingHigh = 0
+	}
+	if pivotLow < otherLow {
+		sp.cur_outSwingLow = 100
+	} else {
+		sp.cur_outSwingLow = 0
+	}
+	sp.winPos_i = sp.winPos_i + 1
+	if sp.winPos_i >= sp.winCap_i {
+		sp.winPos_i = 0
+	}
 	return sp.cur_outSwingHigh, sp.cur_outSwingLow, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *FRACTALStream) Peek(inHigh, inLow float64) (int32, int32, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
 	var i int32
@@ -295,6 +395,12 @@ func (sp *FRACTALStream) Peek(inHigh, inLow float64) (int32, int32, error) {
 	var otherLow float64
 	var tempHigh float64
 	var tempLow float64
+	var optInLeftBars int32
+	var optInRightBars int32
+	var winCap_i int32
+	var winPos_i int32
+	var win_i_inHigh []float64
+	var win_i_inLow []float64
 	var cur_outSwingHigh int32
 	var cur_outSwingLow int32
 	pkSlot0 := int32(-1)
@@ -309,49 +415,55 @@ func (sp *FRACTALStream) Peek(inHigh, inLow float64) (int32, int32, error) {
 	pivotLow = 0.0
 	otherHigh = 0.0
 	otherLow = 0.0
-	for i = sp.optInLeftBars + sp.optInRightBars; i >= 0; i -= 1 {
+	optInLeftBars = sp.optInLeftBars
+	optInRightBars = sp.optInRightBars
+	winCap_i = sp.winCap_i
+	winPos_i = sp.winPos_i
+	win_i_inHigh = sp.win_i_inHigh
+	win_i_inLow = sp.win_i_inLow
+	for i = optInLeftBars + optInRightBars; i >= 0; i -= 1 {
 		var _T0 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T0 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T0 = winPos_i + winCap_i - i - winCap_i
 		} else {
-			_T0 = sp.winPos_i + sp.winCap_i - i
+			_T0 = winPos_i + winCap_i - i
 		}
 		var _T2 float64
 		if _T0 != pkSlot0 {
 			var _T1 int32
-			if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-				_T1 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+			if winPos_i+winCap_i-i >= winCap_i {
+				_T1 = winPos_i + winCap_i - i - winCap_i
 			} else {
-				_T1 = sp.winPos_i + sp.winCap_i - i
+				_T1 = winPos_i + winCap_i - i
 			}
-			_T2 = sp.win_i_inHigh[_T1]
+			_T2 = win_i_inHigh[_T1]
 		} else {
 			_T2 = pkVal0
 		}
 		tempHigh = _T2
 		var _T3 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T3 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T3 = winPos_i + winCap_i - i - winCap_i
 		} else {
-			_T3 = sp.winPos_i + sp.winCap_i - i
+			_T3 = winPos_i + winCap_i - i
 		}
 		var _T5 float64
 		if _T3 != pkSlot1 {
 			var _T4 int32
-			if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-				_T4 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+			if winPos_i+winCap_i-i >= winCap_i {
+				_T4 = winPos_i + winCap_i - i - winCap_i
 			} else {
-				_T4 = sp.winPos_i + sp.winCap_i - i
+				_T4 = winPos_i + winCap_i - i
 			}
-			_T5 = sp.win_i_inLow[_T4]
+			_T5 = win_i_inLow[_T4]
 		} else {
 			_T5 = pkVal1
 		}
 		tempLow = _T5
-		if i == sp.optInRightBars {
+		if i == optInRightBars {
 			pivotHigh = tempHigh
 			pivotLow = tempLow
-		} else if i == sp.optInLeftBars+sp.optInRightBars {
+		} else if i == optInLeftBars+optInRightBars {
 			otherHigh = tempHigh
 			otherLow = tempLow
 		} else {
@@ -389,66 +501,6 @@ func (sp *FRACTALStream) Clone() *FRACTALStream {
 	cl.win_i_inHigh = append(sp.win_i_inHigh[:0:0], sp.win_i_inHigh...)
 	cl.win_i_inLow = append(sp.win_i_inLow[:0:0], sp.win_i_inLow...)
 	return &cl
-}
-
-func fractalStepImpl(sp *FRACTALStream, inHigh, inLow float64) {
-	var i int32
-	var pivotHigh float64
-	var pivotLow float64
-	var otherHigh float64
-	var otherLow float64
-	var tempHigh float64
-	var tempLow float64
-	sp.win_i_inHigh[sp.winPos_i] = inHigh
-	sp.win_i_inLow[sp.winPos_i] = inLow
-	pivotHigh = 0.0
-	pivotLow = 0.0
-	otherHigh = 0.0
-	otherLow = 0.0
-	for i = sp.optInLeftBars + sp.optInRightBars; i >= 0; i -= 1 {
-		var _T6 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T6 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
-		} else {
-			_T6 = sp.winPos_i + sp.winCap_i - i
-		}
-		tempHigh = sp.win_i_inHigh[_T6]
-		var _T7 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T7 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
-		} else {
-			_T7 = sp.winPos_i + sp.winCap_i - i
-		}
-		tempLow = sp.win_i_inLow[_T7]
-		if i == sp.optInRightBars {
-			pivotHigh = tempHigh
-			pivotLow = tempLow
-		} else if i == sp.optInLeftBars+sp.optInRightBars {
-			otherHigh = tempHigh
-			otherLow = tempLow
-		} else {
-			if tempHigh > otherHigh {
-				otherHigh = tempHigh
-			}
-			if tempLow < otherLow {
-				otherLow = tempLow
-			}
-		}
-	}
-	if pivotHigh > otherHigh {
-		sp.cur_outSwingHigh = 100
-	} else {
-		sp.cur_outSwingHigh = 0
-	}
-	if pivotLow < otherLow {
-		sp.cur_outSwingLow = 100
-	} else {
-		sp.cur_outSwingLow = 0
-	}
-	sp.winPos_i = sp.winPos_i + 1
-	if sp.winPos_i >= sp.winCap_i {
-		sp.winPos_i = 0
-	}
 }
 
 func (c *Core) fractalOpenImpl(sp *FRACTALStream, inHigh, inLow []float64, startIdx, optInLeftBars, optInRightBars int32, outBegIdx, outNBElement *int32, outSwingHigh, outSwingLow []int32, outStride int32) RetCode {
@@ -584,8 +636,9 @@ func (c *Core) fractalOpenInternal(inHigh, inLow []float64, startIdx, optInLeftB
 // of [Core.FRACTAL].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.FRACTALLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.FRACTALLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) FRACTALOpen(inHigh, inLow []float64, optInLeftBars, optInRightBars int) (*FRACTALStream, int32, int32, error) {
 	if !fitsInt32(optInLeftBars) {
 		return nil, 0, 0, BadParam
@@ -608,7 +661,8 @@ func (c *Core) FRACTALOpen(inHigh, inLow []float64, optInLeftBars, optInRightBar
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.FRACTALOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) FRACTALOpenAndFill(inHigh, inLow []float64, optInLeftBars, optInRightBars int, outSwingHigh, outSwingLow []int32) (*FRACTALStream, OutRange, error) {
 	if !fitsInt32(optInLeftBars) {
 		return nil, OutRange{}, BadParam

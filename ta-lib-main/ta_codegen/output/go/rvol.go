@@ -125,6 +125,25 @@ func (c *Core) RVOLLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// RVOLDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.RVOL].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.RVOL] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.RVOLLookback] rejects or an index that names no output.
+func (c *Core) RVOLDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.RVOLLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // RVOL computes the Relative Volume over bars startIdx through endIdx.
 //
 // Relative Volume: today's volume as a ratio to the average volume of the bars
@@ -158,7 +177,8 @@ func (c *Core) RVOLLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) RVOL(startIdx, endIdx int, inVolume []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -233,43 +253,10 @@ func (sp *RVOLStream) Update(inVolume float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inVolume) {
+	if inVolume-inVolume != 0 {
 		return 0, BadParam
 	}
-	rvolStepImpl(sp, inVolume)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar inVolume, changing nothing.
-// It returns [BadParam] for a bar value that is not finite.
-func (sp *RVOLStream) Peek(inVolume float64) (float64, error) {
-	if !isFinite(inVolume) {
-		return 0, BadParam
-	}
-	var baseline float64
-	var todayVolume float64
-	var cur_outReal float64
-	baseline = sp.periodTotal / float64(sp.optInTimePeriod)
-	todayVolume = inVolume
-	cur_outReal = todayVolume / baseline
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *RVOLStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *RVOLStream) Clone() *RVOLStream {
-	cl := *sp
-	cl.ring_trailingIdx_inVolume = append(sp.ring_trailingIdx_inVolume[:0:0], sp.ring_trailingIdx_inVolume...)
-	return &cl
-}
-
-func rvolStepImpl(sp *RVOLStream, inVolume float64) {
 	var baseline float64
 	var todayVolume float64
 	var trailingVolume float64
@@ -295,6 +282,35 @@ func rvolStepImpl(sp *RVOLStream, inVolume float64) {
 		ringPosL_trailingIdx = 0
 	}
 	sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar inVolume, changing nothing.
+// It returns [BadParam] for a bar value that is not finite.
+func (sp *RVOLStream) Peek(inVolume float64) (float64, error) {
+	if inVolume-inVolume != 0 {
+		return 0, BadParam
+	}
+	var baseline float64
+	var todayVolume float64
+	var cur_outReal float64
+	baseline = sp.periodTotal / float64(sp.optInTimePeriod)
+	todayVolume = inVolume
+	cur_outReal = todayVolume / baseline
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *RVOLStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *RVOLStream) Clone() *RVOLStream {
+	cl := *sp
+	cl.ring_trailingIdx_inVolume = append(sp.ring_trailingIdx_inVolume[:0:0], sp.ring_trailingIdx_inVolume...)
+	return &cl
 }
 
 func (c *Core) rvolOpenImpl(sp *RVOLStream, inVolume []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -406,7 +422,8 @@ func (c *Core) rvolOpenInternal(inVolume []float64, startIdx, optInTimePeriod in
 // inVolume is the history; the parameters are those of [Core.RVOL].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.RVOLLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.RVOLLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) RVOLOpen(inVolume []float64, optInTimePeriod int) (*RVOLStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -426,7 +443,8 @@ func (c *Core) RVOLOpen(inVolume []float64, optInTimePeriod int) (*RVOLStream, f
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.RVOLOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) RVOLOpenAndFill(inVolume []float64, optInTimePeriod int, outReal []float64) (*RVOLStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

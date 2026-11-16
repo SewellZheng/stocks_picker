@@ -331,6 +331,25 @@ func (c *Core) BBANDSLookback(optInTimePeriod int, optInNbDevUp, optInNbDevDn fl
 	return int(lookback), nil
 }
 
+// BBANDSDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.BBANDS]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.BBANDS] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.BBANDSLookback] rejects or an index that names no output.
+func (c *Core) BBANDSDisplayShift(optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.BBANDSLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // BBANDS computes the Bollinger Bands over bars startIdx through endIdx.
 //
 // Bollinger Bands: a moving-average middle band with upper and lower bands
@@ -368,7 +387,8 @@ func (c *Core) BBANDSLookback(optInTimePeriod int, optInNbDevUp, optInNbDevDn fl
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) BBANDS(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -453,12 +473,37 @@ func (sp *BBANDSStream) Update(inReal float64) (float64, float64, float64, error
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
-	if err := bbandsStepImpl(sp, inReal); err != nil {
-		return 0, 0, 0, err
+	var tempReal float64
+	var tempReal2 float64
+	var cur_tempBuffer1 float64
+	var cur_tempBuffer2 float64
+	var cur_outRealUpperBand float64
+	var cur_outRealLowerBand float64
+	var subErr error
+	cur_tempBuffer1, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, 0, 0, subErr
 	}
+	cur_tempBuffer2, subErr = sp.sub1.Update(inReal)
+	if subErr != nil {
+		return 0, 0, 0, subErr
+	}
+	if sp.optInNbDevUp == sp.optInNbDevDn {
+		tempReal = float64(cur_tempBuffer2 * sp.optInNbDevUp)
+		tempReal2 = cur_tempBuffer1
+		cur_outRealUpperBand = tempReal2 + tempReal
+		cur_outRealLowerBand = tempReal2 - tempReal
+	} else {
+		tempReal2 = cur_tempBuffer1
+		cur_outRealUpperBand = math.FMA(cur_tempBuffer2, sp.optInNbDevUp, tempReal2)
+		cur_outRealLowerBand = tempReal2 - float64(cur_tempBuffer2*sp.optInNbDevDn)
+	}
+	sp.cur_outRealUpperBand = cur_outRealUpperBand
+	sp.cur_outRealMiddleBand = cur_tempBuffer1
+	sp.cur_outRealLowerBand = cur_outRealLowerBand
 	sp.outRangeCount++
 	return sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand, nil
 }
@@ -466,7 +511,7 @@ func (sp *BBANDSStream) Update(inReal float64) (float64, float64, float64, error
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *BBANDSStream) Peek(inReal float64) (float64, float64, float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var tempReal float64
@@ -512,38 +557,6 @@ func (sp *BBANDSStream) Clone() *BBANDSStream {
 	cl.sub0 = sp.sub0.Clone()
 	cl.sub1 = sp.sub1.Clone()
 	return &cl
-}
-
-func bbandsStepImpl(sp *BBANDSStream, inReal float64) error {
-	var tempReal float64
-	var tempReal2 float64
-	var cur_tempBuffer1 float64
-	var cur_tempBuffer2 float64
-	var cur_outRealUpperBand float64
-	var cur_outRealLowerBand float64
-	var subErr error
-	cur_tempBuffer1, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempBuffer2, subErr = sp.sub1.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	if sp.optInNbDevUp == sp.optInNbDevDn {
-		tempReal = float64(cur_tempBuffer2 * sp.optInNbDevUp)
-		tempReal2 = cur_tempBuffer1
-		cur_outRealUpperBand = tempReal2 + tempReal
-		cur_outRealLowerBand = tempReal2 - tempReal
-	} else {
-		tempReal2 = cur_tempBuffer1
-		cur_outRealUpperBand = math.FMA(cur_tempBuffer2, sp.optInNbDevUp, tempReal2)
-		cur_outRealLowerBand = tempReal2 - float64(cur_tempBuffer2*sp.optInNbDevDn)
-	}
-	sp.cur_outRealUpperBand = cur_outRealUpperBand
-	sp.cur_outRealMiddleBand = cur_tempBuffer1
-	sp.cur_outRealLowerBand = cur_outRealLowerBand
-	return nil
 }
 
 func (c *Core) bbandsOpenImpl(sp *BBANDSStream, inReal []float64, startIdx, optInTimePeriod int32, optInNbDevUp, optInNbDevDn float64, optInMAType int32, outBegIdx, outNBElement *int32, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64, outStride int32) RetCode {
@@ -700,7 +713,8 @@ func (c *Core) bbandsOpenInternal(inReal []float64, startIdx, optInTimePeriod in
 // inReal is the history; the parameters are those of [Core.BBANDS].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.BBANDSLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.BBANDSLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) BBANDSOpen(inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType) (*BBANDSStream, float64, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -720,7 +734,8 @@ func (c *Core) BBANDSOpen(inReal []float64, optInTimePeriod int, optInNbDevUp, o
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.BBANDSOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) BBANDSOpenAndFill(inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (*BBANDSStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

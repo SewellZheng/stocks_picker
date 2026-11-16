@@ -70,6 +70,21 @@ func (c *Core) FLOORLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// FLOORDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.FLOOR].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.FLOOR], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) FLOORDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // FLOOR computes the Vector Floor over bars startIdx through endIdx.
 //
 // Element-wise floor (round down to the nearest integer) of the input series.
@@ -92,7 +107,9 @@ func (c *Core) FLOORLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) FLOOR(startIdx, endIdx int, inReal, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -158,18 +175,18 @@ func (sp *FLOORStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	floorStepImpl(sp, inReal)
 	sp.outRangeCount++
+	sp.cur_outReal = math.Floor(inReal)
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *FLOORStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -187,10 +204,6 @@ func (sp *FLOORStream) Value() float64 {
 func (sp *FLOORStream) Clone() *FLOORStream {
 	cl := *sp
 	return &cl
-}
-
-func floorStepImpl(sp *FLOORStream, inReal float64) {
-	sp.cur_outReal = math.Floor(inReal)
 }
 
 func (c *Core) floorOpenImpl(sp *FLOORStream, inReal []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -254,7 +267,8 @@ func (c *Core) floorOpenInternal(inReal []float64, startIdx int32) (*FLOORStream
 // inReal is the history.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.FLOORLookback] bars.
+// [Core.FLOORLookback] bars and [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars.
 func (c *Core) FLOOROpen(inReal []float64) (*FLOORStream, float64, error) {
 	sp, err := c.floorOpenInternal(inReal, 0)
 	if err != nil {
@@ -271,7 +285,8 @@ func (c *Core) FLOOROpen(inReal []float64) (*FLOORStream, float64, error) {
 // no memory with an input or another output.
 //
 // The errors are those of [Core.FLOOROpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) FLOOROpenAndFill(inReal, outReal []float64) (*FLOORStream, OutRange, error) {
 	if len(inReal) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

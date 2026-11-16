@@ -885,7 +885,10 @@ fn test_c_state_struct_text_is_the_emitted_struct() {
         );
         checked += 1;
     }
-    assert!(checked >= 200, "expected the streaming corpus, saw {checked}");
+    assert!(
+        common::sweep_filtered() || checked >= 200,
+        "expected the streaming corpus, saw {checked}"
+    );
 }
 
 /// The instruction-count bench cannot see a failed store forward, so a
@@ -945,8 +948,13 @@ fn c_stream_every_tier_is_in_the_corpus() {
         tiers.insert(format!("{:?}", std::mem::discriminant(&plan)));
         checked += 1;
     }
-    assert!(checked >= 200, "expected the streaming corpus, saw {checked}");
-    assert_eq!(tiers.len(), 5, "all five stream tiers must be covered, saw {}", tiers.len());
+    assert!(
+        common::sweep_filtered() || checked >= 200,
+        "expected the streaming corpus, saw {checked}"
+    );
+    if !common::sweep_filtered() {
+        assert_eq!(tiers.len(), 5, "all five stream tiers must be covered, saw {}", tiers.len());
+    }
 }
 
 /// The per-bar transition tier is spelled `_StepImpl` in all four backends
@@ -982,7 +990,7 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
     let go = backends::go::generate(&func, &enums, registry, &helpers);
 
     // (backend, source, definition, call sites, the retired word)
-    let cases: [(&str, &str, &str, &[&str], &str); 6] = [
+    let cases: [(&str, &str, &str, &[&str], &str); 5] = [
         (
             "c",
             &c,
@@ -1024,14 +1032,6 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
             &["smaStepImpl(this,"],
             "StreamStep",
         ),
-        (
-            "go",
-            &go,
-            // A package function: the handle's state is unexported fields.
-            "\nfunc smaStepImpl(sp *SMAStream,",
-            &["\tsmaStepImpl(sp, inReal)\n"],
-            "StreamStep",
-        ),
     ];
 
     for (lang, src, def, calls, retired) in cases {
@@ -1047,6 +1047,18 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
         // so it discriminates only while the positives hold.
         assert!(!src.contains(retired), "{lang}: `{retired}` is the retired spelling");
     }
+
+    // Go is the stated exception: the step runs inside `Update`, so SMA has no
+    // transition tier. A step another frame calls keeps it, under the same word.
+    assert!(!go.contains("func smaStepImpl("), "go: a step only `Update` runs is not a function of its own");
+    let update = &go[go.find("func (sp *SMAStream) Update(").expect("go: SMA's Update")..];
+    let update = &update[..update.find("\n}\n").expect("go: Update closes")];
+    assert!(update.contains("sp.periodTotal"), "go: SMA's transition runs inside Update:\n{update}");
+    let (mavp, mavp_enums) = load_indicator("mavp");
+    let go_mavp = backends::go::generate(&mavp, &mavp_enums, registry, &helpers);
+    assert_eq!(go_mavp.matches("\nfunc mavpStepImpl(sp *MAVPStream,").count(), 1, "go: MAVP's fill calls its step");
+    assert!(go_mavp.contains("err := mavpStepImpl(sp, inReal, inPeriods); err != nil"), "go: so its Update calls it too");
+    assert!(!go.contains("StreamStep") && !go_mavp.contains("StreamStep"), "go: `StreamStep` is the retired spelling");
 }
 
 /// The clamp and its history re-check are ONE edit, in all four backends.
@@ -1153,7 +1165,8 @@ fn identity_anchor_clamps_before_it_rechecks_in_every_backend() {
 fn sv_range_sites_mask_matches_the_declared_set() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let enums = parser::enums::load_enums(&base.join("enums.yaml"));
-    let funcs: Vec<ir::FuncDef> = discover_indicators().iter().map(|n| load_indicator(n).0).collect();
+    let funcs: Vec<ir::FuncDef> =
+        common::discover_indicators_with_callees().iter().map(|n| load_indicator(n).0).collect();
 
     // Fill = 1, Prefix = 2, Anchored = 4, Copy = 8, Advance = 16.
     let servers = [
@@ -1214,12 +1227,16 @@ fn sv_range_sites_mask_matches_the_declared_set() {
 fn test_c_server_state_equivalence_leg() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let enums = parser::enums::load_enums(&base.join("enums.yaml"));
-    let funcs: Vec<ir::FuncDef> = discover_indicators()
+    let funcs: Vec<ir::FuncDef> = common::discover_indicators_with_callees()
         .iter()
         .map(|n| load_indicator(n).0)
         .collect();
     let streaming: Vec<&ir::FuncDef> = funcs.iter().filter(|f| f.streaming).collect();
-    assert!(streaming.len() >= 200, "expected the streaming corpus, saw {}", streaming.len());
+    assert!(
+        common::sweep_filtered() || streaming.len() >= 200,
+        "expected the streaming corpus, saw {}",
+        streaming.len()
+    );
     let srv = ta_codegen_lib::server_gen::generate_c_server(&funcs, &enums);
 
     for f in &streaming {
@@ -1234,6 +1251,9 @@ fn test_c_server_state_equivalence_leg() {
         );
     }
 
+    if common::sweep_filtered() {
+        return;
+    }
     // CDLPIERCING: two shifted windows of ONE setting over one derived ring:
     // the #229 fold's own shape, and the reason the leg exists.
     let body = srv
@@ -1347,6 +1367,9 @@ fn harness_vmath_list(test_util: &str) -> Option<std::collections::BTreeSet<Stri
 /// that every element is one function of one value.
 #[test]
 fn the_vmath_class_is_one_set_and_only_its_step_legs_take_the_lane() {
+    if common::sweep_filtered() {
+        return;
+    }
     use std::collections::BTreeSet;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |rel: &str| {
@@ -1765,8 +1788,14 @@ fn test_c_no_step_impl_stores_a_ring_slot_twice() {
     // Both floors matter: the first proves the sweep still walks the streaming
     // corpus, the second that it is actually looking at rings — a skip that
     // silently emptied `stores` would keep the first green on its own.
-    assert!(stepped >= 195, "expected the streaming corpus, saw {stepped}");
-    assert!(with_rings >= 80, "expected the ring-carrying corpus, saw {with_rings}");
+    assert!(
+        common::sweep_filtered() || stepped >= 195,
+        "expected the streaming corpus, saw {stepped}"
+    );
+    assert!(
+        common::sweep_filtered() || with_rings >= 80,
+        "expected the ring-carrying corpus, saw {with_rings}"
+    );
 }
 
 /// Pin the generated MIDPRICE stream section: batch runs the block scan and the
@@ -2148,7 +2177,7 @@ fn rust_bbands_elects_output_scratch_only_in_the_sma_fast_path() {
             panic!("BBANDS Rust should write the standard deviation into outRealUpperBand: {rust_out}")
         });
     assert!(
-        dev_write.contains("(variance).sqrt()"),
+        dev_write.contains("variance.sqrt()"),
         "the deviation written into outRealUpperBand should be the root of the variance, \
          got `{dev_write}`: {rust_out}"
     );
@@ -2254,7 +2283,11 @@ fn rust_scratch_election_takes_only_the_arm_rust_reaches() {
     }
     assert_eq!(
         fired,
-        vec!["bbands".to_string(), "mavp".to_string()],
+        ["bbands", "mavp"]
+            .into_iter()
+            .filter(|n| common::swept(n))
+            .map(str::to_string)
+            .collect::<Vec<_>>(),
         "the scratch election must fire for BBANDS and MAVP and nothing else"
     );
 }

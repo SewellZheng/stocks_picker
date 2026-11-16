@@ -394,6 +394,25 @@ func (c *Core) MACDVLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod
 	return int(lookback), nil
 }
 
+// MACDVDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MACDV].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MACDV] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MACDVLookback] rejects or an index that names no output.
+func (c *Core) MACDVDisplayShift(optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.MACDVLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MACDV computes the MACD-V, Volatility Normalised Momentum over bars startIdx
 // through endIdx.
 //
@@ -438,7 +457,8 @@ func (c *Core) MACDVLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDV(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outMACDV, outMACDVSignal, outMACDVHist []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -545,89 +565,10 @@ func (sp *MACDVStream) Update(inHigh, inLow, inClose float64) (float64, float64,
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, BadParam
 	}
-	macdvStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outMACDV, sp.cur_outMACDVSignal, sp.cur_outMACDVHist, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *MACDVStream) Peek(inHigh, inLow, inClose float64) (float64, float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, 0, 0, BadParam
-	}
-	var lineValue float64
-	var tempReal float64
-	var val2 float64
-	var val3 float64
-	var greatest float64
-	var spread float64
-	var bandScale float64
-	var tempCY float64
-	var tempLT float64
-	var tempHT float64
-	var cur_outMACDV float64
-	var cur_outMACDVHist float64
-	var cur_outMACDVSignal float64
-	prevATR := sp.prevATR
-	prevFast := sp.prevFast
-	prevSignal := sp.prevSignal
-	prevSlow := sp.prevSlow
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	tempReal = inClose
-	greatest = tempHT - tempLT
-	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
-	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
-	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
-	prevFast = math.FMA(sp.fastBeta, prevFast, float64(sp.fastK*tempReal))
-	prevSlow = math.FMA(sp.slowBeta, prevSlow, float64(sp.slowK*tempReal))
-	spread = prevFast - prevSlow
-	bandScale = math.Abs(prevFast)
-	if math.Abs(prevSlow) > bandScale {
-		bandScale = math.Abs(prevSlow)
-	}
-	bandScale = float64(bandScale * sp.periodScale)
-	lineValue = 0.0
-	if !isZeroScaled(spread, bandScale) && !isZeroScaled(prevATR, bandScale) && prevATR >= 2.2250738585072014e-308 {
-		lineValue = float64(spread / prevATR * 100.0)
-	}
-	if sp.optInSignalPeriod == 1 {
-		prevSignal = lineValue
-	} else {
-		prevSignal = math.FMA(sp.signalBeta, prevSignal, float64(sp.signalK*lineValue))
-	}
-	cur_outMACDV = lineValue
-	cur_outMACDVSignal = prevSignal
-	cur_outMACDVHist = lineValue - prevSignal
-	return cur_outMACDV, cur_outMACDVSignal, cur_outMACDVHist, nil
-}
-
-// Value returns the outputs at the last bar of OutRange, in Update's order;
-// Peek does not change them.
-func (sp *MACDVStream) Value() (float64, float64, float64) {
-	return sp.cur_outMACDV, sp.cur_outMACDVSignal, sp.cur_outMACDVHist
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *MACDVStream) Clone() *MACDVStream {
-	cl := *sp
-	return &cl
-}
-
-func macdvStepImpl(sp *MACDVStream, inHigh, inLow, inClose float64) {
 	var lineValue float64
 	var tempReal float64
 	var val2 float64
@@ -673,6 +614,77 @@ func macdvStepImpl(sp *MACDVStream, inHigh, inLow, inClose float64) {
 	sp.cur_outMACDVSignal = sp.prevSignal
 	sp.cur_outMACDVHist = lineValue - sp.prevSignal
 	sp.lag1_inClose = inClose
+	return sp.cur_outMACDV, sp.cur_outMACDVSignal, sp.cur_outMACDVHist, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *MACDVStream) Peek(inHigh, inLow, inClose float64) (float64, float64, float64, error) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, 0, 0, BadParam
+	}
+	var lineValue float64
+	var tempReal float64
+	var val2 float64
+	var val3 float64
+	var greatest float64
+	var spread float64
+	var bandScale float64
+	var tempCY float64
+	var tempLT float64
+	var tempHT float64
+	var cur_outMACDV float64
+	var cur_outMACDVHist float64
+	var cur_outMACDVSignal float64
+	prevATR := sp.prevATR
+	prevFast := sp.prevFast
+	prevSignal := sp.prevSignal
+	prevSlow := sp.prevSlow
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	tempReal = inClose
+	greatest = tempHT - tempLT
+	val2 = math.Abs(tempCY - tempHT)
+	greatest = selF(val2 > greatest, val2, greatest)
+	val3 = math.Abs(tempCY - tempLT)
+	greatest = selF(val3 > greatest, val3, greatest)
+	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
+	prevFast = math.FMA(sp.fastBeta, prevFast, float64(sp.fastK*tempReal))
+	prevSlow = math.FMA(sp.slowBeta, prevSlow, float64(sp.slowK*tempReal))
+	spread = prevFast - prevSlow
+	bandScale = math.Abs(prevFast)
+	if math.Abs(prevSlow) > bandScale {
+		bandScale = math.Abs(prevSlow)
+	}
+	bandScale = float64(bandScale * sp.periodScale)
+	lineValue = 0.0
+	if !isZeroScaled(spread, bandScale) && !isZeroScaled(prevATR, bandScale) && prevATR >= 2.2250738585072014e-308 {
+		lineValue = float64(spread / prevATR * 100.0)
+	}
+	if sp.optInSignalPeriod == 1 {
+		prevSignal = lineValue
+	} else {
+		prevSignal = math.FMA(sp.signalBeta, prevSignal, float64(sp.signalK*lineValue))
+	}
+	cur_outMACDV = lineValue
+	cur_outMACDVSignal = prevSignal
+	cur_outMACDVHist = lineValue - prevSignal
+	return cur_outMACDV, cur_outMACDVSignal, cur_outMACDVHist, nil
+}
+
+// Value returns the outputs at the last bar of OutRange, in Update's order;
+// Peek does not change them.
+func (sp *MACDVStream) Value() (float64, float64, float64) {
+	return sp.cur_outMACDV, sp.cur_outMACDVSignal, sp.cur_outMACDVHist
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *MACDVStream) Clone() *MACDVStream {
+	cl := *sp
+	return &cl
 }
 
 func (c *Core) macdvOpenImpl(sp *MACDVStream, inHigh, inLow, inClose []float64, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outMACDV, outMACDVSignal, outMACDVHist []float64, outStride int32) RetCode {
@@ -1034,8 +1046,9 @@ func (c *Core) macdvOpenInternal(inHigh, inLow, inClose []float64, startIdx, opt
 // are those of [Core.MACDV].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MACDVLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.MACDVLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) MACDVOpen(inHigh, inLow, inClose []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int) (*MACDVStream, float64, float64, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -1061,7 +1074,8 @@ func (c *Core) MACDVOpen(inHigh, inLow, inClose []float64, optInFastPeriod, optI
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MACDVOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDVOpenAndFill(inHigh, inLow, inClose []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outMACDV, outMACDVSignal, outMACDVHist []float64) (*MACDVStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

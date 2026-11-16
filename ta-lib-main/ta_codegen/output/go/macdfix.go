@@ -206,6 +206,25 @@ func (c *Core) MACDFIXLookback(optInSignalPeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MACDFIXDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MACDFIX]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MACDFIX] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MACDFIXLookback] rejects or an index that names no output.
+func (c *Core) MACDFIXDisplayShift(optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.MACDFIXLookback(optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MACDFIX computes the Moving Average Convergence/Divergence Fix 12/26 over
 // bars startIdx through endIdx.
 //
@@ -238,7 +257,8 @@ func (c *Core) MACDFIXLookback(optInSignalPeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDFIX(startIdx, endIdx int, inReal []float64, optInSignalPeriod int, outMACD, outMACDSignal, outMACDHist []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -327,18 +347,31 @@ func (sp *MACDFIXStream) Update(inReal float64) (float64, float64, float64, erro
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
-	macdfixStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var macdValue float64
+	var tempReal float64
+	tempReal = inReal
+	sp.prevFast = math.FMA(sp.fastBeta, sp.prevFast, float64(sp.fastK*tempReal))
+	sp.prevSlow = math.FMA(sp.slowBeta, sp.prevSlow, float64(sp.slowK*tempReal))
+	macdValue = sp.prevFast - sp.prevSlow
+	if sp.optInSignalPeriod == 1 {
+		sp.prevSignal = macdValue
+	} else {
+		sp.prevSignal = math.FMA(sp.signalBeta, sp.prevSignal, float64(sp.signalK*macdValue))
+	}
+	sp.cur_outMACD = macdValue
+	sp.cur_outMACDSignal = sp.prevSignal
+	sp.cur_outMACDHist = macdValue - sp.prevSignal
 	return sp.cur_outMACD, sp.cur_outMACDSignal, sp.cur_outMACDHist, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MACDFIXStream) Peek(inReal float64) (float64, float64, float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var macdValue float64
@@ -375,23 +408,6 @@ func (sp *MACDFIXStream) Value() (float64, float64, float64) {
 func (sp *MACDFIXStream) Clone() *MACDFIXStream {
 	cl := *sp
 	return &cl
-}
-
-func macdfixStepImpl(sp *MACDFIXStream, inReal float64) {
-	var macdValue float64
-	var tempReal float64
-	tempReal = inReal
-	sp.prevFast = math.FMA(sp.fastBeta, sp.prevFast, float64(sp.fastK*tempReal))
-	sp.prevSlow = math.FMA(sp.slowBeta, sp.prevSlow, float64(sp.slowK*tempReal))
-	macdValue = sp.prevFast - sp.prevSlow
-	if sp.optInSignalPeriod == 1 {
-		sp.prevSignal = macdValue
-	} else {
-		sp.prevSignal = math.FMA(sp.signalBeta, sp.prevSignal, float64(sp.signalK*macdValue))
-	}
-	sp.cur_outMACD = macdValue
-	sp.cur_outMACDSignal = sp.prevSignal
-	sp.cur_outMACDHist = macdValue - sp.prevSignal
 }
 
 func (c *Core) macdfixOpenImpl(sp *MACDFIXStream, inReal []float64, startIdx, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outMACD, outMACDSignal, outMACDHist []float64, outStride int32) RetCode {
@@ -583,7 +599,8 @@ func (c *Core) macdfixOpenInternal(inReal []float64, startIdx, optInSignalPeriod
 // inReal is the history; the parameters are those of [Core.MACDFIX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MACDFIXLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MACDFIXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MACDFIXOpen(inReal []float64, optInSignalPeriod int) (*MACDFIXStream, float64, float64, float64, error) {
 	if !fitsInt32(optInSignalPeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -603,7 +620,8 @@ func (c *Core) MACDFIXOpen(inReal []float64, optInSignalPeriod int) (*MACDFIXStr
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MACDFIXOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MACDFIXOpenAndFill(inReal []float64, optInSignalPeriod int, outMACD, outMACDSignal, outMACDHist []float64) (*MACDFIXStream, OutRange, error) {
 	if !fitsInt32(optInSignalPeriod) {
 		return nil, OutRange{}, BadParam

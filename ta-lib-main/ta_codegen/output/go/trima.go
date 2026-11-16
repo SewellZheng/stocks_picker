@@ -187,6 +187,25 @@ func (c *Core) TRIMALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// TRIMADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.TRIMA].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.TRIMA] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.TRIMALookback] rejects or an index that names no output.
+func (c *Core) TRIMADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.TRIMALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // TRIMA computes the Triangular Moving Average over bars startIdx through
 // endIdx.
 //
@@ -218,7 +237,8 @@ func (c *Core) TRIMALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) TRIMA(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -299,18 +319,84 @@ func (sp *TRIMAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	trimaStepImpl(sp, inReal)
 	sp.outRangeCount++
+	if sp.optInTimePeriod%2 == 1 {
+		var ringPosL_middleIdx int32
+		var ringPosL_trailingIdx int32
+		if sp.ringCap_middleIdx == 0 {
+			sp.ring_middleIdx_inReal[0] = inReal
+		}
+		if sp.ringCap_trailingIdx == 0 {
+			sp.ring_trailingIdx_inReal[0] = inReal
+		}
+		sp.numerator -= sp.numeratorSub
+		sp.numeratorSub -= sp.tempReal
+		sp.tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx]
+		sp.numeratorSub += sp.tempReal
+		sp.numerator += sp.numeratorAdd
+		sp.numeratorAdd -= sp.tempReal
+		sp.tempReal = inReal
+		sp.numeratorAdd += sp.tempReal
+		sp.numerator += sp.tempReal
+		sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+		sp.cur_outReal = float64(sp.numerator * sp.factor)
+		ringPosL_middleIdx = sp.ringPos_middleIdx
+		sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal
+		ringPosL_middleIdx = ringPosL_middleIdx + 1
+		if ringPosL_middleIdx >= sp.ringCap_middleIdx {
+			ringPosL_middleIdx = 0
+		}
+		sp.ringPos_middleIdx = ringPosL_middleIdx
+		ringPosL_trailingIdx = sp.ringPos_trailingIdx
+		sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+		ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+		if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
+			ringPosL_trailingIdx = 0
+		}
+		sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	} else {
+		var ringPosL_middleIdx int32
+		var ringPosL_trailingIdx int32
+		var ringCapL_middleIdx int32
+		var ringCapL_trailingIdx int32
+		sp.numerator -= sp.numeratorSub
+		sp.numeratorSub -= sp.tempReal
+		sp.tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx]
+		sp.numeratorSub += sp.tempReal
+		sp.numeratorAdd -= sp.tempReal
+		sp.numerator += sp.numeratorAdd
+		sp.tempReal = inReal
+		sp.numeratorAdd += sp.tempReal
+		sp.numerator += sp.tempReal
+		sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+		sp.cur_outReal = float64(sp.numerator * sp.factor)
+		ringCapL_middleIdx = sp.ringCap_middleIdx
+		ringPosL_middleIdx = sp.ringPos_middleIdx
+		sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal
+		ringPosL_middleIdx = ringPosL_middleIdx + 1
+		if ringPosL_middleIdx >= ringCapL_middleIdx {
+			ringPosL_middleIdx = 0
+		}
+		sp.ringPos_middleIdx = ringPosL_middleIdx
+		ringCapL_trailingIdx = sp.ringCap_trailingIdx
+		ringPosL_trailingIdx = sp.ringPos_trailingIdx
+		sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+		ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+		if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+			ringPosL_trailingIdx = 0
+		}
+		sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *TRIMAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -386,76 +472,6 @@ func (sp *TRIMAStream) Clone() *TRIMAStream {
 	cl.ring_middleIdx_inReal = append(sp.ring_middleIdx_inReal[:0:0], sp.ring_middleIdx_inReal...)
 	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
 	return &cl
-}
-
-func trimaStepImpl(sp *TRIMAStream, inReal float64) {
-	if sp.optInTimePeriod%2 == 1 {
-		var ringPosL_middleIdx int32
-		var ringPosL_trailingIdx int32
-		if sp.ringCap_middleIdx == 0 {
-			sp.ring_middleIdx_inReal[0] = inReal
-		}
-		if sp.ringCap_trailingIdx == 0 {
-			sp.ring_trailingIdx_inReal[0] = inReal
-		}
-		sp.numerator -= sp.numeratorSub
-		sp.numeratorSub -= sp.tempReal
-		sp.tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx]
-		sp.numeratorSub += sp.tempReal
-		sp.numerator += sp.numeratorAdd
-		sp.numeratorAdd -= sp.tempReal
-		sp.tempReal = inReal
-		sp.numeratorAdd += sp.tempReal
-		sp.numerator += sp.tempReal
-		sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-		sp.cur_outReal = float64(sp.numerator * sp.factor)
-		ringPosL_middleIdx = sp.ringPos_middleIdx
-		sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal
-		ringPosL_middleIdx = ringPosL_middleIdx + 1
-		if ringPosL_middleIdx >= sp.ringCap_middleIdx {
-			ringPosL_middleIdx = 0
-		}
-		sp.ringPos_middleIdx = ringPosL_middleIdx
-		ringPosL_trailingIdx = sp.ringPos_trailingIdx
-		sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-		ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-		if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
-			ringPosL_trailingIdx = 0
-		}
-		sp.ringPos_trailingIdx = ringPosL_trailingIdx
-	} else {
-		var ringPosL_middleIdx int32
-		var ringPosL_trailingIdx int32
-		var ringCapL_middleIdx int32
-		var ringCapL_trailingIdx int32
-		sp.numerator -= sp.numeratorSub
-		sp.numeratorSub -= sp.tempReal
-		sp.tempReal = sp.ring_middleIdx_inReal[sp.ringPos_middleIdx]
-		sp.numeratorSub += sp.tempReal
-		sp.numeratorAdd -= sp.tempReal
-		sp.numerator += sp.numeratorAdd
-		sp.tempReal = inReal
-		sp.numeratorAdd += sp.tempReal
-		sp.numerator += sp.tempReal
-		sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-		sp.cur_outReal = float64(sp.numerator * sp.factor)
-		ringCapL_middleIdx = sp.ringCap_middleIdx
-		ringPosL_middleIdx = sp.ringPos_middleIdx
-		sp.ring_middleIdx_inReal[ringPosL_middleIdx] = inReal
-		ringPosL_middleIdx = ringPosL_middleIdx + 1
-		if ringPosL_middleIdx >= ringCapL_middleIdx {
-			ringPosL_middleIdx = 0
-		}
-		sp.ringPos_middleIdx = ringPosL_middleIdx
-		ringCapL_trailingIdx = sp.ringCap_trailingIdx
-		ringPosL_trailingIdx = sp.ringPos_trailingIdx
-		sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-		ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-		if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-			ringPosL_trailingIdx = 0
-		}
-		sp.ringPos_trailingIdx = ringPosL_trailingIdx
-	}
 }
 
 func (c *Core) trimaOpenImpl(sp *TRIMAStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -687,7 +703,8 @@ func (c *Core) trimaOpenInternal(inReal []float64, startIdx, optInTimePeriod int
 // inReal is the history; the parameters are those of [Core.TRIMA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.TRIMALookback] bars, and [BadParam] for a parameter out of range.
+// [Core.TRIMALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) TRIMAOpen(inReal []float64, optInTimePeriod int) (*TRIMAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -707,7 +724,8 @@ func (c *Core) TRIMAOpen(inReal []float64, optInTimePeriod int) (*TRIMAStream, f
 // no memory with an input or another output.
 //
 // The errors are those of [Core.TRIMAOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) TRIMAOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*TRIMAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

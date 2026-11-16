@@ -72,7 +72,7 @@ impl Core {
     #[doc(alias = "TA_OBV_Lookback")]
     pub fn obv_lookback(&self) -> Result<usize, RetCode> {
         // This function have no lookback needed.
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::obv`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -118,8 +118,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx < inVolume.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut prevReal: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
@@ -129,7 +127,7 @@ impl Core {
         prevOBV = inVolume[startIdx];
         prevReal = inReal[startIdx];
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             tempReal = inReal[i];
             if tempReal > prevReal {
                 prevOBV += inVolume[i];
@@ -140,9 +138,8 @@ impl Core {
             outIdx += 1;
             prevReal = tempReal;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// On Balance Volume: a running cumulative total of volume, added on up-price bars and
@@ -182,17 +179,19 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let series = vec![0.0; 252]; // your data, oldest first
-    /// # let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let series: Vec<f64> = (0..252)
+    /// #     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    /// #     .collect();
     /// let volume = vec![0.0; 252]; // your data, oldest first
     /// # let volume: Vec<f64> = (0..252)
-    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.obv(0, series.len() - 1, &series, &volume, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -285,9 +284,9 @@ impl Core {
         } else if tempReal < sp.prevReal {
             sp.prevOBV -= inVolume;
         }
-        (*outReal) = sp.prevOBV;
+        *outReal = sp.prevOBV;
         sp.prevReal = tempReal;
-        sp.cur_outReal = (*outReal);
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::obv_open_internal`]
@@ -303,15 +302,11 @@ impl Core {
         }
         let historyLen: usize = inReal.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut prevReal: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
@@ -319,19 +314,18 @@ impl Core {
         prevOBV = inVolume[startIdx];
         prevReal = inReal[startIdx];
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             tempReal = inReal[i];
             if tempReal > prevReal {
                 prevOBV += inVolume[i];
             } else if tempReal < prevReal {
                 prevOBV -= inVolume[i];
             }
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = prevOBV;
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = prevOBV;
             prevReal = tempReal;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = ObvStreamState {
@@ -365,9 +359,11 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252)
+    ///     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -399,9 +395,11 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series: Vec<f64> = (0..252)
+    ///     .map(|i| 90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0)
+    ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -516,7 +514,7 @@ impl ObvStream {
             } else if tempReal < sp.prevReal {
                 prevOBV -= inVolume;
             }
-            (*outReal) = prevOBV;
+            *outReal = prevOBV;
         }
         Ok(outReal)
     }

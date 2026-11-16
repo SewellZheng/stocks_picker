@@ -89,6 +89,7 @@ func (c *Core) hmaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 	var w float64
 	var rw float64
 	var dRing []float64
+	var local_dRing [50]float64
 	var dRing_Idx int32
 	var maxIdx_dRing int32
 	maxIdx_dRing = 49
@@ -193,7 +194,11 @@ func (c *Core) hmaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		if ringSize < 1 {
 			return InternalError
 		}
-		dRing = make([]float64, ringSize)
+		if ringSize <= 50 {
+			dRing = local_dRing[:ringSize]
+		} else {
+			dRing = make([]float64, ringSize)
+		}
 		maxIdx_dRing = ringSize - 1
 		dRing_Idx = 0
 		dRing[ringSize-1] = 0.0
@@ -353,6 +358,25 @@ func (c *Core) HMALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// HMADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.HMA]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.HMA] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.HMALookback] rejects or an index that names no output.
+func (c *Core) HMADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.HMALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // HMA computes the Hull Moving Average over bars startIdx through endIdx.
 //
 // Hull Moving Average, published by Alan Hull in 2005: a moving average built
@@ -386,7 +410,8 @@ func (c *Core) HMALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) HMA(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -489,230 +514,13 @@ func (sp *HMAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	hmaStepImpl(sp, inReal)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar inReal, changing nothing.
-// It returns [BadParam] for a bar value that is not finite.
-func (sp *HMAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
-		return 0, BadParam
-	}
-	var cur_outReal float64
-	if sp.optInTimePeriod == 1 {
-		cur_outReal = inReal
-		return cur_outReal, nil
-	}
-	if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
-		var tempReal float64
-		var fullOut float64
-		var jFull int32
-		var tempReal2 float64
-		var rw float64
-		barsSinceReseedFull := sp.barsSinceReseedFull
-		periodSubFull := sp.periodSubFull
-		periodSumFull := sp.periodSumFull
-		trailingFull := sp.trailingFull
-		pkSlot0 := int32(-1)
-		var pkVal0 float64
-		pkSlot0 = sp.winPos_jFull
-		pkVal0 = inReal
-		tempReal = inReal
-		periodSubFull += tempReal
-		periodSubFull -= trailingFull
-		periodSumFull += float64(tempReal * float64(sp.optInTimePeriod))
-		barsSinceReseedFull -= 1
-		if barsSinceReseedFull <= 0 {
-			barsSinceReseedFull = 8 * sp.optInTimePeriod
-			periodSubFull = 0.0
-			periodSumFull = 0.0
-			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
-				var _T0 int32
-				if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-					_T0 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
-				} else {
-					_T0 = sp.winPos_jFull + sp.winCap_jFull - jFull
-				}
-				var _T2 float64
-				if _T0 != pkSlot0 {
-					var _T1 int32
-					if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-						_T1 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
-					} else {
-						_T1 = sp.winPos_jFull + sp.winCap_jFull - jFull
-					}
-					_T2 = sp.win_jFull_inReal[_T1]
-				} else {
-					_T2 = pkVal0
-				}
-				tempReal2 = _T2
-				periodSubFull += tempReal2
-				periodSumFull += float64(tempReal2 * rw)
-				rw += 1.0
-			}
-		}
-		trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull]
-		fullOut = periodSumFull / sp.dividerFull
-		periodSumFull -= periodSubFull
-		cur_outReal = float64(2.0*tempReal) - fullOut
-	} else {
-		var tempReal float64
-		var fullOut float64
-		var halfOut float64
-		var diffReal float64
-		var jFull int32
-		var jHalf int32
-		var q int32
-		var ringWalk int32
-		var tempReal2 float64
-		var rw float64
-		barsSinceReseedFull := sp.barsSinceReseedFull
-		barsSinceReseedHalf := sp.barsSinceReseedHalf
-		barsSinceReseedSqrt := sp.barsSinceReseedSqrt
-		dRing_Idx := sp.dRing_Idx
-		periodSubFull := sp.periodSubFull
-		periodSumFull := sp.periodSumFull
-		periodSumHalf := sp.periodSumHalf
-		periodSumSqrt := sp.periodSumSqrt
-		subHalf := sp.subHalf
-		pkSlot0 := int32(-1)
-		var pkVal0 float64
-		pkSlot1 := int32(-1)
-		var pkVal1 float64
-		pkSlot0 = sp.winPos_jFull
-		pkVal0 = inReal
-		pkSlot1 = sp.winPos_jHalf
-		pkVal1 = inReal
-		tempReal = inReal
-		tempReal2 = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull]
-		periodSubFull += tempReal
-		periodSubFull -= tempReal2
-		periodSumFull += float64(tempReal * float64(sp.optInTimePeriod))
-		barsSinceReseedFull -= 1
-		if barsSinceReseedFull <= 0 {
-			barsSinceReseedFull = 8 * sp.optInTimePeriod
-			periodSubFull = 0.0
-			periodSumFull = 0.0
-			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
-				var _T3 int32
-				if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-					_T3 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
-				} else {
-					_T3 = sp.winPos_jFull + sp.winCap_jFull - jFull
-				}
-				var _T5 float64
-				if _T3 != pkSlot0 {
-					var _T4 int32
-					if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-						_T4 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
-					} else {
-						_T4 = sp.winPos_jFull + sp.winCap_jFull - jFull
-					}
-					_T5 = sp.win_jFull_inReal[_T4]
-				} else {
-					_T5 = pkVal0
-				}
-				tempReal2 = _T5
-				periodSubFull += tempReal2
-				periodSumFull += float64(tempReal2 * rw)
-				rw += 1.0
-			}
-		}
-		fullOut = periodSumFull / sp.dividerFull
-		periodSumFull -= periodSubFull
-		tempReal2 = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf]
-		subHalf += tempReal
-		subHalf -= tempReal2
-		periodSumHalf += float64(tempReal * float64(sp.halfPeriod))
-		barsSinceReseedHalf -= 1
-		if barsSinceReseedHalf <= 0 {
-			barsSinceReseedHalf = 8 * sp.halfPeriod
-			subHalf = 0.0
-			periodSumHalf = 0.0
-			rw = 1.0
-			for jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 {
-				var _T6 int32
-				if sp.winPos_jHalf+sp.winCap_jHalf-jHalf >= sp.winCap_jHalf {
-					_T6 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf
-				} else {
-					_T6 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf
-				}
-				var _T8 float64
-				if _T6 != pkSlot1 {
-					var _T7 int32
-					if sp.winPos_jHalf+sp.winCap_jHalf-jHalf >= sp.winCap_jHalf {
-						_T7 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf
-					} else {
-						_T7 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf
-					}
-					_T8 = sp.win_jHalf_inReal[_T7]
-				} else {
-					_T8 = pkVal1
-				}
-				tempReal2 = _T8
-				subHalf += tempReal2
-				periodSumHalf += float64(tempReal2 * rw)
-				rw += 1.0
-			}
-		}
-		halfOut = periodSumHalf / sp.dividerHalf
-		periodSumHalf -= subHalf
-		diffReal = float64(2.0*halfOut) - fullOut
-		periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
-		barsSinceReseedSqrt -= 1
-		if barsSinceReseedSqrt <= 0 {
-			barsSinceReseedSqrt = 8 * sp.sqrtPeriod
-			periodSumSqrt = 0.0
-			rw = 1.0
-			ringWalk = dRing_Idx
-			for q = 1; q < sp.ringSize; q += 1 {
-				ringWalk += 1
-				if ringWalk >= sp.ringSize {
-					ringWalk = 0
-				}
-				tempReal2 = sp.cb_dRing[ringWalk]
-				periodSumSqrt += float64(tempReal2 * rw)
-				rw += 1.0
-			}
-			periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
-		}
-		dRing_Idx = dRing_Idx + 1
-		if dRing_Idx > sp.maxIdx_dRing {
-			dRing_Idx = 0
-		}
-		cur_outReal = periodSumSqrt / sp.dividerSqrt
-	}
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *HMAStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *HMAStream) Clone() *HMAStream {
-	cl := *sp
-	cl.ring_trailingIdxFull_inReal = append(sp.ring_trailingIdxFull_inReal[:0:0], sp.ring_trailingIdxFull_inReal...)
-	cl.win_jFull_inReal = append(sp.win_jFull_inReal[:0:0], sp.win_jFull_inReal...)
-	cl.ring_trailingIdxHalf_inReal = append(sp.ring_trailingIdxHalf_inReal[:0:0], sp.ring_trailingIdxHalf_inReal...)
-	cl.win_jHalf_inReal = append(sp.win_jHalf_inReal[:0:0], sp.win_jHalf_inReal...)
-	cl.cb_dRing = append(sp.cb_dRing[:0:0], sp.cb_dRing...)
-	return &cl
-}
-
-func hmaStepImpl(sp *HMAStream, inReal float64) {
 	if sp.optInTimePeriod == 1 {
 		sp.cur_outReal = inReal
-		return
+		return sp.cur_outReal, nil
 	}
 	if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
 		var tempReal float64
@@ -722,6 +530,12 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 		var rw float64
 		var ringPosL_trailingIdxFull int32
 		var ringCapL_trailingIdxFull int32
+		var lookbackFull int32
+		var periodSubFull float64
+		var periodSumFull float64
+		var winCap_jFull int32
+		var winPos_jFull int32
+		var win_jFull_inReal []float64
 		sp.win_jFull_inReal[sp.winPos_jFull] = inReal
 		tempReal = inReal
 		sp.periodSubFull += tempReal
@@ -733,18 +547,26 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 			sp.periodSubFull = 0.0
 			sp.periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			periodSubFull = sp.periodSubFull
+			periodSumFull = sp.periodSumFull
+			winCap_jFull = sp.winCap_jFull
+			winPos_jFull = sp.winPos_jFull
+			win_jFull_inReal = sp.win_jFull_inReal
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				var _T9 int32
-				if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-					_T9 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
+				if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+					_T9 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
 				} else {
-					_T9 = sp.winPos_jFull + sp.winCap_jFull - jFull
+					_T9 = winPos_jFull + winCap_jFull - jFull
 				}
-				tempReal2 = sp.win_jFull_inReal[_T9]
-				sp.periodSubFull += tempReal2
-				sp.periodSumFull += float64(tempReal2 * rw)
+				tempReal2 = win_jFull_inReal[_T9]
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubFull = periodSubFull
+			sp.periodSumFull = periodSumFull
 		}
 		sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull]
 		fullOut = sp.periodSumFull / sp.dividerFull
@@ -777,6 +599,22 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 		var ringPosL_trailingIdxHalf int32
 		var ringCapL_trailingIdxFull int32
 		var ringCapL_trailingIdxHalf int32
+		var lookbackFull int32
+		var periodSubFull float64
+		var periodSumFull float64
+		var winCap_jFull int32
+		var winPos_jFull int32
+		var win_jFull_inReal []float64
+		var lookbackHalf int32
+		var periodSumHalf float64
+		var subHalf float64
+		var winCap_jHalf int32
+		var winPos_jHalf int32
+		var win_jHalf_inReal []float64
+		var cb_dRing []float64
+		var periodSubSqrt float64
+		var periodSumSqrt float64
+		var ringSize int32
 		sp.win_jFull_inReal[sp.winPos_jFull] = inReal
 		sp.win_jHalf_inReal[sp.winPos_jHalf] = inReal
 		tempReal = inReal
@@ -790,18 +628,26 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 			sp.periodSubFull = 0.0
 			sp.periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			periodSubFull = sp.periodSubFull
+			periodSumFull = sp.periodSumFull
+			winCap_jFull = sp.winCap_jFull
+			winPos_jFull = sp.winPos_jFull
+			win_jFull_inReal = sp.win_jFull_inReal
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				var _T10 int32
-				if sp.winPos_jFull+sp.winCap_jFull-jFull >= sp.winCap_jFull {
-					_T10 = sp.winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull
+				if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+					_T10 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
 				} else {
-					_T10 = sp.winPos_jFull + sp.winCap_jFull - jFull
+					_T10 = winPos_jFull + winCap_jFull - jFull
 				}
-				tempReal2 = sp.win_jFull_inReal[_T10]
-				sp.periodSubFull += tempReal2
-				sp.periodSumFull += float64(tempReal2 * rw)
+				tempReal2 = win_jFull_inReal[_T10]
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubFull = periodSubFull
+			sp.periodSumFull = periodSumFull
 		}
 		fullOut = sp.periodSumFull / sp.dividerFull
 		sp.periodSumFull -= sp.periodSubFull
@@ -815,18 +661,26 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 			sp.subHalf = 0.0
 			sp.periodSumHalf = 0.0
 			rw = 1.0
-			for jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 {
+			lookbackHalf = sp.lookbackHalf
+			periodSumHalf = sp.periodSumHalf
+			subHalf = sp.subHalf
+			winCap_jHalf = sp.winCap_jHalf
+			winPos_jHalf = sp.winPos_jHalf
+			win_jHalf_inReal = sp.win_jHalf_inReal
+			for jHalf = lookbackHalf; jHalf >= 0; jHalf -= 1 {
 				var _T11 int32
-				if sp.winPos_jHalf+sp.winCap_jHalf-jHalf >= sp.winCap_jHalf {
-					_T11 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf
+				if winPos_jHalf+winCap_jHalf-jHalf >= winCap_jHalf {
+					_T11 = winPos_jHalf + winCap_jHalf - jHalf - winCap_jHalf
 				} else {
-					_T11 = sp.winPos_jHalf + sp.winCap_jHalf - jHalf
+					_T11 = winPos_jHalf + winCap_jHalf - jHalf
 				}
-				tempReal2 = sp.win_jHalf_inReal[_T11]
-				sp.subHalf += tempReal2
-				sp.periodSumHalf += float64(tempReal2 * rw)
+				tempReal2 = win_jHalf_inReal[_T11]
+				subHalf += tempReal2
+				periodSumHalf += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSumHalf = periodSumHalf
+			sp.subHalf = subHalf
 		}
 		halfOut = sp.periodSumHalf / sp.dividerHalf
 		sp.periodSumHalf -= sp.subHalf
@@ -841,16 +695,22 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 			sp.periodSumSqrt = 0.0
 			rw = 1.0
 			ringWalk = sp.dRing_Idx
-			for q = 1; q < sp.ringSize; q += 1 {
+			cb_dRing = sp.cb_dRing
+			periodSubSqrt = sp.periodSubSqrt
+			periodSumSqrt = sp.periodSumSqrt
+			ringSize = sp.ringSize
+			for q = 1; q < ringSize; q += 1 {
 				ringWalk += 1
-				if ringWalk >= sp.ringSize {
+				if ringWalk >= ringSize {
 					ringWalk = 0
 				}
-				tempReal2 = sp.cb_dRing[ringWalk]
-				sp.periodSubSqrt += tempReal2
-				sp.periodSumSqrt += float64(tempReal2 * rw)
+				tempReal2 = cb_dRing[ringWalk]
+				periodSubSqrt += tempReal2
+				periodSumSqrt += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubSqrt = periodSubSqrt
+			sp.periodSumSqrt = periodSumSqrt
 			sp.periodSubSqrt += diffReal
 			sp.periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
 		}
@@ -886,6 +746,247 @@ func hmaStepImpl(sp *HMAStream, inReal float64) {
 			sp.winPos_jHalf = 0
 		}
 	}
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar inReal, changing nothing.
+// It returns [BadParam] for a bar value that is not finite.
+func (sp *HMAStream) Peek(inReal float64) (float64, error) {
+	if inReal-inReal != 0 {
+		return 0, BadParam
+	}
+	var cur_outReal float64
+	if sp.optInTimePeriod == 1 {
+		cur_outReal = inReal
+		return cur_outReal, nil
+	}
+	if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
+		var tempReal float64
+		var fullOut float64
+		var jFull int32
+		var tempReal2 float64
+		var rw float64
+		var lookbackFull int32
+		var winCap_jFull int32
+		var winPos_jFull int32
+		var win_jFull_inReal []float64
+		barsSinceReseedFull := sp.barsSinceReseedFull
+		periodSubFull := sp.periodSubFull
+		periodSumFull := sp.periodSumFull
+		trailingFull := sp.trailingFull
+		pkSlot0 := int32(-1)
+		var pkVal0 float64
+		pkSlot0 = sp.winPos_jFull
+		pkVal0 = inReal
+		tempReal = inReal
+		periodSubFull += tempReal
+		periodSubFull -= trailingFull
+		periodSumFull += float64(tempReal * float64(sp.optInTimePeriod))
+		barsSinceReseedFull -= 1
+		if barsSinceReseedFull <= 0 {
+			barsSinceReseedFull = 8 * sp.optInTimePeriod
+			periodSubFull = 0.0
+			periodSumFull = 0.0
+			rw = 1.0
+			lookbackFull = sp.lookbackFull
+			winCap_jFull = sp.winCap_jFull
+			winPos_jFull = sp.winPos_jFull
+			win_jFull_inReal = sp.win_jFull_inReal
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
+				var _T0 int32
+				if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+					_T0 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
+				} else {
+					_T0 = winPos_jFull + winCap_jFull - jFull
+				}
+				var _T2 float64
+				if _T0 != pkSlot0 {
+					var _T1 int32
+					if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+						_T1 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
+					} else {
+						_T1 = winPos_jFull + winCap_jFull - jFull
+					}
+					_T2 = win_jFull_inReal[_T1]
+				} else {
+					_T2 = pkVal0
+				}
+				tempReal2 = _T2
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
+				rw += 1.0
+			}
+		}
+		trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull]
+		fullOut = periodSumFull / sp.dividerFull
+		periodSumFull -= periodSubFull
+		cur_outReal = float64(2.0*tempReal) - fullOut
+	} else {
+		var tempReal float64
+		var fullOut float64
+		var halfOut float64
+		var diffReal float64
+		var jFull int32
+		var jHalf int32
+		var q int32
+		var ringWalk int32
+		var tempReal2 float64
+		var rw float64
+		var lookbackFull int32
+		var winCap_jFull int32
+		var winPos_jFull int32
+		var win_jFull_inReal []float64
+		var lookbackHalf int32
+		var winCap_jHalf int32
+		var winPos_jHalf int32
+		var win_jHalf_inReal []float64
+		var cb_dRing []float64
+		var ringSize int32
+		barsSinceReseedFull := sp.barsSinceReseedFull
+		barsSinceReseedHalf := sp.barsSinceReseedHalf
+		barsSinceReseedSqrt := sp.barsSinceReseedSqrt
+		dRing_Idx := sp.dRing_Idx
+		periodSubFull := sp.periodSubFull
+		periodSumFull := sp.periodSumFull
+		periodSumHalf := sp.periodSumHalf
+		periodSumSqrt := sp.periodSumSqrt
+		subHalf := sp.subHalf
+		pkSlot0 := int32(-1)
+		var pkVal0 float64
+		pkSlot1 := int32(-1)
+		var pkVal1 float64
+		pkSlot0 = sp.winPos_jFull
+		pkVal0 = inReal
+		pkSlot1 = sp.winPos_jHalf
+		pkVal1 = inReal
+		tempReal = inReal
+		tempReal2 = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull]
+		periodSubFull += tempReal
+		periodSubFull -= tempReal2
+		periodSumFull += float64(tempReal * float64(sp.optInTimePeriod))
+		barsSinceReseedFull -= 1
+		if barsSinceReseedFull <= 0 {
+			barsSinceReseedFull = 8 * sp.optInTimePeriod
+			periodSubFull = 0.0
+			periodSumFull = 0.0
+			rw = 1.0
+			lookbackFull = sp.lookbackFull
+			winCap_jFull = sp.winCap_jFull
+			winPos_jFull = sp.winPos_jFull
+			win_jFull_inReal = sp.win_jFull_inReal
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
+				var _T3 int32
+				if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+					_T3 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
+				} else {
+					_T3 = winPos_jFull + winCap_jFull - jFull
+				}
+				var _T5 float64
+				if _T3 != pkSlot0 {
+					var _T4 int32
+					if winPos_jFull+winCap_jFull-jFull >= winCap_jFull {
+						_T4 = winPos_jFull + winCap_jFull - jFull - winCap_jFull
+					} else {
+						_T4 = winPos_jFull + winCap_jFull - jFull
+					}
+					_T5 = win_jFull_inReal[_T4]
+				} else {
+					_T5 = pkVal0
+				}
+				tempReal2 = _T5
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
+				rw += 1.0
+			}
+		}
+		fullOut = periodSumFull / sp.dividerFull
+		periodSumFull -= periodSubFull
+		tempReal2 = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf]
+		subHalf += tempReal
+		subHalf -= tempReal2
+		periodSumHalf += float64(tempReal * float64(sp.halfPeriod))
+		barsSinceReseedHalf -= 1
+		if barsSinceReseedHalf <= 0 {
+			barsSinceReseedHalf = 8 * sp.halfPeriod
+			subHalf = 0.0
+			periodSumHalf = 0.0
+			rw = 1.0
+			lookbackHalf = sp.lookbackHalf
+			winCap_jHalf = sp.winCap_jHalf
+			winPos_jHalf = sp.winPos_jHalf
+			win_jHalf_inReal = sp.win_jHalf_inReal
+			for jHalf = lookbackHalf; jHalf >= 0; jHalf -= 1 {
+				var _T6 int32
+				if winPos_jHalf+winCap_jHalf-jHalf >= winCap_jHalf {
+					_T6 = winPos_jHalf + winCap_jHalf - jHalf - winCap_jHalf
+				} else {
+					_T6 = winPos_jHalf + winCap_jHalf - jHalf
+				}
+				var _T8 float64
+				if _T6 != pkSlot1 {
+					var _T7 int32
+					if winPos_jHalf+winCap_jHalf-jHalf >= winCap_jHalf {
+						_T7 = winPos_jHalf + winCap_jHalf - jHalf - winCap_jHalf
+					} else {
+						_T7 = winPos_jHalf + winCap_jHalf - jHalf
+					}
+					_T8 = win_jHalf_inReal[_T7]
+				} else {
+					_T8 = pkVal1
+				}
+				tempReal2 = _T8
+				subHalf += tempReal2
+				periodSumHalf += float64(tempReal2 * rw)
+				rw += 1.0
+			}
+		}
+		halfOut = periodSumHalf / sp.dividerHalf
+		periodSumHalf -= subHalf
+		diffReal = float64(2.0*halfOut) - fullOut
+		periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
+		barsSinceReseedSqrt -= 1
+		if barsSinceReseedSqrt <= 0 {
+			barsSinceReseedSqrt = 8 * sp.sqrtPeriod
+			periodSumSqrt = 0.0
+			rw = 1.0
+			ringWalk = dRing_Idx
+			cb_dRing = sp.cb_dRing
+			ringSize = sp.ringSize
+			for q = 1; q < ringSize; q += 1 {
+				ringWalk += 1
+				if ringWalk >= ringSize {
+					ringWalk = 0
+				}
+				tempReal2 = cb_dRing[ringWalk]
+				periodSumSqrt += float64(tempReal2 * rw)
+				rw += 1.0
+			}
+			periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
+		}
+		dRing_Idx = dRing_Idx + 1
+		if dRing_Idx > sp.maxIdx_dRing {
+			dRing_Idx = 0
+		}
+		cur_outReal = periodSumSqrt / sp.dividerSqrt
+	}
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *HMAStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *HMAStream) Clone() *HMAStream {
+	cl := *sp
+	cl.ring_trailingIdxFull_inReal = append(sp.ring_trailingIdxFull_inReal[:0:0], sp.ring_trailingIdxFull_inReal...)
+	cl.win_jFull_inReal = append(sp.win_jFull_inReal[:0:0], sp.win_jFull_inReal...)
+	cl.ring_trailingIdxHalf_inReal = append(sp.ring_trailingIdxHalf_inReal[:0:0], sp.ring_trailingIdxHalf_inReal...)
+	cl.win_jHalf_inReal = append(sp.win_jHalf_inReal[:0:0], sp.win_jHalf_inReal...)
+	cl.cb_dRing = append(sp.cb_dRing[:0:0], sp.cb_dRing...)
+	return &cl
 }
 
 func (c *Core) hmaOpenImpl(sp *HMAStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -1422,7 +1523,8 @@ func (c *Core) hmaOpenInternal(inReal []float64, startIdx, optInTimePeriod int32
 // inReal is the history; the parameters are those of [Core.HMA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.HMALookback] bars, and [BadParam] for a parameter out of range.
+// [Core.HMALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) HMAOpen(inReal []float64, optInTimePeriod int) (*HMAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -1442,7 +1544,8 @@ func (c *Core) HMAOpen(inReal []float64, optInTimePeriod int) (*HMAStream, float
 // no memory with an input or another output.
 //
 // The errors are those of [Core.HMAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) HMAOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*HMAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam
@@ -1479,6 +1582,9 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		var jFull int32
 		var tempReal2 float64
 		var rw float64
+		var lookbackFull int32
+		var periodSubFull float64
+		var periodSumFull float64
 		tempReal = inReal
 		sp.periodSubFull += tempReal
 		sp.periodSubFull -= sp.trailingFull
@@ -1489,12 +1595,17 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			sp.periodSubFull = 0.0
 			sp.periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			periodSubFull = sp.periodSubFull
+			periodSumFull = sp.periodSumFull
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				tempReal2 = tape[(tapeBase-jFull)&tapeMask]
-				sp.periodSubFull += tempReal2
-				sp.periodSumFull += float64(tempReal2 * rw)
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubFull = periodSubFull
+			sp.periodSumFull = periodSumFull
 		}
 		sp.trailingFull = tape[(tapeBase-sp.ringCap_trailingIdxFull)&tapeMask]
 		fullOut = sp.periodSumFull / sp.dividerFull
@@ -1511,6 +1622,16 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		var ringWalk int32
 		var tempReal2 float64
 		var rw float64
+		var lookbackFull int32
+		var periodSubFull float64
+		var periodSumFull float64
+		var lookbackHalf int32
+		var periodSumHalf float64
+		var subHalf float64
+		var cb_dRing []float64
+		var periodSubSqrt float64
+		var periodSumSqrt float64
+		var ringSize int32
 		tempReal = inReal
 		tempReal2 = tape[(tapeBase-sp.ringCap_trailingIdxFull)&tapeMask]
 		sp.periodSubFull += tempReal
@@ -1522,12 +1643,17 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			sp.periodSubFull = 0.0
 			sp.periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			periodSubFull = sp.periodSubFull
+			periodSumFull = sp.periodSumFull
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				tempReal2 = tape[(tapeBase-jFull)&tapeMask]
-				sp.periodSubFull += tempReal2
-				sp.periodSumFull += float64(tempReal2 * rw)
+				periodSubFull += tempReal2
+				periodSumFull += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubFull = periodSubFull
+			sp.periodSumFull = periodSumFull
 		}
 		fullOut = sp.periodSumFull / sp.dividerFull
 		sp.periodSumFull -= sp.periodSubFull
@@ -1541,12 +1667,17 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			sp.subHalf = 0.0
 			sp.periodSumHalf = 0.0
 			rw = 1.0
-			for jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 {
+			lookbackHalf = sp.lookbackHalf
+			periodSumHalf = sp.periodSumHalf
+			subHalf = sp.subHalf
+			for jHalf = lookbackHalf; jHalf >= 0; jHalf -= 1 {
 				tempReal2 = tape[(tapeBase-jHalf)&tapeMask]
-				sp.subHalf += tempReal2
-				sp.periodSumHalf += float64(tempReal2 * rw)
+				subHalf += tempReal2
+				periodSumHalf += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSumHalf = periodSumHalf
+			sp.subHalf = subHalf
 		}
 		halfOut = sp.periodSumHalf / sp.dividerHalf
 		sp.periodSumHalf -= sp.subHalf
@@ -1561,16 +1692,22 @@ func hmaStepTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			sp.periodSumSqrt = 0.0
 			rw = 1.0
 			ringWalk = sp.dRing_Idx
-			for q = 1; q < sp.ringSize; q += 1 {
+			cb_dRing = sp.cb_dRing
+			periodSubSqrt = sp.periodSubSqrt
+			periodSumSqrt = sp.periodSumSqrt
+			ringSize = sp.ringSize
+			for q = 1; q < ringSize; q += 1 {
 				ringWalk += 1
-				if ringWalk >= sp.ringSize {
+				if ringWalk >= ringSize {
 					ringWalk = 0
 				}
-				tempReal2 = sp.cb_dRing[ringWalk]
-				sp.periodSubSqrt += tempReal2
-				sp.periodSumSqrt += float64(tempReal2 * rw)
+				tempReal2 = cb_dRing[ringWalk]
+				periodSubSqrt += tempReal2
+				periodSumSqrt += float64(tempReal2 * rw)
 				rw += 1.0
 			}
+			sp.periodSubSqrt = periodSubSqrt
+			sp.periodSumSqrt = periodSumSqrt
 			sp.periodSubSqrt += diffReal
 			sp.periodSumSqrt += float64(diffReal * float64(sp.sqrtPeriod))
 		}
@@ -1594,6 +1731,7 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		var jFull int32
 		var tempReal2 float64
 		var rw float64
+		var lookbackFull int32
 		barsSinceReseedFull := sp.barsSinceReseedFull
 		periodSubFull := sp.periodSubFull
 		periodSumFull := sp.periodSumFull
@@ -1612,7 +1750,8 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			periodSubFull = 0.0
 			periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				var _T12 float64
 				if (tapeBase-jFull)&tapeMask != pkSlot0 {
 					_T12 = tape[(tapeBase-jFull)&tapeMask]
@@ -1640,6 +1779,10 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 		var ringWalk int32
 		var tempReal2 float64
 		var rw float64
+		var lookbackFull int32
+		var lookbackHalf int32
+		var cb_dRing []float64
+		var ringSize int32
 		barsSinceReseedFull := sp.barsSinceReseedFull
 		barsSinceReseedHalf := sp.barsSinceReseedHalf
 		barsSinceReseedSqrt := sp.barsSinceReseedSqrt
@@ -1664,7 +1807,8 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			periodSubFull = 0.0
 			periodSumFull = 0.0
 			rw = 1.0
-			for jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 {
+			lookbackFull = sp.lookbackFull
+			for jFull = lookbackFull; jFull >= 0; jFull -= 1 {
 				var _T13 float64
 				if (tapeBase-jFull)&tapeMask != pkSlot0 {
 					_T13 = tape[(tapeBase-jFull)&tapeMask]
@@ -1689,7 +1833,8 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			subHalf = 0.0
 			periodSumHalf = 0.0
 			rw = 1.0
-			for jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 {
+			lookbackHalf = sp.lookbackHalf
+			for jHalf = lookbackHalf; jHalf >= 0; jHalf -= 1 {
 				var _T14 float64
 				if (tapeBase-jHalf)&tapeMask != pkSlot0 {
 					_T14 = tape[(tapeBase-jHalf)&tapeMask]
@@ -1712,12 +1857,14 @@ func hmaPeekTape(sp *HMAStream, tape []float64, tapeBase, tapeMask int32, inReal
 			periodSumSqrt = 0.0
 			rw = 1.0
 			ringWalk = dRing_Idx
-			for q = 1; q < sp.ringSize; q += 1 {
+			cb_dRing = sp.cb_dRing
+			ringSize = sp.ringSize
+			for q = 1; q < ringSize; q += 1 {
 				ringWalk += 1
-				if ringWalk >= sp.ringSize {
+				if ringWalk >= ringSize {
 					ringWalk = 0
 				}
-				tempReal2 = sp.cb_dRing[ringWalk]
+				tempReal2 = cb_dRing[ringWalk]
 				periodSumSqrt += float64(tempReal2 * rw)
 				rw += 1.0
 			}

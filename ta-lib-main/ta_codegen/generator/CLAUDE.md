@@ -30,7 +30,7 @@ ta_codegen/output/       per-language products: library/ (shipped) + tools/ (ser
                                    server from disk
   csharp/library/ + tools/         shipped TA-Lib package incl. src/metadata/
   ts/library/ + tools/             the npm package; tools/ compiles ../library/src
-  go/ + tools/                     the Go module root, batch and streaming tiers; tools/ is the
+  go/ + tools/                     the Go module root, batch and streaming tiers, metadata/; tools/ is the
                                    server's own module, nested so the package's zip
                                    leaves it out
   wasm/                            the WASM engine's crate over rust/library, built
@@ -59,6 +59,8 @@ assets, kept out of `input/` (indicator definitions only) and out of `output/`
 - `templates/c/ta_abstract_serve.c` — abstract-serve handlers `#include`d into
   the C server.
 - `templates/go/fuzz.go` — the Go server's port of `fuzz_data.h`.
+- `templates/go/bench_stream.go`, `bench_corpus.go` — the Go server's
+  `--bench-stream` mode, `ta_bench_stream`'s method, and its port of `bench_corpus.h`.
 
 Every Rust template is listed in `main.rs`'s `RUST_TEMPLATE_MODULES` (test-only
 ones also in `RUST_TEST_ONLY_MODULES`) and in `RustBackend::clean_keep`, so
@@ -78,6 +80,7 @@ that names no indicator.
 | `ir` | `FuncDef`, `ParamType`, `Statement`, `Expr` |
 | `backends/c.rs` | C indicators: guarded `TA_<N>` / `TA_S_<N>`, plus `TA_<N>_Private` where declared |
 | `backends/rust_lang.rs` | Rust indicators (concrete `f64`) |
+| `backends/rust_prune.rs` | Tidies each emitted Rust file; refuses one indented against its braces, so a multi-line emission must be re-indented to its depth |
 | `backends/java.rs`, `csharp.rs`, `ts.rs` | Java `Core` methods; one `Core_<NAME>.cs` per function; one ES module per function |
 | `backends/ctype.rs` | The C type pass behind TS integer semantics: every integer `/`, `%` and real-to-int conversion truncates with `\| 0` because this pass typed it, never because of a name |
 | `backends/go.rs`, `go_fmt.rs`, `go_prune.rs` | Go: one file per function, lowered at render time (steps, ternaries, `&&` operands needing statements); `go_fmt` prints gofmt's spacing; `go_prune` drops unread locals. Every real product is emitted as `float64(a*b)`, or Go may fuse it; a literal-only real operation takes `float64(lit)` operands, or Go folds it exactly where C rounds each step |
@@ -85,8 +88,8 @@ that names no indicator.
 | `backends/rust_doc.rs`, `csharp_doc.rs`, `ts_doc.rs`, `go_doc.rs` | Per-language rendering of each function's canonical `<name>.md` |
 | `backends/ir_cleanup.rs` | Backend-selected, length-preserving IR passes between the streaming decision and rendering |
 | `attributes` | The attribute keys (`levels`, ...): one row per key, and the canonical JSON form of a value |
-| `backends/abstract_rows.rs` | The backend-neutral `ta_abstract` row model, rendered by Rust, Java, C# and TS — but deliberately not by C (below) |
-| `backends/{rust,java,csharp,ts}_metadata.rs`, `java_abstract.rs` | The per-language introspection registries |
+| `backends/abstract_rows.rs` | The backend-neutral `ta_abstract` row model, rendered by Rust, Java, C#, TS and Go, but deliberately not by C (below) |
+| `backends/{rust,java,csharp,ts,go}_metadata.rs`, `java_abstract.rs` | The per-language introspection registries |
 | `backends/ta_abstract_c.rs` | C's `ta_abstract` layer: tables, frames, group index, runtime API |
 | `backends/price_bundle.rs` | Folds expanded price components back into the single `TA_Input_Price` descriptor (`inPriceHLC` + flags) — **public ABI**, so derived once from each `Input`'s `PriceRef` and never re-inferred from argument names |
 | `backends/func_api_xml.rs` | `ta_func_api.xml` |
@@ -189,7 +192,8 @@ always-alternate bug satisfies both.
 ## The abstract layer: one row model, and one independent oracle
 
 Rust's `abstract_api`, Java's server table and shipped registry, C#'s
-`TALib.Metadata` and TS's `ta-lib/metadata` all render `abstract_rows.rs`. **C's `ta_abstract_c` does not,
+`TALib.Metadata`, TS's `ta-lib/metadata` and Go's `metadata` package all render
+`abstract_rows.rs`. **C's `ta_abstract_c` does not,
 and that is the point:** `test_abstract.c` proves each server's metadata against
 the C library at run time, and folding C into the shared rows would leave a
 generator compared against itself. `func_api_xml` stays out for the same reason
@@ -253,8 +257,8 @@ rustdoc has no lint for documenting a parameter that does not exist.
 
 Every guarded function gets a **generated runnable doctest** (252 bars of
 deterministic synthetic data, defaults everywhere, propagating with `?` and
-asserting a non-empty `OutRange`). Verify with `cargo doc --no-deps` — must be
-warning-free, prose escaping of `[`/`<` is load-bearing — and `cargo test --doc`.
+asserting the count its printed line needs). Verify with `cargo doc --no-deps`, which
+must be warning-free (prose escaping of `[`/`<` is load-bearing), and `cargo test --doc`.
 
 ### Scratch-buffer election
 

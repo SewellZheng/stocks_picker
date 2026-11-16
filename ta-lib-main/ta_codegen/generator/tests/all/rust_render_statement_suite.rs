@@ -4,11 +4,10 @@
 use crate::common;
 
 use common::{
-    extract_section, generate_all, load_indicator, load_synth, make_registry,
+    discover_indicators, extract_section, generate_all, load_indicator, load_synth, make_registry,
     make_synth_registry, make_helpers,
 };
 use std::collections::HashMap;
-use std::path::Path;
 use ta_codegen_lib::backends;
 use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::ir;
@@ -1010,18 +1009,8 @@ fn rust_public_entry_documents_exactly_its_parameters() {
     // wrapper. Sweep every indicator and require the two to agree, in order.
     let registry = make_registry();
     let helpers = make_helpers();
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let mut checked = 0usize;
-    for entry in std::fs::read_dir(&base).expect("input dir") {
-        let entry = entry.expect("dir entry");
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        let dir = entry.path();
-        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
-            continue;
-        }
+    for name in discover_indicators() {
         let (func, enums) = load_indicator(&name);
         let out = backends::rust_lang::generate(&func, &enums, registry, helpers);
 
@@ -1063,7 +1052,10 @@ fn rust_public_entry_documents_exactly_its_parameters() {
         assert!(!params.is_empty(), "{name}: parsed no parameters -- the test would be vacuous");
         checked += 1;
     }
-    assert!(checked >= 200, "expected the whole corpus, checked only {checked}");
+    assert!(
+        common::sweep_filtered() || checked >= 200,
+        "expected the whole corpus, checked only {checked}"
+    );
 }
 
 /// `word` appearing in `hay` with no identifier character on either side.
@@ -1087,20 +1079,13 @@ fn every_integer_output_carries_an_example_claim() {
     // domain instead: a pattern output's from its flags, any other's from
     // `rust_doc::integer_claim`. This is the gate that a function arriving
     // with an integer output gets a claim rather than none.
+    if common::sweep_filtered() {
+        return;
+    }
     let registry = make_registry();
     let helpers = make_helpers();
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let mut checked = 0usize;
-    for entry in std::fs::read_dir(&base).expect("input dir") {
-        let entry = entry.expect("dir entry");
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        let dir = entry.path();
-        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
-            continue;
-        }
+    for name in discover_indicators() {
         // Shipped functions only. `scripts/synth_gate.py` copies its fixtures
         // into input/, and this claim is a curated per-function table feeding
         // the rustdoc EXAMPLE -- documentation for the published crate, which a
@@ -2194,7 +2179,8 @@ fn rust_lookback_code_renders_var_types_correctly() {
     let enums = HashMap::new();
     let registry = make_registry();
     let helpers = HelperRegistry::empty();
-    let rust_out = backends::rust_lang::generate(&func, &enums, registry, &helpers);
+    // Every local here is unread: the tidy pass would leave no declaration to see.
+    let rust_out = backends::rust_lang::generate_untidied(&func, &enums, registry, &helpers);
 
     let lookback_section = extract_section(&rust_out, "_lookback(", "pub(crate) fn test_impl(");
     // sum has no assignments in the body, so count_assignments returns 0 => `let` not `let mut`
@@ -2294,7 +2280,8 @@ fn rust_lookback_body_never_fuses_multiply_add() {
         resolved_stream_body: None,
     };
     let enums = HashMap::new();
-    let out = backends::rust_lang::generate(&func, &enums, make_registry(), &HelperRegistry::empty());
+    // The fixture's result is unread: the tidy pass would leave no shape to see.
+    let out = backends::rust_lang::generate_untidied(&func, &enums, make_registry(), &HelperRegistry::empty());
     let section = extract_section(&out, "_lookback(", "pub fn test(");
     let section = &section[..section.find("\n    }").expect("lookback body must close")];
     assert!(
@@ -2396,7 +2383,7 @@ fn rust_lookback_body_types_locals_by_declaration_not_name() {
 
     let with_k = lookback_section_for("k");
     assert!(
-        with_k.contains("let mut k: usize = 0_usize"),
+        with_k.contains("let mut k: usize"),
         "lookback int local must declare usize: {with_k}"
     );
     assert!(
@@ -2404,7 +2391,7 @@ fn rust_lookback_body_types_locals_by_declaration_not_name() {
         "an integer lookback local must never take an f64 RHS cast: {with_k}"
     );
     assert!(
-        with_k.contains("k += (optInTimePeriod) as usize"),
+        with_k.contains("k += optInTimePeriod as usize"),
         "usize lookback local must cast the i32 param RHS to usize: {with_k}"
     );
 
@@ -2753,15 +2740,13 @@ fn rust_macd_output_loops_run_as_counted_windows() {
 /// stays as written.
 #[test]
 fn rust_candle_loops_read_their_inputs_through_windows() {
+    if common::sweep_filtered() {
+        return;
+    }
     let registry = make_registry();
     let helpers = make_helpers();
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let mut seen = 0usize;
-    for entry in std::fs::read_dir(&base).expect("input dir") {
-        let name = entry.expect("dir entry").file_name().to_string_lossy().to_string();
-        if !name.starts_with("cdl") {
-            continue;
-        }
+    for name in discover_indicators().into_iter().filter(|n| n.starts_with("cdl")) {
         let (func, enums) = load_indicator(&name);
         let rust = backends::rust_lang::generate(&func, &enums, registry, helpers);
         let batch = &rust[..rust.find("_step_impl(").unwrap_or(rust.len())];

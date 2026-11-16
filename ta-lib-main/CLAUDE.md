@@ -135,7 +135,9 @@ rather than mirroring C: Rust `<n>_open_impl`, Java, TypeScript and Go
 camelCase, `<N>` = PascalCase, the acronym single-capitalized — `Sma`, not
 `SMA`). Neither tier is public anywhere, so no runtime gate can see the spelling:
 `the_transition_tier_is_step_impl_in_every_backend` pins the *shape* — one word
-per concept, in that backend's casing — not one literal string.
+per concept, in that backend's casing — not one literal string. Go alone runs the
+step inside `Update` and keeps `<n>StepImpl` only where another frame calls it
+(a tape entry, MAVP's fill).
 
 **The `_Open*` family is five methods, symmetric, two hops deep** (C's spelling;
 the other backends carry the same five hops in their own casing):
@@ -156,14 +158,14 @@ handed is stored on every bar, with everything that feeds it, where a local one
 is computed once. Both seams still call the shared frame, one per stride; drop
 either call and the compiler specialises the fill's loop differently.
 
-The exception to the table: in Java, C# and TypeScript a candlestick's
+The exception to the table: in Java, C#, TypeScript and Go a candlestick's
 `_OpenInternal` calls a private sink frame (`OpenSinkFrame`) in place of
 `_OpenImpl(.., 0)`: `_OpenImpl`'s checks, then a pass over the history that
 keeps only the carried state and decides the last bar once. Its `_OpenImpl`
-then serves stride 1 alone; leave it byte for byte: an exit to the frame ahead
-of its body, or a folded stride, makes the JIT compile the fill loop
-differently and moves single functions' fill time either way around an
-unchanged median. CDLHIKKAKE and CDLHIKKAKEMOD assign pattern state in their
+then serves stride 1 alone; leave it byte for byte: in the first three, an exit
+to the frame ahead of its body, or a folded stride, makes the JIT compile the
+fill loop differently and moves single functions' fill time either way around
+an unchanged median. CDLHIKKAKE and CDLHIKKAKEMOD assign pattern state in their
 decisions and keep the table's form.
 
 Both public entries delegate at anchor 0, so **no seam is emitted unreachable**.
@@ -185,10 +187,10 @@ public overload, like C's frames and Java's `Dispatch`).
 
 **Every metadata tier calls the public tier.** C (`ta_frame.c`), Java
 (`Dispatch`), C# (`FunctionCatalog`'s `invoke` thunk), Rust
-(`ParamHolder::call`) and TypeScript (`ParamHolder.call`) all do, so binding a
-leg shorter than the requested range is `TA_BAD_PARAM` in every port and
-inexpressible in C, whose setters take a bare pointer and carry no length.
-Go has no metadata tier.
+(`ParamHolder::call`), TypeScript (`ParamHolder.call`) and Go (the `metadata`
+package's thunks) all do, so binding a leg shorter than the requested range is
+`TA_BAD_PARAM` in every port and inexpressible in C, whose setters take a bare
+pointer and carry no length.
 
 **And a rejected setter leaves the holder as it found it** — the price setter
 validates every consumed component before it writes any. The case that makes it

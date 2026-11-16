@@ -46,9 +46,13 @@ func (c *Core) midpointLookback(optInTimePeriod int32) int32 {
 
 func (c *Core) midpointImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var sufLowest []float64
+	var local_sufLowest [30]float64
 	var preLowest []float64
+	var local_preLowest [30]float64
 	var lowest float64
 	var highest float64
 	var tmpHigh float64
@@ -87,19 +91,35 @@ func (c *Core) midpointImpl(startIdx, endIdx int32, inReal []float64, optInTimeP
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufHighest = local_sufHighest[:optInTimePeriod]
+	} else {
+		sufHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preHighest = local_preHighest[:optInTimePeriod]
+	} else {
+		preHighest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	sufLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		sufLowest = local_sufLowest[:optInTimePeriod]
+	} else {
+		sufLowest = make([]float64, optInTimePeriod)
+	}
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	preLowest = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		preLowest = local_preLowest[:optInTimePeriod]
+	} else {
+		preLowest = make([]float64, optInTimePeriod)
+	}
 	blockStart = trailingIdx
 	for today <= endIdx {
 		i = blockStart + optInTimePeriod - 1
@@ -189,6 +209,25 @@ func (c *Core) MIDPOINTLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MIDPOINTDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MIDPOINT]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MIDPOINT] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MIDPOINTLookback] rejects or an index that names no output.
+func (c *Core) MIDPOINTDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MIDPOINTLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MIDPOINT computes the MidPoint over period over bars startIdx through endIdx.
 //
 // Midpoint over a period: the average of the highest and lowest input values
@@ -218,7 +257,8 @@ func (c *Core) MIDPOINTLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MIDPOINT(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -300,22 +340,96 @@ func (sp *MIDPOINTStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	midpointStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tmpLow float64
+	var tmpHigh float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inReal []float64
+	var lowest float64
+	var lowestIdx int32
+	sp.x_inReal[sp.today&sp.xMask] = inReal
+	tmpHigh = sp.x_inReal[sp.today&sp.xMask]
+	tmpLow = tmpHigh
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpHigh = x_inReal[i&xMask]
+			if tmpHigh > highest {
+				highestIdx = i
+				highest = tmpHigh
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmpHigh >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmpHigh
+	}
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inReal[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpLow = x_inReal[i&xMask]
+			if tmpLow < lowest {
+				lowestIdx = i
+				lowest = tmpLow
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmpLow <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmpLow
+	}
+	sp.cur_outReal = (sp.highest + sp.lowest) / 2.0
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MIDPOINTStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tmpLow float64
 	var tmpHigh float64
+	var today int32
+	var xMask int32
+	var x_inReal []float64
 	var cur_outReal float64
 	highest := sp.highest
 	highestIdx := sp.highestIdx
@@ -344,14 +458,17 @@ func (sp *MIDPOINTStream) Peek(inReal float64) (float64, error) {
 		}
 		highest = _T1
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot0 {
-				_T2 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T2 = x_inReal[i&xMask]
 			} else {
 				_T2 = pkVal0
 			}
@@ -375,14 +492,17 @@ func (sp *MIDPOINTStream) Peek(inReal float64) (float64, error) {
 		}
 		lowest = _T3
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T4 float64
-			if i&sp.xMask != pkSlot0 {
-				_T4 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T4 = x_inReal[i&xMask]
 			} else {
 				_T4 = pkVal0
 			}
@@ -411,55 +531,6 @@ func (sp *MIDPOINTStream) Clone() *MIDPOINTStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func midpointStepImpl(sp *MIDPOINTStream, inReal float64) {
-	var tmpLow float64
-	var tmpHigh float64
-	sp.x_inReal[sp.today&sp.xMask] = inReal
-	tmpHigh = sp.x_inReal[sp.today&sp.xMask]
-	tmpLow = tmpHigh
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpHigh = sp.x_inReal[sp.i&sp.xMask]
-			if tmpHigh > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmpHigh
-			}
-		}
-	} else if tmpHigh >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmpHigh
-	}
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inReal[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpLow = sp.x_inReal[sp.i&sp.xMask]
-			if tmpLow < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmpLow
-			}
-		}
-	} else if tmpLow <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmpLow
-	}
-	sp.cur_outReal = (sp.highest + sp.lowest) / 2.0
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) midpointOpenImpl(sp *MIDPOINTStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -608,7 +679,8 @@ func (c *Core) midpointOpenInternal(inReal []float64, startIdx, optInTimePeriod 
 // inReal is the history; the parameters are those of [Core.MIDPOINT].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MIDPOINTLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MIDPOINTLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MIDPOINTOpen(inReal []float64, optInTimePeriod int) (*MIDPOINTStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -628,7 +700,9 @@ func (c *Core) MIDPOINTOpen(inReal []float64, optInTimePeriod int) (*MIDPOINTStr
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MIDPOINTOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) MIDPOINTOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*MIDPOINTStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

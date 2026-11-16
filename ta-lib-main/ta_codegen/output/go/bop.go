@@ -75,6 +75,21 @@ func (c *Core) BOPLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// BOPDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.BOP]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.BOP], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) BOPDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // BOP computes the Balance Of Power over bars startIdx through endIdx.
 //
 // Balance Of Power compares where the close sits relative to the open,
@@ -103,7 +118,9 @@ func (c *Core) BOPLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) BOP(startIdx, endIdx int, inOpen, inHigh, inLow, inClose, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -178,11 +195,17 @@ func (sp *BOPStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, er
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	bopStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tempReal float64
+	tempReal = inHigh - inLow
+	if tempReal <= 0.0 {
+		sp.cur_outReal = 0.0
+	} else {
+		sp.cur_outReal = (inClose - inOpen) / tempReal
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -190,7 +213,7 @@ func (sp *BOPStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, er
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *BOPStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -214,16 +237,6 @@ func (sp *BOPStream) Value() float64 {
 func (sp *BOPStream) Clone() *BOPStream {
 	cl := *sp
 	return &cl
-}
-
-func bopStepImpl(sp *BOPStream, inOpen, inHigh, inLow, inClose float64) {
-	var tempReal float64
-	tempReal = inHigh - inLow
-	if tempReal <= 0.0 {
-		sp.cur_outReal = 0.0
-	} else {
-		sp.cur_outReal = (inClose - inOpen) / tempReal
-	}
 }
 
 func (c *Core) bopOpenImpl(sp *BOPStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -297,7 +310,8 @@ func (c *Core) bopOpenInternal(inOpen, inHigh, inLow, inClose []float64, startId
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.BOPLookback] bars, and [BadParam] for histories of different lengths.
+// [Core.BOPLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) BOPOpen(inOpen, inHigh, inLow, inClose []float64) (*BOPStream, float64, error) {
 	sp, err := c.bopOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -314,7 +328,8 @@ func (c *Core) BOPOpen(inOpen, inHigh, inLow, inClose []float64) (*BOPStream, fl
 // no memory with an input or another output.
 //
 // The errors are those of [Core.BOPOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) BOPOpenAndFill(inOpen, inHigh, inLow, inClose, outReal []float64) (*BOPStream, OutRange, error) {
 	if len(inOpen) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

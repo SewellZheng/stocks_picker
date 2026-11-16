@@ -145,6 +145,25 @@ func (c *Core) SWAK_BUTTERLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// SWAK_BUTTERDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SWAK_BUTTER]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SWAK_BUTTER] followed by the output's
+// position among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SWAK_BUTTERLookback] rejects or an index that names no output.
+func (c *Core) SWAK_BUTTERDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.SWAK_BUTTERLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SWAK_BUTTER computes the Swiss Army Knife - Butterworth Filter over bars
 // startIdx through endIdx.
 //
@@ -181,7 +200,8 @@ func (c *Core) SWAK_BUTTERLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SWAK_BUTTER(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -259,18 +279,26 @@ func (sp *SWAK_BUTTERStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	swakButterStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var x0 float64
+	var y float64
+	x0 = inReal
+	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(math.FMA(2.0, sp.x1, x0)+sp.x2))))
+	sp.x2 = sp.x1
+	sp.x1 = x0
+	sp.y2 = sp.y1
+	sp.y1 = y
+	sp.cur_outReal = y
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SWAK_BUTTERStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var x0 float64
@@ -300,18 +328,6 @@ func (sp *SWAK_BUTTERStream) Value() float64 {
 func (sp *SWAK_BUTTERStream) Clone() *SWAK_BUTTERStream {
 	cl := *sp
 	return &cl
-}
-
-func swakButterStepImpl(sp *SWAK_BUTTERStream, inReal float64) {
-	var x0 float64
-	var y float64
-	x0 = inReal
-	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(math.FMA(2.0, sp.x1, x0)+sp.x2))))
-	sp.x2 = sp.x1
-	sp.x1 = x0
-	sp.y2 = sp.y1
-	sp.y1 = y
-	sp.cur_outReal = y
 }
 
 func (c *Core) swakButterOpenImpl(sp *SWAK_BUTTERStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -435,7 +451,8 @@ func (c *Core) swakButterOpenInternal(inReal []float64, startIdx, optInTimePerio
 // inReal is the history; the parameters are those of [Core.SWAK_BUTTER].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SWAK_BUTTERLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SWAK_BUTTERLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SWAK_BUTTEROpen(inReal []float64, optInTimePeriod int) (*SWAK_BUTTERStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -455,7 +472,9 @@ func (c *Core) SWAK_BUTTEROpen(inReal []float64, optInTimePeriod int) (*SWAK_BUT
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SWAK_BUTTEROpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) SWAK_BUTTEROpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*SWAK_BUTTERStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

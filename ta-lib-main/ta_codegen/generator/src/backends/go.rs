@@ -44,7 +44,7 @@ const SHADOWED: &[&str] = &[
     "iota", "len", "make", "max", "min", "new", "nil", "panic", "print", "println", "real", "recover", "rune",
     "string", "true", "uint", "uint16", "uint32", "uint64", "uint8", "uintptr", "c", "math", "unsafe", "b2i", "f2i",
     "maxF", "minF", "maxI", "minI", "isZero", "isZeroScaled", "isZeroOrNeg", "isFinite", "candleRange",
-    "candleAverage", "sameStart", "overlaps", "overlapsPartly", "fitsInt32", "requiredOut", "Core", "OutRange",
+    "candles", "selF", "sameStart", "overlaps", "overlapsPartly", "fitsInt32", "requiredOut", "Core", "OutRange",
     "RetCode", "MAType", "FuncUnstId", "IndexMax", "IntegerDefault", "RealDefault", "RealMin", "RealMax",
 ];
 
@@ -111,10 +111,14 @@ pub struct GoNames {
     pub public: String,
     /// The public lookback (`SMALookback`).
     pub lookback_public: String,
+    /// The public display shift (`SMADisplayShift`).
+    pub display_shift_public: String,
     /// The C-shaped body (`smaImpl`).
     pub body: String,
     /// The C-shaped lookback the bodies call (`smaLookback`).
     pub lookback: String,
+    /// The display-shift body of a function with a shifted output (`smaDisplayShift`).
+    pub display_shift: String,
     /// The declared private variant (`smaPrivate`).
     pub private: String,
 }
@@ -125,8 +129,10 @@ pub fn go_names(func_name: &str) -> GoNames {
     GoNames {
         public: func_name.to_string(),
         lookback_public: format!("{func_name}Lookback"),
+        display_shift_public: format!("{func_name}DisplayShift"),
         body: format!("{camel}Impl"),
         lookback: format!("{camel}Lookback"),
+        display_shift: format!("{camel}DisplayShift"),
         private: format!("{camel}Private"),
     }
 }
@@ -163,6 +169,7 @@ pub fn generate(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &Reg
     }
     body.push_str(&gen_impl(func, false, &svc));
     body.push_str(&gen_public_lookback(func, svc.enums));
+    body.push_str(&gen_display_shift(func, &svc));
     body.push_str(&gen_public(func, &svc));
     if super::go_stream::emits_stream(func, registry) {
         body.push_str(&super::go_stream::generate(func, &svc));
@@ -229,6 +236,33 @@ pub(super) struct Ctx<'a> {
     /// Locals of C type `TA_RetCode`.
     pub(super) codes: HashSet<String>,
     pub(super) ret: Ret,
+    /// A batch or open body, whose candle colour bounds take no branch.
+    pub(super) colour_selects: Cell<bool>,
+    /// A stream frame: a real pick outside a loop may take no branch (`selF`),
+    /// by the rule in [`super::go_select`]. Inside a stream frame's loop it
+    /// stays a branch, which a reduction predicts and a select would put on
+    /// its chain; a batch body's bar loops select through the loop scan.
+    pub(super) float_selects: Cell<bool>,
+    /// A stream Update frame, as against a Peek.
+    pub(super) update_frame: Cell<bool>,
+    /// A batch or open body: a real pick in an outermost loop may take no
+    /// branch, by the rule in [`super::go_select`].
+    pub(super) loop_selects: Cell<bool>,
+    loop_depth: Cell<usize>,
+    /// The outermost loop being rendered writes an output.
+    loop_out: Cell<bool>,
+    /// The handle's fields, by both spellings.
+    pub(super) carried: std::cell::RefCell<HashSet<String>>,
+    /// The variable the statement being rendered assigns.
+    store_target: std::cell::RefCell<Option<String>>,
+    /// The frame body's picks, scanned as its rendering starts, and the
+    /// address of the statement being rendered, which keys them.
+    scan: std::cell::RefCell<super::go_select::FrameScan>,
+    stmt_depth: Cell<usize>,
+    cur_stmt: Cell<usize>,
+    /// Batch circular buffers kept in a stack array up to their static size,
+    /// as C keeps them: the id and that size.
+    pub(super) stack_circ: std::cell::RefCell<HashMap<String, i64>>,
 }
 
 const RETCODE_NAMES: &[(&str, &str)] = &[
@@ -360,6 +394,18 @@ impl<'a> Ctx<'a> {
             arrays,
             codes,
             ret,
+            colour_selects: Cell::new(false),
+            float_selects: Cell::new(false),
+            update_frame: Cell::new(false),
+            loop_selects: Cell::new(false),
+            loop_depth: Cell::new(0),
+            loop_out: Cell::new(false),
+            carried: std::cell::RefCell::new(HashSet::new()),
+            store_target: std::cell::RefCell::new(None),
+            scan: std::cell::RefCell::default(),
+            stmt_depth: Cell::new(0),
+            cur_stmt: Cell::new(0),
+            stack_circ: std::cell::RefCell::new(HashMap::new()),
         }
     }
 
@@ -378,7 +424,30 @@ impl<'a> Ctx<'a> {
         let mut arrays = HashSet::new();
         let mut codes = HashSet::new();
         collect_decl_kinds(body, &mut arrays, &mut codes);
-        Ctx { svc, func, env, fma: None, fma_ref: Some(fma), counter: Cell::new(0), shared_counter: Some(counter), arrays, codes, ret }
+        Ctx {
+            svc,
+            func,
+            env,
+            fma: None,
+            fma_ref: Some(fma),
+            counter: Cell::new(0),
+            shared_counter: Some(counter),
+            arrays,
+            codes,
+            ret,
+            colour_selects: Cell::new(false),
+            float_selects: Cell::new(false),
+            update_frame: Cell::new(false),
+            loop_selects: Cell::new(false),
+            loop_depth: Cell::new(0),
+            loop_out: Cell::new(false),
+            carried: std::cell::RefCell::new(HashSet::new()),
+            store_target: std::cell::RefCell::new(None),
+            scan: std::cell::RefCell::default(),
+            stmt_depth: Cell::new(0),
+            cur_stmt: Cell::new(0),
+            stack_circ: std::cell::RefCell::new(HashMap::new()),
+        }
     }
 
     fn fma_sets(&self) -> Option<&FmaVarSets> {
@@ -400,8 +469,9 @@ impl<'a> Ctx<'a> {
     }
 
     /// A stepped variable is read nowhere else in its statement, so moving the step
-    /// before or after the statement is exact. Helpers are substituted after this
-    /// check, so it does not cover a step inside a helper call's argument.
+    /// before or after the statement is exact. A helper substituted textually may
+    /// read a parameter twice, so a step in its argument is refused where the
+    /// helper is substituted.
     pub(super) fn check_steps(&self, exprs: &[&Expr]) {
         let mut stepped = Vec::new();
         let mut counts = HashMap::new();
@@ -416,7 +486,24 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    fn refuse_stepped_args(&self, helper: &str, args: &[Expr]) {
+        let mut stepped = Vec::new();
+        for a in args {
+            stepped_vars(a, &mut stepped);
+        }
+        if let Some(v) = stepped.first() {
+            self.fail(&format!("`{v}` is stepped in an argument of `{helper}`, which is substituted textually"));
+        }
+    }
+
     pub(super) fn hoist(&self, e: &Expr) -> (Expr, Vec<(String, VarType, Vec<Statement>)>) {
+        crate::streaming::walk_expr(e, &mut |x| {
+            if let Expr::FuncCall(name, args) = x {
+                if self.svc.helpers.get(name).is_some() && !JAVA_CANDLE_FNS.contains(&name.as_str()) {
+                    self.refuse_stepped_args(name, args);
+                }
+            }
+        });
         let mut hoisted = Vec::new();
         let mut cnt = self.counter().get();
         let new = hoist_block_helpers(e, self.svc.helpers, &mut hoisted, &mut cnt, JAVA_CANDLE_FNS);
@@ -430,6 +517,12 @@ impl<'a> Ctx<'a> {
 
     pub(super) fn render_hoisted(&self, hoisted: &[(String, VarType, Vec<Statement>)], out: &mut Vec<String>) {
         for (temp, vt, body) in hoisted {
+            if self.update_frame.get() || (self.loop_selects.get() && self.loop_depth.get() > 0) {
+                let inner = super::go_select::scan(body);
+                let mut scan = self.scan.borrow_mut();
+                scan.around.extend(inner.around);
+                scan.chains.extend(inner.chains);
+            }
             out.push(format!("var {} {}", go_ident(temp), var_go_type(vt)));
             for s in body {
                 if let Statement::VarDecl { var_type, name, init } = s {
@@ -723,6 +816,10 @@ impl<'a> Ctx<'a> {
         };
         let tg = if ty.is_pointer() { tg } else { self.conv(tg, tt, ty) };
         let fg = if ty.is_pointer() { fg } else { self.conv(fg, ft, ty) };
+        let target = self.store_target.borrow().clone();
+        if ty == CType::Real && ts.is_empty() && fs.is_empty() && select_arm(t) && select_arm(f) && self.pick_free(c, t, f, target.as_deref()) {
+            return (GExpr::call("selF", vec![strip_paren(cg), tg, fg]), ty);
+        }
         let tmp = self.temp("T");
         sc.pre.push(format!("var {tmp} {}", go_type(ty)));
         sc.pre.push(format!("if {} {{", strip_paren(cg).render()));
@@ -745,23 +842,71 @@ impl<'a> Ctx<'a> {
         let svc = self.svc;
         if let Some(helper) = svc.helpers.get(fname) {
             if let Some(inlined) = self.env.inline_helper(helper, args) {
+                self.refuse_stepped_args(fname, args);
+                if let Some(g) = self.colour_bound(fname, args) {
+                    return (g, CType::Real);
+                }
                 return self.lower(&inlined, sc);
             }
         }
         match fname {
             "ta_candlerange" if args.len() == 5 => {
                 let mut a = vec![self.lower_as(&args[0], CType::Int32, sc)];
-                for x in &args[1..] {
-                    a.push(self.lower_as(x, CType::Real, sc));
+                let mut ps = Scope::default();
+                let prices: Vec<GExpr> = args[1..].iter().map(|x| self.lower_as(x, CType::Real, &mut ps)).collect();
+                // A known range type renders as its own case of `candleRange`:
+                // Go inlines nothing costing over 20 into a function as large as
+                // a candlestick's open, and the call there costs more than the
+                // range. Shadows pick the colour bounds by bits, as the batch does.
+                if let (Expr::IntLiteral(kind @ 0..=2), true, [o, h, l, c]) = (&args[0], ps.is_empty(), prices.as_slice()) {
+                    let g = match kind {
+                        0 => GExpr::call("math.Abs", vec![GExpr::bin(c.clone(), GOp::Sub, o.clone())]),
+                        1 => GExpr::bin(h.clone(), GOp::Sub, l.clone()),
+                        _ => {
+                            let white = GExpr::bin(c.clone(), GOp::Ge, o.clone());
+                            let upper = GExpr::call("selF", vec![white.clone(), c.clone(), o.clone()]);
+                            let lower = GExpr::call("selF", vec![white, o.clone(), c.clone()]);
+                            GExpr::bin(
+                                GExpr::bin(h.clone(), GOp::Sub, upper).paren(),
+                                GOp::Add,
+                                GExpr::bin(lower, GOp::Sub, l.clone()).paren(),
+                            )
+                        }
+                    };
+                    return (g.paren(), CType::Real);
                 }
+                // In a stream frame a setting's range type is a constant of the
+                // handle, so a switch on it is predicted; its Shadows case still
+                // picks the colour bounds by bits.
+                if self.select_free() && ps.is_empty() {
+                    if let [o, h, l, c] = prices.as_slice() {
+                        let tmp = self.temp("R");
+                        let white = GExpr::bin(c.clone(), GOp::Ge, o.clone());
+                        let shadows = GExpr::bin(
+                            GExpr::bin(h.clone(), GOp::Sub, GExpr::call("selF", vec![white.clone(), c.clone(), o.clone()])).paren(),
+                            GOp::Add,
+                            GExpr::bin(GExpr::call("selF", vec![white, o.clone(), c.clone()]), GOp::Sub, l.clone()).paren(),
+                        );
+                        sc.pre.push(format!("var {tmp} float64"));
+                        sc.pre.push(format!("switch {} {{", a[0].render()));
+                        sc.pre.push("case 0:".to_string());
+                        sc.pre.push(format!("\t{tmp} = {}", GExpr::call("math.Abs", vec![GExpr::bin(c.clone(), GOp::Sub, o.clone())]).render()));
+                        sc.pre.push("case 1:".to_string());
+                        sc.pre.push(format!("\t{tmp} = {}", GExpr::bin(h.clone(), GOp::Sub, l.clone()).render()));
+                        sc.pre.push("case 2:".to_string());
+                        sc.pre.push(format!("\t{tmp} = {}", shadows.render()));
+                        sc.pre.push("}".to_string());
+                        return (GExpr::name(tmp), CType::Real);
+                    }
+                }
+                sc.pre.extend(ps.pre);
+                sc.post.extend(ps.post);
+                a.extend(prices);
                 return (GExpr::call("candleRange", a), CType::Real);
             }
             "ta_candleaverage" if args.len() == 8 => {
-                let mut a = vec![self.lower_as(&args[0], CType::Int32, sc), self.lower_as(&args[1], CType::Int32, sc)];
-                for x in &args[2..] {
-                    a.push(self.lower_as(x, CType::Real, sc));
-                }
-                return (GExpr::call("candleAverage", a), CType::Real);
+                self.refuse_stepped_args(fname, args);
+                return self.lower(&candle_average(args), sc);
             }
             _ => {}
         }
@@ -796,7 +941,10 @@ impl<'a> Ctx<'a> {
                     (copy_call(d, doff, s, soff, n), CType::Int32)
                 }
                 SpecialBuiltin::PerToK => {
-                    let x = self.lower_as(&args[0], CType::Real, sc);
+                    let mut x = self.lower_as(&args[0], CType::Real, sc);
+                    if is_const(&args[0]) {
+                        x = typed(x);
+                    }
                     let den = GExpr::bin(x, GOp::Add, GExpr::name("1.0")).paren();
                     (GExpr::bin(GExpr::name("2.0"), GOp::Quo, den), CType::Real)
                 }
@@ -806,9 +954,25 @@ impl<'a> Ctx<'a> {
             return match mf {
                 MathFn::Max | MathFn::Min => {
                     let [a, b] = args else { self.fail("max/min takes two arguments") };
-                    let (ag, at) = self.lower(a, sc);
-                    let (bg, bt) = self.lower(b, sc);
+                    let mut ms = Scope::default();
+                    let (ag, at) = self.lower(a, &mut ms);
+                    let (bg, bt) = self.lower(b, &mut ms);
                     let t = arith(at, bt);
+                    // The helper's own compare as a select: both operands are
+                    // computed either way, and a float helper compiles to a jump.
+                    let free = t == CType::Real && ms.is_empty() && self.float_selects.get() && {
+                        let op = if matches!(mf, MathFn::Max) { BinOp::Greater } else { BinOp::Less };
+                        let c = Expr::BinOp(Box::new(a.clone()), op, Box::new(b.clone()));
+                        let target = self.store_target.borrow().clone();
+                        self.pick_free(&c, a, b, target.as_deref())
+                    };
+                    if free {
+                        let (ag, bg) = (self.conv(ag, at, t), self.conv(bg, bt, t));
+                        let op = if matches!(mf, MathFn::Max) { GOp::Gt } else { GOp::Lt };
+                        return (GExpr::call("selF", vec![GExpr::bin(ag.clone(), op, bg.clone()), ag, bg]), t);
+                    }
+                    sc.pre.extend(ms.pre);
+                    sc.post.extend(ms.post);
                     let f = match (mf, t) {
                         (MathFn::Max, CType::Real) => "maxF",
                         (MathFn::Min, CType::Real) => "minF",
@@ -851,6 +1015,30 @@ impl<'a> Ctx<'a> {
             };
         }
         self.registry_call(fname, args, sc)
+    }
+
+    /// `high - colour max` or `colour min - low`, the colour picked by bits:
+    /// close against open is a coin flip on real bars, and Go branches on a
+    /// float select.
+    fn colour_bound(&self, fname: &str, args: &[Expr]) -> Option<GExpr> {
+        if !self.colour_selects.get() {
+            return None;
+        }
+        let (upper, [bound, close, open]) = (fname == "ta_uppershadow", args) else { return None };
+        if !upper && fname != "ta_lowershadow" {
+            return None;
+        }
+        let mut sc = Scope::default();
+        let [bound, close, open] = [bound, close, open].map(|e| self.lower_as(e, CType::Real, &mut sc));
+        if !sc.is_empty() {
+            return None;
+        }
+        let white = GExpr::bin(close.clone(), GOp::Ge, open.clone());
+        Some(if upper {
+            GExpr::bin(bound, GOp::Sub, GExpr::call("selF", vec![white, close, open]))
+        } else {
+            GExpr::bin(GExpr::call("selF", vec![white, open, close]), GOp::Sub, bound)
+        })
     }
 
     fn array_ref(&self, e: &Expr, sc: &mut Scope) -> (GExpr, GExpr) {
@@ -915,8 +1103,16 @@ impl<'a> Ctx<'a> {
     // ---- statements --------------------------------------------------------
 
     pub(super) fn stmts(&self, body: &[Statement], out: &mut Vec<String>) {
+        if self.float_selects.get() && self.stmt_depth.get() == 0 {
+            *self.scan.borrow_mut() = super::go_select::scan(body);
+        }
+        self.stmt_depth.set(self.stmt_depth.get() + 1);
         for s in body {
             self.stmt(s, out);
+        }
+        self.stmt_depth.set(self.stmt_depth.get() - 1);
+        if self.float_selects.get() && self.stmt_depth.get() == 0 {
+            self.scan.take();
         }
     }
 
@@ -926,8 +1122,62 @@ impl<'a> Ctx<'a> {
         v
     }
 
-    #[allow(clippy::too_many_lines)]
     pub(super) fn stmt(&self, s: &Statement, out: &mut Vec<String>) {
+        let in_loop = matches!(
+            s,
+            Statement::While { .. } | Statement::DoWhile { .. } | Statement::For { .. } | Statement::ForC { .. }
+        );
+        let body = super::go_select::loop_body(s);
+        let outer_scan = match body {
+            Some(b) if self.loop_selects.get() && self.loop_depth.get() == 0 => {
+                self.loop_out.set(super::go_select::stores_output(b));
+                Some(self.scan.replace(super::go_select::scan_loop(b)))
+            }
+            _ => None,
+        };
+        if in_loop {
+            self.loop_depth.set(self.loop_depth.get() + 1);
+        }
+        let outer = self.cur_stmt.replace(super::go_select::addr(s));
+        self.stmt_inner(s, out);
+        self.cur_stmt.set(outer);
+        if in_loop {
+            self.loop_depth.set(self.loop_depth.get() - 1);
+        }
+        if let Some(sc) = outer_scan {
+            *self.scan.borrow_mut() = sc;
+        }
+    }
+
+    /// A stream frame outside a loop, storing to no handle field.
+    fn select_free(&self) -> bool {
+        self.float_selects.get() && self.loop_depth.get() == 0 && !self.store_target.borrow().as_ref().is_some_and(|v| self.carried.borrow().contains(v))
+    }
+
+    /// Whether the real pick `cond ? t : f`, stored to `target`, renders
+    /// through `selF`, by the rule in [`super::go_select`].
+    fn pick_free(&self, cond: &Expr, t: &Expr, f: &Expr, target: Option<&str>) -> bool {
+        let frame = self.float_selects.get() && self.loop_depth.get() == 0;
+        let bar_loop = self.loop_selects.get() && self.loop_depth.get() == 1;
+        if !(frame || bar_loop) || !super::go_select::data_driven(cond) {
+            return false;
+        }
+        let scan = self.scan.borrow();
+        let around = scan.around.get(&self.cur_stmt.get());
+        if around.is_some_and(|a| {
+            a.guard(cond, t, f, target) || a.retest(cond) || (bar_loop && scan.true_extreme(a, cond, t, f, target)) || ((bar_loop || (frame && self.update_frame.get())) && a.true_range(cond, t, f, target))
+        }) {
+            return false;
+        }
+        let one = |v: &str| scan.chains.get(v) == Some(&1);
+        if frame {
+            return !target.is_some_and(|v| self.carried.borrow().contains(v) && !one(v));
+        }
+        around.is_some() && !target.is_some_and(|v| scan.live_in.contains(v) && !(one(v) && self.loop_out.get()))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn stmt_inner(&self, s: &Statement, out: &mut Vec<String>) {
         match s {
             Statement::VarDecl { var_type, name, init } => {
                 out.push(format!("var {} {}", go_ident(name), var_go_type(var_type)));
@@ -939,7 +1189,9 @@ impl<'a> Ctx<'a> {
                     let (init, hoisted) = self.hoist(init);
                     self.render_hoisted(&hoisted, out);
                     let mut sc = Scope::default();
+                    *self.store_target.borrow_mut() = Some(name.clone());
                     let v = self.store_value(&Expr::Var(name.clone()), CType::of_var_type(var_type), &init, &mut sc);
+                    *self.store_target.borrow_mut() = None;
                     out.extend(sc.pre);
                     out.push(format!("{} = {}", go_ident(name), v.render()));
                     out.extend(sc.post);
@@ -1048,6 +1300,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn for_c(&self, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], out: &mut Vec<String>) {
+        if self.shift_copy(init, condition, update, body, out) {
+            return;
+        }
         let init_lines = self.block(std::slice::from_ref(init));
         let header_init = match init_lines.as_slice() {
             [one] if is_simple_stmt(one) => one.clone(),
@@ -1071,6 +1326,68 @@ impl<'a> Ctx<'a> {
             out.extend(indented(&b));
         }
         out.push("}".to_string());
+    }
+
+    /// A loop that only moves a run of one array by one slot, toward the end
+    /// it reads from (`x[k] = x[k+1]` counting up, `x[k] = x[k-1]` counting
+    /// down), as `copy`: a move in that direction never reads a slot it already
+    /// wrote, so memmove's result is the loop's, and gc keeps the loop element
+    /// by element where C gets a memmove. The opposite direction smears and
+    /// stays a loop.
+    fn shift_copy(&self, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], out: &mut Vec<String>) -> bool {
+        let Statement::Assign { target: Expr::Var(k), compound: false, .. } = init else { return false };
+        let step = match update {
+            Statement::Assign { target: Expr::Var(t), value: Expr::BinOp(l, op, r), .. } if t == k => match (l.as_ref(), op, r.as_ref()) {
+                (Expr::Var(lv), BinOp::Add, Expr::IntLiteral(1)) if lv == k => 1,
+                (Expr::Var(lv), BinOp::Sub, Expr::IntLiteral(1)) if lv == k => -1,
+                _ => return false,
+            },
+            Statement::Expr(Expr::PostIncrement(v) | Expr::PreIncrement(v)) if matches!(v.as_ref(), Expr::Var(t) if t == k) => 1,
+            Statement::Expr(Expr::PostDecrement(v) | Expr::PreDecrement(v)) if matches!(v.as_ref(), Expr::Var(t) if t == k) => -1,
+            _ => return false,
+        };
+        let Expr::BinOp(cl, cop, bound) = condition else { return false };
+        let want = if step == 1 { BinOp::Less } else { BinOp::Greater };
+        if !matches!(cl.as_ref(), Expr::Var(v) if v == k) || *cop != want {
+            return false;
+        }
+        let code: Vec<&Statement> = body.iter().filter(|s| !matches!(s, Statement::Comment(_))).collect();
+        let [Statement::Assign { target: Expr::ArrayAccess(dst, di), value: Expr::ArrayAccess(src, si), compound: false }] = code.as_slice() else {
+            return false;
+        };
+        let src_op = if step == 1 { BinOp::Add } else { BinOp::Sub };
+        let shifted = matches!(si.as_ref(), Expr::BinOp(l, op, r) if matches!(l.as_ref(), Expr::Var(v) if v == k) && *op == src_op && matches!(r.as_ref(), Expr::IntLiteral(1)));
+        if dst != src || !matches!(di.as_ref(), Expr::Var(v) if v == k) || !shifted {
+            return false;
+        }
+        let mut pure = true;
+        crate::streaming::walk_expr(bound, &mut |e| {
+            if !matches!(e, Expr::Var(_) | Expr::IntLiteral(_) | Expr::BinOp(..)) || matches!(e, Expr::Var(v) if v == k || v == dst) {
+                pure = false;
+            }
+        });
+        if !pure || self.arrays.contains(dst) {
+            return false;
+        }
+        let mut sc = Scope::default();
+        let b = self.lower_as(bound, CType::Int32, &mut sc);
+        if !sc.is_empty() {
+            return false;
+        }
+        out.extend(self.block(std::slice::from_ref(init)));
+        let (x, kv) = (GExpr::name(go_ident(dst)), GExpr::name(go_ident(k)));
+        let plus1 = |e: &GExpr| GExpr::bin(e.clone(), GOp::Add, GExpr::name("1"));
+        let (dst_s, src_s) = if step == 1 {
+            (GExpr::slice(x.clone(), Some(kv.clone()), Some(b.clone())), GExpr::slice(x, Some(plus1(&kv)), Some(plus1(&b))))
+        } else {
+            (GExpr::slice(x.clone(), Some(plus1(&b)), Some(plus1(&kv))), GExpr::slice(x, Some(b.clone()), Some(kv.clone())))
+        };
+        let test = GExpr::bin(kv.clone(), if step == 1 { GOp::Lt } else { GOp::Gt }, b.clone());
+        out.push(format!("if {} {{", test.render()));
+        out.push(format!("\t{}", GExpr::call("copy", vec![dst_s, src_s]).render()));
+        out.push(format!("\t{} = {}", kv.render(), strip_paren(b).render()));
+        out.push("}".to_string());
+        true
     }
 
     /// A `for` post statement: one simple statement, or a parallel assignment
@@ -1122,6 +1439,9 @@ impl<'a> Ctx<'a> {
         }
         let (condition, _) = super::builtins::strip_unlikely(condition);
         self.check_steps(&[condition]);
+        if self.if_as_select(condition, then_body, else_body, out) {
+            return;
+        }
         let (condition, hoisted) = self.hoist(condition);
         self.render_hoisted(&hoisted, out);
         let mut sc = Scope::default();
@@ -1157,6 +1477,53 @@ impl<'a> Ctx<'a> {
         out.push("} else {".to_string());
         out.extend(indented(&self.block(else_body)));
         out.push("}".to_string());
+    }
+
+    /// `if c { v = a } [else { v = b }]` over a real local or field `v`, as
+    /// `v = selF(c, a, b-or-v)`, when both values are [`select_arm`]s.
+    fn if_as_select(&self, condition: &Expr, then_body: &[Statement], else_body: &[Statement], out: &mut Vec<String>) -> bool {
+        let one = |body: &[Statement]| -> Option<(String, Expr)> {
+            let code: Vec<&Statement> = body.iter().filter(|s| !matches!(s, Statement::Comment(_))).collect();
+            match code.as_slice() {
+                [Statement::Assign { target: Expr::Var(v), value, compound: false }] if select_arm(value) => Some((v.clone(), value.clone())),
+                _ => None,
+            }
+        };
+        let Some((var, then_value)) = one(then_body) else { return false };
+        let else_value = if else_body.is_empty() {
+            Expr::Var(var.clone())
+        } else {
+            match one(else_body) {
+                Some((v, e)) if v == var => e,
+                _ => return false,
+            }
+        };
+        if !self.pick_free(condition, &then_value, &else_value, Some(&var)) {
+            return false;
+        }
+        let (condition, hoisted) = self.hoist(condition);
+        if !hoisted.is_empty() {
+            return false;
+        }
+        let target = Expr::Var(var);
+        let mut sc = Scope::default();
+        let (t, tt) = self.target(&target, &mut sc);
+        if tt != CType::Real || !sc.is_empty() {
+            return false;
+        }
+        let c = self.cond(&condition, &mut sc);
+        if !sc.post.is_empty() {
+            return false;
+        }
+        let mut vs = Scope::default();
+        let a = self.store_value(&target, tt, &then_value, &mut vs);
+        let b = self.store_value(&target, tt, &else_value, &mut vs);
+        if !vs.is_empty() {
+            return false;
+        }
+        out.extend(sc.pre);
+        out.push(format!("{} = {}", t.render(), GExpr::call("selF", vec![strip_paren(c), a, b]).render()));
+        true
     }
 
     fn return_stmt(&self, value: Option<&Expr>, out: &mut Vec<String>) {
@@ -1240,10 +1607,15 @@ impl<'a> Ctx<'a> {
         let value = if fma::EMIT_FMA { fma::canonicalize_accumulator_add(target, &value) } else { value };
         self.render_hoisted(&hoisted, out);
         let mut sc = Scope::default();
+        *self.store_target.borrow_mut() = match target {
+            Expr::Var(v) => Some(v.clone()),
+            _ => None,
+        };
         if compound {
             if let (Expr::Var(tname), Expr::BinOp(left, op, right)) = (target, &value) {
                 if matches!(left.as_ref(), Expr::Var(l) if l == tname) {
                     if let Some(line) = self.compound(target, op, right, &mut sc) {
+                        *self.store_target.borrow_mut() = None;
                         out.extend(sc.pre);
                         out.push(line);
                         out.extend(sc.post);
@@ -1254,6 +1626,7 @@ impl<'a> Ctx<'a> {
         }
         let (t, tt) = self.target(target, &mut sc);
         let v = self.store_value(target, tt, &value, &mut sc);
+        *self.store_target.borrow_mut() = None;
         out.extend(sc.pre);
         out.push(format!("{} = {}", t.render(), v.render()));
         out.extend(sc.post);
@@ -1345,15 +1718,32 @@ impl<'a> Ctx<'a> {
                 out.push(format!("if {sz} < 1 {{"));
                 out.push("\treturn InternalError".to_string());
                 out.push("}".to_string());
+                let stack = self.stack_circ.borrow().get(id).copied();
                 for (arr, t) in circbuf_arrays(id, layout) {
-                    out.push(format!("{} = make({}, {sz})", go_ident(&arr), circbuf_type(&t)));
+                    let a = go_ident(&arr);
+                    match stack {
+                        Some(n) => {
+                            out.push(format!("if {sz} <= {n} {{"));
+                            out.push(format!("\t{a} = local_{a}[:{sz}]"));
+                            out.push("} else {".to_string());
+                            out.push(format!("\t{a} = make({}, {sz})", circbuf_type(&t)));
+                            out.push("}".to_string());
+                        }
+                        None => out.push(format!("{a} = make({}, {sz})", circbuf_type(&t))),
+                    }
                 }
                 out.push(format!("maxIdx_{id} = {sz} - 1"));
                 out.push(format!("{id}_Idx = 0"));
             }
             CircBuf::InitLocalOnly { id, layout } => {
+                let stack = self.stack_circ.borrow().contains_key(id);
                 for (arr, t) in circbuf_arrays(id, layout) {
-                    out.push(format!("{} = make({}, maxIdx_{id}+1)", go_ident(&arr), circbuf_type(&t)));
+                    let a = go_ident(&arr);
+                    if stack {
+                        out.push(format!("{a} = local_{a}[:maxIdx_{id}+1]"));
+                    } else {
+                        out.push(format!("{a} = make({}, maxIdx_{id}+1)", circbuf_type(&t)));
+                    }
                 }
             }
         }
@@ -1425,6 +1815,74 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// `ta_utility.h`'s `TA_CANDLEAVERAGE_OF` as an expression: a call would cost
+/// every register the loop holds, and a literal range type folds its arms.
+fn candle_average(a: &[Expr]) -> Expr {
+    let bin = |l: Expr, op: BinOp, r: Expr| Expr::BinOp(Box::new(l), op, Box::new(r));
+    let (rt, period, factor, sum) = (&a[0], &a[1], &a[2], &a[3]);
+    let range = Expr::FuncCall("ta_candlerange".to_string(), std::iter::once(rt.clone()).chain(a[4..].iter().cloned()).collect());
+    let avg = Expr::Ternary(
+        Box::new(bin(period.clone(), BinOp::NotEq, Expr::IntLiteral(0))),
+        Box::new(bin(sum.clone(), BinOp::Div, period.clone())),
+        Box::new(range),
+    );
+    let scaled = bin(factor.clone(), BinOp::Mul, avg);
+    match rt {
+        Expr::IntLiteral(2) => bin(scaled, BinOp::Div, Expr::Literal(2.0)),
+        Expr::IntLiteral(_) => scaled,
+        _ => {
+            let shadows = bin(rt.clone(), BinOp::Eq, Expr::IntLiteral(2));
+            bin(scaled, BinOp::Div, Expr::Ternary(Box::new(shadows), Box::new(Expr::Literal(2.0)), Box::new(Expr::Literal(1.0))))
+        }
+    }
+}
+
+/// A candlestick body's range-type copies, each folded type a literal
+/// `candleRange` inlines to its one arm.
+pub(super) fn range_type_copies(body: &[Statement], func: &FuncDef) -> Option<super::range_type_copy::Copies> {
+    super::range_type_copy::split(body, &func.opt_outs, &|t| Expr::IntLiteral(range_type_code(t)))
+}
+
+fn range_type_code(t: super::range_type_copy::RangeType) -> i64 {
+    use super::range_type_copy::RangeType;
+    match t {
+        RangeType::RealBody => 0,
+        RangeType::HighLow => 1,
+        RangeType::Shadows => 2,
+    }
+}
+
+impl Ctx<'_> {
+    /// The statements of `body` but its declarations, a candlestick's in its
+    /// range-type copies.
+    pub(super) fn body_stmts(&self, body: &[Statement], func: &FuncDef, out: &mut Vec<String>) {
+        let top = |stmts: &[Statement], out: &mut Vec<String>| {
+            for s in stmts.iter().filter(|s| !matches!(s, Statement::VarDecl { .. })) {
+                self.stmt(s, out);
+            }
+        };
+        let Some(copies) = range_type_copies(body, func) else { return top(body, out) };
+        top(&copies.head, out);
+        for (k, arm) in copies.arms.iter().enumerate() {
+            let guard = arm.guard.as_ref().map(|g| {
+                g.iter()
+                    .map(|(s, t)| format!("{} == {}", super::range_type_copy::range_type_var(s), range_type_code(*t)))
+                    .collect::<Vec<_>>()
+                    .join(" && ")
+            });
+            out.push(match (k, guard) {
+                (0, Some(g)) => format!("if {g} {{"),
+                (_, Some(g)) => format!("}} else if {g} {{"),
+                (_, None) => "} else {".to_string(),
+            });
+            let mut inner = Vec::new();
+            top(&arm.body, &mut inner);
+            out.extend(indented(&inner));
+        }
+        out.push("}".to_string());
+    }
+}
+
 /// An `int32` value where the public tier takes an `int`.
 pub(super) fn as_int(g: GExpr) -> GExpr {
     match &g {
@@ -1474,6 +1932,66 @@ pub(super) fn copy_call(d: GExpr, doff: GExpr, s: GExpr, soff: GExpr, n: GExpr) 
     let hi = if soff.is_name("0") { n } else { GExpr::bin(soff.clone(), GOp::Add, n) };
     let lo = if soff.is_name("0") { None } else { Some(soff) };
     GExpr::call("copy", vec![dst, GExpr::slice(s, lo, Some(hi))])
+}
+
+/// The batch body's circular buffers that may live in a stack array of their
+/// static size, as C's `CIRCBUF_PROLOG` keeps them, and that size. A fresh
+/// array is zero like `make`'s only on the first initialisation, so a buffer
+/// initialised more than once, or inside a loop, stays on `make`; one named
+/// in a call stays there too, since a slice that escapes would move the array
+/// to the heap on every call.
+fn stack_circbufs(body: &[Statement]) -> HashMap<String, i64> {
+    fn walk(list: &[Statement], in_loop: bool, inits: &mut HashMap<String, (usize, bool)>, called: &mut HashSet<String>) {
+        for st in list {
+            if let Statement::CircBuf(CircBuf::Init { id, .. } | CircBuf::InitLocalOnly { id, .. }) = st {
+                let e = inits.entry(id.clone()).or_insert((0, false));
+                e.0 += 1;
+                e.1 |= in_loop;
+            }
+            crate::streaming::walk_stmt_exprs(st, &mut |top| {
+                crate::streaming::walk_expr(top, &mut |e| {
+                    if let Expr::FuncCall(_, args) = e {
+                        for a in args {
+                            crate::streaming::walk_expr(a, &mut |x| {
+                                if let Expr::Var(v) | Expr::ArrayAccess(v, _) = x {
+                                    called.insert(v.clone());
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+            let (nested, loops): (Vec<&[Statement]>, bool) = match st {
+                Statement::While { body, .. } | Statement::DoWhile { body, .. } | Statement::For { body, .. } | Statement::ForC { body, .. } => {
+                    (vec![body], true)
+                }
+                Statement::Block { body } => (vec![body], false),
+                Statement::If { then_body, else_body, .. } => (vec![then_body, else_body], false),
+                Statement::Switch { cases, default, .. } => {
+                    let mut v: Vec<&[Statement]> = cases.iter().map(|(_, b)| b.as_slice()).collect();
+                    v.push(default);
+                    (v, false)
+                }
+                _ => (Vec::new(), false),
+            };
+            for b in nested {
+                walk(b, in_loop || loops, inits, called);
+            }
+        }
+    }
+    let mut inits = HashMap::new();
+    let mut called = HashSet::new();
+    walk(body, false, &mut inits, &mut called);
+    body.iter()
+        .filter_map(|st| match st {
+            Statement::CircBuf(CircBuf::Prolog { id, layout, static_size }) if *static_size > 0 => {
+                let arrays = circbuf_arrays(id, layout);
+                let named = arrays.iter().any(|(a, _)| called.contains(a)) || called.contains(id);
+                (inits.get(id) == Some(&(1, false)) && !named).then(|| (id.clone(), *static_size))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 pub(super) fn circbuf_type(t: &VarType) -> &'static str {
@@ -1637,13 +2155,27 @@ pub(super) fn opt_validation(func: &FuncDef, fail: &str, enums: &HashMap<String,
 
 pub(super) fn emit_candle_unpacking(settings: &BTreeSet<String>) -> Vec<String> {
     let mut out = Vec::new();
+    if !settings.is_empty() {
+        out.push("candles := c.candles()".to_string());
+    }
     for s in settings {
-        let at = format!("c.candleSettings[CandleSettingType{s}]");
+        let at = format!("candles[CandleSettingType{s}]");
         out.push(format!("{s}_rangeType := int32({at}.RangeType)"));
         out.push(format!("{s}_avgPeriod := int32({at}.AvgPeriod)"));
         out.push(format!("{s}_factor := {at}.Factor"));
     }
     out
+}
+
+/// A value both arms of a branch-free select may compute unconditionally:
+/// nothing that can panic, divide, call, or fuse into a multiply-add.
+fn select_arm(e: &Expr) -> bool {
+    let leaf = |e: &Expr| matches!(e, Expr::Literal(_) | Expr::IntLiteral(_) | Expr::Var(_));
+    match e {
+        Expr::Neg(x) => leaf(x),
+        Expr::BinOp(l, BinOp::Add | BinOp::Sub, r) => leaf(l) && leaf(r),
+        other => leaf(other),
+    }
 }
 
 pub(super) fn func_text(sig: &str, lines: &[String]) -> String {
@@ -1662,33 +2194,93 @@ fn gen_lookback(func: &FuncDef, svc: &Services) -> String {
     match &func.lookback {
         Some(LookbackExpr::Literal(n)) => lines.push(format!("return {n}")),
         Some(LookbackExpr::ParamMinus(p, off)) => lines.push(format!("return {p} - {off}")),
-        Some(LookbackExpr::Code(stmts)) => {
-            let ctx = Ctx::new(svc, &func.name, stmts, &func.outputs, false, Ret::Int);
-            ctx.env.seed_opts(func);
-            for s in stmts {
-                if let Statement::VarDecl { var_type, name, .. } = s {
-                    lines.push(format!("var {} {}", go_ident(name), var_go_type(var_type)));
-                }
-            }
-            lines.extend(emit_candle_unpacking(&detect_candle_settings(stmts)));
-            for s in stmts {
-                if let Statement::VarDecl { var_type, name, init: Some(init) } = s {
-                    let mut sc = Scope::default();
-                    let v = ctx.value_for(CType::of_var_type(var_type), init, &mut sc);
-                    lines.extend(sc.pre);
-                    lines.push(format!("{} = {}", go_ident(name), v.render()));
-                    lines.extend(sc.post);
-                }
-            }
-            for s in stmts {
-                if !matches!(s, Statement::VarDecl { .. }) {
-                    ctx.stmt(s, &mut lines);
-                }
-            }
-        }
+        Some(LookbackExpr::Code(stmts)) => lines.extend(scalar_body(func, stmts, svc, false)),
         None => lines.push("return 0".to_string()),
     }
     func_text(&format!("func (c *Core) {}({}) int32", names.lookback, param_list(&params)), &lines)
+}
+
+/// A lookback or display-shift body: integer arithmetic over the optional
+/// parameters, and `outputIdx` in a display shift.
+fn scalar_body(func: &FuncDef, stmts: &[Statement], svc: &Services, display_shift: bool) -> Vec<String> {
+    let mut lines = Vec::new();
+    let ctx = Ctx::new(svc, &func.name, stmts, &func.outputs, false, Ret::Int);
+    ctx.env.seed_opts(func);
+    if display_shift {
+        ctx.env.declare(crate::ir::DISPLAY_SHIFT_INDEX_PARAM, CType::Int32);
+    }
+    for s in stmts {
+        if let Statement::VarDecl { var_type, name, .. } = s {
+            lines.push(format!("var {} {}", go_ident(name), var_go_type(var_type)));
+        }
+    }
+    lines.extend(emit_candle_unpacking(&detect_candle_settings(stmts)));
+    for s in stmts {
+        if let Statement::VarDecl { var_type, name, init: Some(init) } = s {
+            let mut sc = Scope::default();
+            let v = ctx.value_for(CType::of_var_type(var_type), init, &mut sc);
+            lines.extend(sc.pre);
+            lines.push(format!("{} = {}", go_ident(name), v.render()));
+            lines.extend(sc.post);
+        }
+    }
+    for s in stmts {
+        if !matches!(s, Statement::VarDecl { .. }) {
+            ctx.stmt(s, &mut lines);
+        }
+    }
+    lines
+}
+
+/// `<N>DisplayShift`: the lookback's verdict on the parameters first, so the two
+/// reject the same ones, then the output index, then the shift. A function with
+/// a shifted output computes it in an unexported body over the C-shaped
+/// parameters.
+fn gen_display_shift(func: &FuncDef, svc: &Services) -> String {
+    let names = go_names(&func.name);
+    let idx = crate::ir::DISPLAY_SHIFT_INDEX_PARAM;
+    let mut out = String::new();
+    if let Some(stmts) = &func.display_shift {
+        let mut params: Vec<(String, String)> =
+            func.optional_inputs.iter().map(|o| (o.name.clone(), impl_opt_type(o).to_string())).collect();
+        params.push((idx.to_string(), "int32".to_string()));
+        // Unreachable rejection: the public method has already asked the lookback.
+        let mut lines = opt_validation(func, "0", svc.enums);
+        lines.extend(scalar_body(func, stmts, svc, true));
+        out.push_str(&func_text(&format!("func (c *Core) {}({}) int32", names.display_shift, param_list(&params)), &lines));
+    }
+    let mut params: Vec<(String, String)> = func.optional_inputs.iter().map(|o| (o.name.clone(), public_opt_type(o))).collect();
+    params.push((idx.to_string(), "int".to_string()));
+    let mut l = Vec::new();
+    if !func.optional_inputs.is_empty() {
+        let args: Vec<&str> = func.optional_inputs.iter().map(|o| o.name.as_str()).collect();
+        l.push(format!("if _, err := c.{}({}); err != nil {{", names.lookback_public, args.join(", ")));
+        l.push("\treturn 0, err".to_string());
+        l.push("}".to_string());
+    }
+    l.push(format!("if {idx} < 0 || {idx} >= {} {{", func.outputs.len()));
+    l.push("\treturn 0, BadParam".to_string());
+    l.push("}".to_string());
+    if func.display_shift.is_some() {
+        let unshifted = func.unshifted_outputs();
+        if !unshifted.is_empty() {
+            let tests: Vec<String> = unshifted.iter().map(|i| format!("{idx} == {i}")).collect();
+            l.push(format!("if {} {{", tests.join(" || ")));
+            l.push("\treturn 0, nil".to_string());
+            l.push("}".to_string());
+        }
+        let mut args: Vec<String> = func.optional_inputs.iter().map(impl_arg).collect();
+        args.push(format!("int32({idx})"));
+        l.push(format!("return int(c.{}({})), nil", names.display_shift, args.join(", ")));
+    } else {
+        l.push("return 0, nil".to_string());
+    }
+    let doc = super::go_doc::display_shift_docs(func);
+    out.push_str(&format!(
+        "{doc}{}",
+        func_text(&format!("func (c *Core) {}({}) (int, error)", names.display_shift_public, param_list(&params)), &l)
+    ));
+    out
 }
 
 fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
@@ -1699,6 +2291,8 @@ fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
     let body: &[Statement] = &folded;
     let ctx = Ctx::new(svc, &func.name, body, &func.outputs, true, Ret::Code);
     ctx.env.seed_signature(func);
+    ctx.colour_selects.set(true);
+    ctx.loop_selects.set(true);
 
     let mut params = vec![("startIdx".to_string(), "int32".to_string()), ("endIdx".to_string(), "int32".to_string())];
     for i in &func.inputs {
@@ -1718,11 +2312,16 @@ fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
         params.push((o.name.clone(), array_type(&o.param_type).to_string()));
     }
 
+    let stack = stack_circbufs(body);
+    ctx.stack_circ.borrow_mut().extend(stack.iter().map(|(k, v)| (k.clone(), *v)));
     let mut lines = Vec::new();
     for stmt in body {
         if let Statement::CircBuf(CircBuf::Prolog { id, layout, static_size }) = stmt {
             for (arr, t) in circbuf_arrays(id, layout) {
                 lines.push(format!("var {} {}", go_ident(&arr), circbuf_type(&t)));
+                if stack.contains_key(id) {
+                    lines.push(format!("var local_{} [{static_size}]{}", go_ident(&arr), &circbuf_type(&t)[2..]));
+                }
             }
             lines.push(format!("var {id}_Idx int32"));
             lines.push(format!("var maxIdx_{id} int32"));
@@ -1755,11 +2354,7 @@ fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
         }
     }
     ctx.initializers(body, &mut lines);
-    for stmt in body {
-        if !matches!(stmt, Statement::VarDecl { .. }) {
-            ctx.stmt(stmt, &mut lines);
-        }
-    }
+    ctx.body_stmts(body, func, &mut lines);
     func_text(&format!("func (c *Core) {name}({}) RetCode", param_list(&params)), &lines)
 }
 
@@ -1828,18 +2423,7 @@ fn gen_public(func: &FuncDef, svc: &Services) -> String {
         l.push(format!("if len({0}) == 0 || len({0}) < outLen {{", o.name));
         l.extend(fail("BadParam"));
     }
-    let mut overlap = Vec::new();
-    for o in &func.outputs {
-        for i in func.inputs.iter().filter(|i| array_type(&i.param_type) == array_type(&o.param_type)) {
-            let partly = o.param_type == ParamType::Real && i.param_type == ParamType::Real;
-            overlap.push(format!("{}({}, {})", if partly { "overlapsPartly" } else { "overlaps" }, o.name, i.name));
-        }
-    }
-    for (k, a) in func.outputs.iter().enumerate() {
-        for b in func.outputs[k + 1..].iter().filter(|b| array_type(&b.param_type) == array_type(&a.param_type)) {
-            overlap.push(format!("overlaps({}, {})", a.name, b.name));
-        }
-    }
+    let overlap = batch_overlap_checks(func);
     if !overlap.is_empty() {
         l.push(format!("if {} {{", overlap.join(" || ")));
         l.extend(fail("BadParam"));
@@ -1857,6 +2441,24 @@ fn gen_public(func: &FuncDef, svc: &Services) -> String {
     l.push("return OutRange{BegIdx: int(outBegIdx), NBElement: int(outNBElement)}, nil".to_string());
     let doc = super::go_doc::batch_docs(func, svc.enums, svc.registry);
     format!("{doc}{}", func_text(&format!("func (c *Core) {}({}) (OutRange, error)", names.public, param_list(&params)), &l))
+}
+
+/// The public batch tier's sharing tests: each output against every input and
+/// every other output of its element type.
+pub(super) fn batch_overlap_checks(func: &FuncDef) -> Vec<String> {
+    let mut overlap = Vec::new();
+    for o in &func.outputs {
+        for i in func.inputs.iter().filter(|i| array_type(&i.param_type) == array_type(&o.param_type)) {
+            let partly = o.param_type == ParamType::Real && i.param_type == ParamType::Real;
+            overlap.push(format!("{}({}, {})", if partly { "overlapsPartly" } else { "overlaps" }, o.name, i.name));
+        }
+    }
+    for (k, a) in func.outputs.iter().enumerate() {
+        for b in func.outputs[k + 1..].iter().filter(|b| array_type(&b.param_type) == array_type(&a.param_type)) {
+            overlap.push(format!("overlaps({}, {})", a.name, b.name));
+        }
+    }
+    overlap
 }
 
 /// The near-zero predicates as `runtime.go` computes them: the indicators call

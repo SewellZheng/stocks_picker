@@ -228,6 +228,25 @@ func (c *Core) KAMALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// KAMADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.KAMA].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.KAMA] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.KAMALookback] rejects or an index that names no output.
+func (c *Core) KAMADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.KAMALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // KAMA computes the Kaufman Adaptive Moving Average over bars startIdx through
 // endIdx.
 //
@@ -262,7 +281,8 @@ func (c *Core) KAMALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) KAMA(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -342,18 +362,60 @@ func (sp *KAMAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	kamaStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tempReal float64
+	var tempReal2 float64
+	var periodROC float64
+	var live int32
+	var ringPosL_trailingIdx int32
+	var ringCapL_trailingIdx int32
+	if sp.optInTimePeriod == 1 {
+		sp.cur_outReal = inReal
+		return sp.cur_outReal, nil
+	}
+	tempReal = inReal
+	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+	periodROC = tempReal - tempReal2
+	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
+	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
+	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	sp.nullRun = (sp.nullRun + 1) & (live - 1)
+	if sp.nullRun >= sp.optInTimePeriod {
+		sp.nullRun = sp.optInTimePeriod
+		sp.sumROC1 = 0.0
+		tempReal = 1.0
+	} else if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
+		tempReal = 1.0
+	} else {
+		tempReal = math.Abs(periodROC / sp.sumROC1)
+		if tempReal > 1.0 {
+			tempReal = 1.0
+		}
+	}
+	sp.trailingValue = tempReal2
+	tempReal = math.FMA(tempReal, sp.constDiff, sp.constMax)
+	tempReal = float64(tempReal * tempReal)
+	sp.prevKAMA = math.FMA(inReal-sp.prevKAMA, tempReal, sp.prevKAMA)
+	sp.cur_outReal = sp.prevKAMA
+	sp.lag1_inReal = inReal
+	ringCapL_trailingIdx = sp.ringCap_trailingIdx
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *KAMAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -407,52 +469,6 @@ func (sp *KAMAStream) Clone() *KAMAStream {
 	cl := *sp
 	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
 	return &cl
-}
-
-func kamaStepImpl(sp *KAMAStream, inReal float64) {
-	var tempReal float64
-	var tempReal2 float64
-	var periodROC float64
-	var live int32
-	var ringPosL_trailingIdx int32
-	var ringCapL_trailingIdx int32
-	if sp.optInTimePeriod == 1 {
-		sp.cur_outReal = inReal
-		return
-	}
-	tempReal = inReal
-	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-	periodROC = tempReal - tempReal2
-	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
-	sp.nullRun = (sp.nullRun + 1) & (live - 1)
-	if sp.nullRun >= sp.optInTimePeriod {
-		sp.nullRun = sp.optInTimePeriod
-		sp.sumROC1 = 0.0
-		tempReal = 1.0
-	} else if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
-		tempReal = 1.0
-	} else {
-		tempReal = math.Abs(periodROC / sp.sumROC1)
-		if tempReal > 1.0 {
-			tempReal = 1.0
-		}
-	}
-	sp.trailingValue = tempReal2
-	tempReal = math.FMA(tempReal, sp.constDiff, sp.constMax)
-	tempReal = float64(tempReal * tempReal)
-	sp.prevKAMA = math.FMA(inReal-sp.prevKAMA, tempReal, sp.prevKAMA)
-	sp.cur_outReal = sp.prevKAMA
-	sp.lag1_inReal = inReal
-	ringCapL_trailingIdx = sp.ringCap_trailingIdx
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) kamaOpenImpl(sp *KAMAStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -676,7 +692,8 @@ func (c *Core) kamaOpenInternal(inReal []float64, startIdx, optInTimePeriod int3
 // inReal is the history; the parameters are those of [Core.KAMA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.KAMALookback] bars, and [BadParam] for a parameter out of range.
+// [Core.KAMALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) KAMAOpen(inReal []float64, optInTimePeriod int) (*KAMAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -696,7 +713,8 @@ func (c *Core) KAMAOpen(inReal []float64, optInTimePeriod int) (*KAMAStream, flo
 // no memory with an input or another output.
 //
 // The errors are those of [Core.KAMAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) KAMAOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*KAMAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

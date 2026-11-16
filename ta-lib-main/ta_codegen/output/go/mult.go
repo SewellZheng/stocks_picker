@@ -70,6 +70,21 @@ func (c *Core) MULTLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// MULTDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MULT].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.MULT], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) MULTDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MULT computes the Vector Arithmetic Mult over bars startIdx through endIdx.
 //
 // Element-wise multiplication of two input series.
@@ -93,7 +108,9 @@ func (c *Core) MULTLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) MULT(startIdx, endIdx int, inReal0, inReal1, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -163,18 +180,18 @@ func (sp *MULTStream) Update(inReal0, inReal1 float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
-	multStepImpl(sp, inReal0, inReal1)
 	sp.outRangeCount++
+	sp.cur_outReal = float64(inReal0 * inReal1)
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inReal0 and inReal1),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *MULTStream) Peek(inReal0, inReal1 float64) (float64, error) {
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -192,10 +209,6 @@ func (sp *MULTStream) Value() float64 {
 func (sp *MULTStream) Clone() *MULTStream {
 	cl := *sp
 	return &cl
-}
-
-func multStepImpl(sp *MULTStream, inReal0, inReal1 float64) {
-	sp.cur_outReal = float64(inReal0 * inReal1)
 }
 
 func (c *Core) multOpenImpl(sp *MULTStream, inReal0, inReal1 []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -264,7 +277,8 @@ func (c *Core) multOpenInternal(inReal0, inReal1 []float64, startIdx int32) (*MU
 // inReal0 and inReal1 are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MULTLookback] bars, and [BadParam] for histories of different lengths.
+// [Core.MULTLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) MULTOpen(inReal0, inReal1 []float64) (*MULTStream, float64, error) {
 	sp, err := c.multOpenInternal(inReal0, inReal1, 0)
 	if err != nil {
@@ -281,7 +295,8 @@ func (c *Core) MULTOpen(inReal0, inReal1 []float64) (*MULTStream, float64, error
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MULTOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MULTOpenAndFill(inReal0, inReal1, outReal []float64) (*MULTStream, OutRange, error) {
 	if len(inReal0) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

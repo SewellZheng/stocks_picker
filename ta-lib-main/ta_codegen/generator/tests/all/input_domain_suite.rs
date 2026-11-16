@@ -19,7 +19,7 @@ fn yaml(input: &str) -> String {
 }
 
 /// The Math Transform group rides a ramp over each function's domain; the Math
-/// Operators add a sine on the price scale to a ramp through it. Everything else,
+/// Operators pair a `sine` series over (-10, 10) with a ramp. Everything else,
 /// the rolling and statistic functions included, keeps the price series.
 #[test]
 fn the_math_groups_declare_synthetic_series() {
@@ -51,7 +51,10 @@ fn the_math_groups_declare_synthetic_series() {
         assert!(!synthetic || math, "{name}: a synthetic series outside the math groups");
         on_prices += usize::from(!synthetic);
     }
-    assert!(on_prices > 150, "{on_prices} functions on the price series");
+    assert!(
+        common::sweep_filtered() || on_prices > 150,
+        "{on_prices} functions on the price series"
+    );
 }
 
 #[test]
@@ -147,14 +150,15 @@ fn the_rust_doctests_feed_the_declared_series_not_the_price_scale() {
         ("ln", "(0..252).map(|i| 0.1 + 9.9 * i as f64 / 251.0).collect();"),
     ] {
         let lines = rust_doc_lines(name);
-        assert!(!lines.iter().any(|l| l.contains("100.0 +")), "{name}: a 100.0-based series in the doctest");
+        assert!(!lines.iter().any(|l| l.contains("90.0 + ((i % 40")), "{name}: the price series in the doctest");
         assert!(lines.iter().any(|l| l.contains(expected)), "{name}: no `{expected}` in {lines:#?}");
     }
     let add = rust_doc_lines("add");
-    assert!(add.iter().any(|l| l.contains("let series0: Vec<f64>") && l.contains("10.0 * (0.1 * i as f64).sin()") && !l.contains("100.0")), "{add:#?}");
+    let series0 = add.iter().position(|l| l.contains("let series0: Vec<f64>")).expect("a series0 doctest");
+    assert!(add[series0 + 1].contains(".map(|i| (10 * (i % 40 - 20) * (i % 40 - 20) - 2000) as f64 / 201.0)"), "{add:#?}");
     assert!(add.iter().any(|l| l.contains("let series1: Vec<f64>") && l.contains("-5.0 + 10.0 * i as f64 / 251.0")), "{add:#?}");
     let sma = rust_doc_lines("sma");
-    assert!(sma.iter().any(|l| l.contains("100.0 + 10.0 * (0.1 * i as f64).sin()")), "sma keeps the price series");
+    assert!(sma.iter().any(|l| l.contains("90.0 + ((i % 40 - 20) * (i % 40 - 20)) as f64 / 20.0")), "sma keeps the price series");
 }
 
 #[test]

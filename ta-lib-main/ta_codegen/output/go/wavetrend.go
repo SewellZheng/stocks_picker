@@ -84,6 +84,7 @@ func (c *Core) wavetrendImpl(startIdx, endIdx int32, inHigh, inLow, inClose []fl
 	var nDev int32
 	var nCi int32
 	var wtBuffer []float64
+	var local_wtBuffer [32]float64
 	var wtBuffer_Idx int32
 	var maxIdx_wtBuffer int32
 	maxIdx_wtBuffer = 31
@@ -123,7 +124,11 @@ func (c *Core) wavetrendImpl(startIdx, endIdx int32, inHigh, inLow, inClose []fl
 	if optInSignalPeriod < 1 {
 		return InternalError
 	}
-	wtBuffer = make([]float64, optInSignalPeriod)
+	if optInSignalPeriod <= 32 {
+		wtBuffer = local_wtBuffer[:optInSignalPeriod]
+	} else {
+		wtBuffer = make([]float64, optInSignalPeriod)
+	}
 	maxIdx_wtBuffer = optInSignalPeriod - 1
 	wtBuffer_Idx = 0
 	lookbackChannel = c.emaLookback(optInChannelPeriod)
@@ -268,6 +273,25 @@ func (c *Core) WAVETRENDLookback(optInChannelPeriod, optInAveragePeriod, optInSi
 	return int(lookback), nil
 }
 
+// WAVETRENDDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.WAVETREND]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.WAVETREND] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.WAVETRENDLookback] rejects or an index that names no output.
+func (c *Core) WAVETRENDDisplayShift(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.WAVETRENDLookback(optInChannelPeriod, optInAveragePeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // WAVETREND computes the WaveTrend Oscillator over bars startIdx through
 // endIdx.
 //
@@ -312,7 +336,8 @@ func (c *Core) WAVETRENDLookback(optInChannelPeriod, optInAveragePeriod, optInSi
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) WAVETREND(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod int, outWT1, outWT2 []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -416,11 +441,41 @@ func (sp *WAVETRENDStream) Update(inHigh, inLow, inClose float64) (float64, floa
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	wavetrendStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var ap float64
+	var dev float64
+	var ci float64
+	var num float64
+	var scaledDev float64
+	ap = (inHigh + inLow + inClose) / 3.0
+	sp.esa = math.FMA(sp.beta1, sp.esa, float64(sp.k1*ap))
+	num = ap - sp.esa
+	if ap == sp.prevAp && sp.esa == sp.prevEsa {
+		num = 0.0
+	}
+	dev = math.Abs(num)
+	sp.d = math.FMA(sp.beta1, sp.d, float64(sp.k1*dev))
+	scaledDev = float64(0.015 * sp.d)
+	if scaledDev > 0.0 {
+		ci = num / scaledDev
+	} else {
+		ci = 0.0
+	}
+	sp.wt1 = math.FMA(sp.beta2, sp.wt1, float64(sp.k2*ci))
+	sp.cb_wtBuffer[sp.wtBuffer_Idx] = sp.wt1
+	sp.sumSignal = sp.sumSignal + sp.wt1
+	sp.cur_outWT1 = sp.wt1
+	sp.cur_outWT2 = sp.sumSignal / float64(sp.optInSignalPeriod)
+	sp.wtBuffer_Idx = sp.wtBuffer_Idx + 1
+	if sp.wtBuffer_Idx > sp.maxIdx_wtBuffer {
+		sp.wtBuffer_Idx = 0
+	}
+	sp.sumSignal = sp.sumSignal - sp.cb_wtBuffer[sp.wtBuffer_Idx]
+	sp.prevAp = ap
+	sp.prevEsa = sp.esa
 	return sp.cur_outWT1, sp.cur_outWT2, nil
 }
 
@@ -428,7 +483,7 @@ func (sp *WAVETRENDStream) Update(inHigh, inLow, inClose float64) (float64, floa
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *WAVETRENDStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
 	var ap float64
@@ -475,40 +530,6 @@ func (sp *WAVETRENDStream) Clone() *WAVETRENDStream {
 	cl := *sp
 	cl.cb_wtBuffer = append(sp.cb_wtBuffer[:0:0], sp.cb_wtBuffer...)
 	return &cl
-}
-
-func wavetrendStepImpl(sp *WAVETRENDStream, inHigh, inLow, inClose float64) {
-	var ap float64
-	var dev float64
-	var ci float64
-	var num float64
-	var scaledDev float64
-	ap = (inHigh + inLow + inClose) / 3.0
-	sp.esa = math.FMA(sp.beta1, sp.esa, float64(sp.k1*ap))
-	num = ap - sp.esa
-	if ap == sp.prevAp && sp.esa == sp.prevEsa {
-		num = 0.0
-	}
-	dev = math.Abs(num)
-	sp.d = math.FMA(sp.beta1, sp.d, float64(sp.k1*dev))
-	scaledDev = float64(0.015 * sp.d)
-	if scaledDev > 0.0 {
-		ci = num / scaledDev
-	} else {
-		ci = 0.0
-	}
-	sp.wt1 = math.FMA(sp.beta2, sp.wt1, float64(sp.k2*ci))
-	sp.cb_wtBuffer[sp.wtBuffer_Idx] = sp.wt1
-	sp.sumSignal = sp.sumSignal + sp.wt1
-	sp.cur_outWT1 = sp.wt1
-	sp.cur_outWT2 = sp.sumSignal / float64(sp.optInSignalPeriod)
-	sp.wtBuffer_Idx = sp.wtBuffer_Idx + 1
-	if sp.wtBuffer_Idx > sp.maxIdx_wtBuffer {
-		sp.wtBuffer_Idx = 0
-	}
-	sp.sumSignal = sp.sumSignal - sp.cb_wtBuffer[sp.wtBuffer_Idx]
-	sp.prevAp = ap
-	sp.prevEsa = sp.esa
 }
 
 func (c *Core) wavetrendOpenImpl(sp *WAVETRENDStream, inHigh, inLow, inClose []float64, startIdx, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outWT1, outWT2 []float64, outStride int32) RetCode {
@@ -758,8 +779,9 @@ func (c *Core) wavetrendOpenInternal(inHigh, inLow, inClose []float64, startIdx,
 // are those of [Core.WAVETREND].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.WAVETRENDLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.WAVETRENDLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) WAVETRENDOpen(inHigh, inLow, inClose []float64, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod int) (*WAVETRENDStream, float64, float64, error) {
 	if !fitsInt32(optInChannelPeriod) {
 		return nil, 0, 0, BadParam
@@ -785,7 +807,9 @@ func (c *Core) WAVETRENDOpen(inHigh, inLow, inClose []float64, optInChannelPerio
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.WAVETRENDOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) WAVETRENDOpenAndFill(inHigh, inLow, inClose []float64, optInChannelPeriod, optInAveragePeriod, optInSignalPeriod int, outWT1, outWT2 []float64) (*WAVETRENDStream, OutRange, error) {
 	if !fitsInt32(optInChannelPeriod) {
 		return nil, OutRange{}, BadParam

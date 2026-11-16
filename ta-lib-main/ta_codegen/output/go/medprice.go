@@ -69,6 +69,21 @@ func (c *Core) MEDPRICELookback() (int, error) {
 	return int(lookback), nil
 }
 
+// MEDPRICEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MEDPRICE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.MEDPRICE], from 0,
+// and returns [BadParam] for an index that names no output.
+func (c *Core) MEDPRICEDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MEDPRICE computes the Median Price over bars startIdx through endIdx.
 //
 // Median Price: the midpoint of each bar's high and low. A price-transform
@@ -93,7 +108,9 @@ func (c *Core) MEDPRICELookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) MEDPRICE(startIdx, endIdx int, inHigh, inLow, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -164,18 +181,18 @@ func (sp *MEDPRICEStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	medpriceStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	sp.cur_outReal = (inHigh + inLow) / 2.0
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *MEDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -193,10 +210,6 @@ func (sp *MEDPRICEStream) Value() float64 {
 func (sp *MEDPRICEStream) Clone() *MEDPRICEStream {
 	cl := *sp
 	return &cl
-}
-
-func medpriceStepImpl(sp *MEDPRICEStream, inHigh, inLow float64) {
-	sp.cur_outReal = (inHigh + inLow) / 2.0
 }
 
 func (c *Core) medpriceOpenImpl(sp *MEDPRICEStream, inHigh, inLow []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -263,8 +276,8 @@ func (c *Core) medpriceOpenInternal(inHigh, inLow []float64, startIdx int32) (*M
 // inHigh and inLow are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MEDPRICELookback] bars, and [BadParam] for histories of different
-// lengths.
+// [Core.MEDPRICELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) MEDPRICEOpen(inHigh, inLow []float64) (*MEDPRICEStream, float64, error) {
 	sp, err := c.medpriceOpenInternal(inHigh, inLow, 0)
 	if err != nil {
@@ -281,7 +294,9 @@ func (c *Core) MEDPRICEOpen(inHigh, inLow []float64) (*MEDPRICEStream, float64, 
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.MEDPRICEOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) MEDPRICEOpenAndFill(inHigh, inLow, outReal []float64) (*MEDPRICEStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

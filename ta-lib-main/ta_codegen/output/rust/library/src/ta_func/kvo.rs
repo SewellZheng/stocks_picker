@@ -85,32 +85,32 @@ impl Core {
     #[doc(alias = "TA_KVO_Lookback")]
     #[inline]
     pub fn kvo_lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> Result<usize, RetCode> {
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 34;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 55;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSignalPeriod) as i32) == (i32::MIN) {
+        if optInSignalPeriod == i32::MIN {
             optInSignalPeriod = 13;
-        } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
+        } else if optInSignalPeriod < 2 || optInSignalPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         let mut longestPeriod: usize = 0_usize;
         // The three EMAs seed on one bar, so one EMA lookback of the longest
         // covers all three. The 1 is the reference bar before it.
-        longestPeriod = (optInFastPeriod) as usize;
-        if ((optInSlowPeriod) as usize) > longestPeriod {
-            longestPeriod = (optInSlowPeriod) as usize;
+        longestPeriod = optInFastPeriod as usize;
+        if (optInSlowPeriod as usize) > longestPeriod {
+            longestPeriod = optInSlowPeriod as usize;
         }
-        if ((optInSignalPeriod) as usize) > longestPeriod {
-            longestPeriod = (optInSignalPeriod) as usize;
+        if (optInSignalPeriod as usize) > longestPeriod {
+            longestPeriod = optInSignalPeriod as usize;
         }
-        return Ok((1 + self.ema_lookback((longestPeriod) as i32)? + (((if self.unstable_count(FuncUnstId::EMA, 1, 1) != self.unstable_count(FuncUnstId::EMA, 0, 0) { self.unstable_count(FuncUnstId::EMA, ((((if (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) > 1 { ((4 * 10 + 23) / 3 * (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) + 1) / 2 } else { 0 }) - (if (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) > 1 { (10 * (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) + 1) / 2 } else { 0 }))) as i32), ((((if (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) > 1 { ((4 * 19 + 23) / 3 * (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) + 1) / 2 } else { 0 }) - (if (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) > 1 { (19 * (optInFastPeriod).max((optInSlowPeriod).max(optInSignalPeriod)) + 1) / 2 } else { 0 }))) as i32)) - self.unstable_count(FuncUnstId::EMA, 0, 0) } else { 0 })) as usize)) as usize);
+        return Ok((1 + self.ema_lookback(longestPeriod as i32)? + ((if self.unstable_count(FuncUnstId::EMA, 1, 1) != self.unstable_count(FuncUnstId::EMA, 0, 0) { self.unstable_count(FuncUnstId::EMA, ((if optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) > 1 { ((4 * 10 + 23) / 3 * optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) + 1) / 2 } else { 0 }) - (if optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) > 1 { (10 * optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) + 1) / 2 } else { 0 })) as i32, ((if optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) > 1 { ((4 * 19 + 23) / 3 * optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) + 1) / 2 } else { 0 }) - (if optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) > 1 { (19 * optInFastPeriod.max(optInSlowPeriod.max(optInSignalPeriod)) + 1) / 2 } else { 0 })) as i32) - self.unstable_count(FuncUnstId::EMA, 0, 0) } else { 0 }) as usize)) as usize);
     }
     /// Display shift of one output of [`Core::kvo`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -133,7 +133,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_KVO_DisplayShift")]
-    pub fn kvo_display_shift(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn kvo_display_shift(&self, optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.kvo_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
         if outputIdx >= 2 {
             return Err(RetCode::BadParam);
@@ -207,19 +207,19 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 34;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return RetCode::BadParam;
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 55;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return RetCode::BadParam;
         }
-        if ((optInSignalPeriod) as i32) == (i32::MIN) {
+        if optInSignalPeriod == i32::MIN {
             optInSignalPeriod = 13;
-        } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
+        } else if optInSignalPeriod < 2 || optInSignalPeriod > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.kvo_lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod).unwrap_or(usize::MAX);
@@ -230,7 +230,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inVolume.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outKVO.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outKVOSignal.len());
-        if (outKVO.as_ptr() == outKVOSignal.as_ptr()) {
+        if outKVO.as_ptr() == outKVOSignal.as_ptr() {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -282,8 +282,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inHigh = &inHigh[..=endIdx];
@@ -359,10 +359,10 @@ impl Core {
             } else {
                 vf = inVolume[today] * (2.0 * (dmToday / cm) - 1.0).abs() * 100.0 * trend;
             }
-            emaFast = fmadd!(betaFast as f64, emaFast, kFast * vf);
-            emaSlow = fmadd!(betaSlow as f64, emaSlow, kSlow * vf);
+            emaFast = fmadd!(betaFast, emaFast, kFast * vf);
+            emaSlow = fmadd!(betaSlow, emaSlow, kSlow * vf);
             kvoValue = emaFast - emaSlow;
-            signalValue = fmadd!(betaSignal as f64, signalValue, kSignal * kvoValue);
+            signalValue = fmadd!(betaSignal, signalValue, kSignal * kvoValue);
             prevHlc = hlc;
             prevDm = dmToday;
             prevTrend = trend;
@@ -389,10 +389,10 @@ impl Core {
             } else {
                 vf = inVolume[today] * (2.0 * (dmToday / cm) - 1.0).abs() * 100.0 * trend;
             }
-            emaFast = fmadd!(betaFast as f64, emaFast, kFast * vf);
-            emaSlow = fmadd!(betaSlow as f64, emaSlow, kSlow * vf);
+            emaFast = fmadd!(betaFast, emaFast, kFast * vf);
+            emaSlow = fmadd!(betaSlow, emaSlow, kSlow * vf);
             kvoValue = emaFast - emaSlow;
-            signalValue = fmadd!(betaSignal as f64, signalValue, kSignal * kvoValue);
+            signalValue = fmadd!(betaSignal, signalValue, kSignal * kvoValue);
             outKVO[outIdx] = kvoValue;
             outKVOSignal[outIdx] = signalValue;
             outIdx = outIdx + 1;
@@ -401,8 +401,8 @@ impl Core {
             prevTrend = trend;
             today = today + 1;
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Klinger Volume Oscillator: each bar's volume is signed by the direction of its
@@ -459,16 +459,20 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let volume = vec![0.0; 252]; // your data, oldest first
     /// # let volume: Vec<f64> = (0..252)
-    /// #     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    /// #     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     /// #     .collect();
     /// let mut kvo = vec![0.0; 252];
     /// let mut kvo_signal = vec![0.0; 252];
@@ -476,8 +480,10 @@ impl Core {
     /// let core = Core::new();
     /// let range = core.kvo(0, high.len() - 1, &high, &low, &close, &volume, 34, 55, 13,
     ///                      &mut kvo, &mut kvo_signal)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last kvo = {}", range.count, range.beg_idx, kvo[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}:", range.count, range.beg_idx);
+    /// println!("kvo = [{:.4}, ..., {:.4}]", kvo[0], kvo[range.count - 1]);
+    /// println!("kvo_signal = [{:.4}, ..., {:.4}]", kvo_signal[0], kvo_signal[range.count - 1]);
     /// # assert!(kvo[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -578,9 +584,6 @@ pub struct KvoStream {
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct KvoStreamState {
-    optInFastPeriod: i32,
-    optInSlowPeriod: i32,
-    optInSignalPeriod: i32,
     kFast: f64,
     kSlow: f64,
     kSignal: f64,
@@ -630,17 +633,17 @@ impl Core {
         } else {
             vf = inVolume * (2.0 * (dmToday / sp.cm) - 1.0).abs() * 100.0 * trend;
         }
-        sp.emaFast = fmadd!(sp.betaFast as f64, sp.emaFast, sp.kFast * vf);
-        sp.emaSlow = fmadd!(sp.betaSlow as f64, sp.emaSlow, sp.kSlow * vf);
+        sp.emaFast = fmadd!(sp.betaFast, sp.emaFast, sp.kFast * vf);
+        sp.emaSlow = fmadd!(sp.betaSlow, sp.emaSlow, sp.kSlow * vf);
         kvoValue = sp.emaFast - sp.emaSlow;
-        sp.signalValue = fmadd!(sp.betaSignal as f64, sp.signalValue, sp.kSignal * kvoValue);
-        (*outKVO) = kvoValue;
-        (*outKVOSignal) = sp.signalValue;
+        sp.signalValue = fmadd!(sp.betaSignal, sp.signalValue, sp.kSignal * kvoValue);
+        *outKVO = kvoValue;
+        *outKVOSignal = sp.signalValue;
         sp.prevHlc = hlc;
         sp.prevDm = dmToday;
         sp.prevTrend = trend;
-        sp.cur_outKVO = (*outKVO);
-        sp.cur_outKVOSignal = (*outKVOSignal);
+        sp.cur_outKVO = *outKVO;
+        sp.cur_outKVOSignal = *outKVOSignal;
     }
 
     /// The single whole-history transcription behind [`Core::kvo_open_internal`]
@@ -669,19 +672,19 @@ impl Core {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
+        if optInFastPeriod == i32::MIN {
             optInFastPeriod = 34;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+        } else if optInFastPeriod < 2 || optInFastPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+        if optInSlowPeriod == i32::MIN {
             optInSlowPeriod = 55;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+        } else if optInSlowPeriod < 2 || optInSlowPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSignalPeriod) as i32) == (i32::MIN) {
+        if optInSignalPeriod == i32::MIN {
             optInSignalPeriod = 13;
-        } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
+        } else if optInSignalPeriod < 2 || optInSignalPeriod > 100000 {
             return Err(RetCode::BadParam);
         }
         if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
@@ -689,14 +692,12 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut kFast: f64 = 0.0_f64;
         let mut kSlow: f64 = 0.0_f64;
         let mut kSignal: f64 = 0.0_f64;
@@ -745,8 +746,8 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         betaFast = ((optInFastPeriod - 1) as f64) / ((optInFastPeriod + 1) as f64);
@@ -818,10 +819,10 @@ impl Core {
             } else {
                 vf = inVolume[today] * (2.0 * (dmToday / cm) - 1.0).abs() * 100.0 * trend;
             }
-            emaFast = fmadd!(betaFast as f64, emaFast, kFast * vf);
-            emaSlow = fmadd!(betaSlow as f64, emaSlow, kSlow * vf);
+            emaFast = fmadd!(betaFast, emaFast, kFast * vf);
+            emaSlow = fmadd!(betaSlow, emaSlow, kSlow * vf);
             kvoValue = emaFast - emaSlow;
-            signalValue = fmadd!(betaSignal as f64, signalValue, kSignal * kvoValue);
+            signalValue = fmadd!(betaSignal, signalValue, kSignal * kvoValue);
             prevHlc = hlc;
             prevDm = dmToday;
             prevTrend = trend;
@@ -848,26 +849,23 @@ impl Core {
             } else {
                 vf = inVolume[today] * (2.0 * (dmToday / cm) - 1.0).abs() * 100.0 * trend;
             }
-            emaFast = fmadd!(betaFast as f64, emaFast, kFast * vf);
-            emaSlow = fmadd!(betaSlow as f64, emaSlow, kSlow * vf);
+            emaFast = fmadd!(betaFast, emaFast, kFast * vf);
+            emaSlow = fmadd!(betaSlow, emaSlow, kSlow * vf);
             kvoValue = emaFast - emaSlow;
-            signalValue = fmadd!(betaSignal as f64, signalValue, kSignal * kvoValue);
-            outKVO[(outIdx * outStride) as usize] = kvoValue;
-            outKVOSignal[(outIdx * outStride) as usize] = signalValue;
+            signalValue = fmadd!(betaSignal, signalValue, kSignal * kvoValue);
+            outKVO[outIdx * outStride] = kvoValue;
+            outKVOSignal[outIdx * outStride] = signalValue;
             outIdx = outIdx + 1;
             prevHlc = hlc;
             prevDm = dmToday;
             prevTrend = trend;
             today = today + 1;
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
 
         // Capture the live batch state into the handle.
         let state = KvoStreamState {
-            optInFastPeriod,
-            optInSlowPeriod,
-            optInSignalPeriod,
             kFast,
             kSlow,
             kSignal,
@@ -889,7 +887,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::kvo_open`] (composition seam).
     pub(crate) fn kvo_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32,
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32,
     ) -> Result<(KvoStream, (f64, f64)), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -911,13 +909,17 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -950,13 +952,17 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     /// let volume: Vec<f64> = (0..252)
-    ///     .map(|i| 10000.0 + 100.0 * i as f64 + 2000.0 * (0.3 * i as f64).sin())
+    ///     .map(|i| (10000 + 100 * i + 30 * (i % 20 - 10) * (i % 20 - 10)) as f64)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -978,7 +984,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_KVO_OpenAndFill")]
     pub fn kvo_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outKVO: &mut [f64], outKVOSignal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32, outKVO: &mut [f64], outKVOSignal: &mut [f64],
     ) -> Result<(KvoStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -1003,7 +1009,7 @@ impl Core {
     /// [`Core::kvo_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn kvo_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outKVO: &mut [f64], outKVOSignal: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, optInFastPeriod: i32, optInSlowPeriod: i32, optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outKVO: &mut [f64], outKVOSignal: &mut [f64],
     ) -> Result<KvoStream, RetCode> {
         self.kvo_open_impl(inHigh, inLow, inClose, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outKVO, outKVOSignal, 1)
     }
@@ -1115,12 +1121,12 @@ impl KvoStream {
             } else {
                 vf = inVolume * (2.0 * (dmToday / cm) - 1.0).abs() * 100.0 * trend;
             }
-            emaFast = fmadd!(sp.betaFast as f64, emaFast, sp.kFast * vf);
-            emaSlow = fmadd!(sp.betaSlow as f64, emaSlow, sp.kSlow * vf);
+            emaFast = fmadd!(sp.betaFast, emaFast, sp.kFast * vf);
+            emaSlow = fmadd!(sp.betaSlow, emaSlow, sp.kSlow * vf);
             kvoValue = emaFast - emaSlow;
-            signalValue = fmadd!(sp.betaSignal as f64, signalValue, sp.kSignal * kvoValue);
-            (*outKVO) = kvoValue;
-            (*outKVOSignal) = signalValue;
+            signalValue = fmadd!(sp.betaSignal, signalValue, sp.kSignal * kvoValue);
+            *outKVO = kvoValue;
+            *outKVOSignal = signalValue;
         }
         Ok((outKVO, outKVOSignal))
     }

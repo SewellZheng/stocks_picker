@@ -73,6 +73,21 @@ func (c *Core) IBSLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// IBSDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.IBS]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.IBS], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) IBSDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // IBS computes the Internal Bar Strength over bars startIdx through endIdx.
 //
 // Internal Bar Strength: where the close sits inside its own bar's range. It is
@@ -100,7 +115,9 @@ func (c *Core) IBSLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) IBS(startIdx, endIdx int, inHigh, inLow, inClose, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -172,11 +189,16 @@ func (sp *IBSStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	ibsStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var range_ float64
+	range_ = inHigh - inLow
+	sp.cur_outReal = (inClose - inLow) / range_
+	if range_ <= 0.0 {
+		sp.cur_outReal = 0.5
+	}
 	return sp.cur_outReal, nil
 }
 
@@ -184,7 +206,7 @@ func (sp *IBSStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *IBSStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var range_ float64
@@ -207,15 +229,6 @@ func (sp *IBSStream) Value() float64 {
 func (sp *IBSStream) Clone() *IBSStream {
 	cl := *sp
 	return &cl
-}
-
-func ibsStepImpl(sp *IBSStream, inHigh, inLow, inClose float64) {
-	var range_ float64
-	range_ = inHigh - inLow
-	sp.cur_outReal = (inClose - inLow) / range_
-	if range_ <= 0.0 {
-		sp.cur_outReal = 0.5
-	}
 }
 
 func (c *Core) ibsOpenImpl(sp *IBSStream, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -287,7 +300,8 @@ func (c *Core) ibsOpenInternal(inHigh, inLow, inClose []float64, startIdx int32)
 // inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.IBSLookback] bars, and [BadParam] for histories of different lengths.
+// [Core.IBSLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) IBSOpen(inHigh, inLow, inClose []float64) (*IBSStream, float64, error) {
 	sp, err := c.ibsOpenInternal(inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -304,7 +318,8 @@ func (c *Core) IBSOpen(inHigh, inLow, inClose []float64) (*IBSStream, float64, e
 // no memory with an input or another output.
 //
 // The errors are those of [Core.IBSOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) IBSOpenAndFill(inHigh, inLow, inClose, outReal []float64) (*IBSStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

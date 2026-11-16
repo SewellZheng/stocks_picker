@@ -329,6 +329,25 @@ func (c *Core) KSTEXTLookback(optInROC1Period, optInROC2Period, optInROC3Period,
 	return int(lookback), nil
 }
 
+// KSTEXTDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.KSTEXT]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.KSTEXT] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.KSTEXTLookback] rejects or an index that names no output.
+func (c *Core) KSTEXTDisplayShift(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod int, optInROCMAType, optInSignalMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.KSTEXTLookback(optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // KSTEXT computes the Know Sure Thing with controllable MA type over bars
 // startIdx through endIdx.
 //
@@ -380,7 +399,8 @@ func (c *Core) KSTEXTLookback(optInROC1Period, optInROC2Period, optInROC3Period,
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) KSTEXT(startIdx, endIdx int, inReal []float64, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod int, optInROCMAType, optInSignalMAType MAType, outKST, outKSTSignal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -499,12 +519,54 @@ func (sp *KSTEXTStream) Update(inReal float64) (float64, float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
-	if err := kstextStepImpl(sp, inReal); err != nil {
-		return 0, 0, err
+	var cur_kstBuffer float64
+	var cur_tempBuffer float64
+	var cur_outKSTSignal float64
+	var subErr error
+	cur_kstBuffer, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, 0, subErr
 	}
+	cur_kstBuffer, subErr = sp.sub1.Update(cur_kstBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempBuffer, subErr = sp.sub2.Update(inReal)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempBuffer, subErr = sp.sub3.Update(cur_tempBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_kstBuffer = math.FMA(2.0, cur_tempBuffer, cur_kstBuffer)
+	cur_tempBuffer, subErr = sp.sub4.Update(inReal)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempBuffer, subErr = sp.sub5.Update(cur_tempBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_kstBuffer = math.FMA(3.0, cur_tempBuffer, cur_kstBuffer)
+	cur_tempBuffer, subErr = sp.sub6.Update(inReal)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempBuffer, subErr = sp.sub7.Update(cur_tempBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_kstBuffer = math.FMA(4.0, cur_tempBuffer, cur_kstBuffer)
+	cur_outKSTSignal, subErr = sp.sub8.Update(cur_kstBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	sp.cur_outKST = cur_kstBuffer
+	sp.cur_outKSTSignal = cur_outKSTSignal
 	sp.outRangeCount++
 	return sp.cur_outKST, sp.cur_outKSTSignal, nil
 }
@@ -512,7 +574,7 @@ func (sp *KSTEXTStream) Update(inReal float64) (float64, float64, error) {
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *KSTEXTStream) Peek(inReal float64) (float64, float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
 	var cur_kstBuffer float64
@@ -583,55 +645,6 @@ func (sp *KSTEXTStream) Clone() *KSTEXTStream {
 	cl.sub7 = sp.sub7.Clone()
 	cl.sub8 = sp.sub8.Clone()
 	return &cl
-}
-
-func kstextStepImpl(sp *KSTEXTStream, inReal float64) error {
-	var cur_kstBuffer float64
-	var cur_tempBuffer float64
-	var cur_outKSTSignal float64
-	var subErr error
-	cur_kstBuffer, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_kstBuffer, subErr = sp.sub1.Update(cur_kstBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempBuffer, subErr = sp.sub2.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempBuffer, subErr = sp.sub3.Update(cur_tempBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	cur_kstBuffer = math.FMA(2.0, cur_tempBuffer, cur_kstBuffer)
-	cur_tempBuffer, subErr = sp.sub4.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempBuffer, subErr = sp.sub5.Update(cur_tempBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	cur_kstBuffer = math.FMA(3.0, cur_tempBuffer, cur_kstBuffer)
-	cur_tempBuffer, subErr = sp.sub6.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempBuffer, subErr = sp.sub7.Update(cur_tempBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	cur_kstBuffer = math.FMA(4.0, cur_tempBuffer, cur_kstBuffer)
-	cur_outKSTSignal, subErr = sp.sub8.Update(cur_kstBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	sp.cur_outKST = cur_kstBuffer
-	sp.cur_outKSTSignal = cur_outKSTSignal
-	return nil
 }
 
 func (c *Core) kstextOpenImpl(sp *KSTEXTStream, inReal []float64, startIdx, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod, optInROCMAType, optInSignalMAType int32, outBegIdx, outNBElement *int32, outKST, outKSTSignal []float64, outStride int32) RetCode {
@@ -940,7 +953,8 @@ func (c *Core) kstextOpenInternal(inReal []float64, startIdx, optInROC1Period, o
 // inReal is the history; the parameters are those of [Core.KSTEXT].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.KSTEXTLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.KSTEXTLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) KSTEXTOpen(inReal []float64, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod int, optInROCMAType, optInSignalMAType MAType) (*KSTEXTStream, float64, float64, error) {
 	if !fitsInt32(optInROC1Period) {
 		return nil, 0, 0, BadParam
@@ -984,7 +998,8 @@ func (c *Core) KSTEXTOpen(inReal []float64, optInROC1Period, optInROC2Period, op
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.KSTEXTOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) KSTEXTOpenAndFill(inReal []float64, optInROC1Period, optInROC2Period, optInROC3Period, optInROC4Period, optInMA1Period, optInMA2Period, optInMA3Period, optInMA4Period, optInSignalPeriod int, optInROCMAType, optInSignalMAType MAType, outKST, outKSTSignal []float64) (*KSTEXTStream, OutRange, error) {
 	if !fitsInt32(optInROC1Period) {
 		return nil, OutRange{}, BadParam

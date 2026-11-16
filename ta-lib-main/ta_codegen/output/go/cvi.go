@@ -62,6 +62,7 @@ func (c *Core) cviImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInTim
 	var outIdx int32
 	var lookbackTotal int32
 	var emaRing []float64
+	var local_emaRing [32]float64
 	var emaRing_Idx int32
 	var maxIdx_emaRing int32
 	maxIdx_emaRing = 31
@@ -93,7 +94,11 @@ func (c *Core) cviImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInTim
 	if optInROCPeriod < 1 {
 		return InternalError
 	}
-	emaRing = make([]float64, optInROCPeriod)
+	if optInROCPeriod <= 32 {
+		emaRing = local_emaRing[:optInROCPeriod]
+	} else {
+		emaRing = make([]float64, optInROCPeriod)
+	}
 	maxIdx_emaRing = optInROCPeriod - 1
 	emaRing_Idx = 0
 	emaBeta = float64(optInTimePeriod-1) / float64(optInTimePeriod+1)
@@ -172,6 +177,25 @@ func (c *Core) CVILookback(optInTimePeriod, optInROCPeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// CVIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.CVI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CVI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CVILookback] rejects or an index that names no output.
+func (c *Core) CVIDisplayShift(optInTimePeriod, optInROCPeriod, outputIdx int) (int, error) {
+	if _, err := c.CVILookback(optInTimePeriod, optInROCPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CVI computes the Chaikin's Volatility over bars startIdx through endIdx.
 //
 // Chaikin's Volatility: Marc Chaikin's reading of how fast a market's daily
@@ -206,7 +230,8 @@ func (c *Core) CVILookback(optInTimePeriod, optInROCPeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) CVI(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod, optInROCPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -290,18 +315,32 @@ func (sp *CVIStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	cviStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var laggedEMA float64
+	var tempReal float64
+	tempReal = inHigh - inLow
+	sp.prevEMA = math.FMA(sp.emaBeta, sp.prevEMA, float64(sp.optInK_1*tempReal))
+	laggedEMA = sp.cb_emaRing[sp.emaRing_Idx]
+	sp.cb_emaRing[sp.emaRing_Idx] = sp.prevEMA
+	sp.emaRing_Idx = sp.emaRing_Idx + 1
+	if sp.emaRing_Idx > sp.maxIdx_emaRing {
+		sp.emaRing_Idx = 0
+	}
+	if laggedEMA != 0.0 {
+		sp.cur_outReal = float64(100.0 * ((sp.prevEMA - laggedEMA) / laggedEMA))
+	} else {
+		sp.cur_outReal = 0.0
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *CVIStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var laggedEMA float64
@@ -335,24 +374,6 @@ func (sp *CVIStream) Clone() *CVIStream {
 	cl := *sp
 	cl.cb_emaRing = append(sp.cb_emaRing[:0:0], sp.cb_emaRing...)
 	return &cl
-}
-
-func cviStepImpl(sp *CVIStream, inHigh, inLow float64) {
-	var laggedEMA float64
-	var tempReal float64
-	tempReal = inHigh - inLow
-	sp.prevEMA = math.FMA(sp.emaBeta, sp.prevEMA, float64(sp.optInK_1*tempReal))
-	laggedEMA = sp.cb_emaRing[sp.emaRing_Idx]
-	sp.cb_emaRing[sp.emaRing_Idx] = sp.prevEMA
-	sp.emaRing_Idx = sp.emaRing_Idx + 1
-	if sp.emaRing_Idx > sp.maxIdx_emaRing {
-		sp.emaRing_Idx = 0
-	}
-	if laggedEMA != 0.0 {
-		sp.cur_outReal = float64(100.0 * ((sp.prevEMA - laggedEMA) / laggedEMA))
-	} else {
-		sp.cur_outReal = 0.0
-	}
 }
 
 func (c *Core) cviOpenImpl(sp *CVIStream, inHigh, inLow []float64, startIdx, optInTimePeriod, optInROCPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -508,8 +529,9 @@ func (c *Core) cviOpenInternal(inHigh, inLow []float64, startIdx, optInTimePerio
 // of [Core.CVI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CVILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.CVILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) CVIOpen(inHigh, inLow []float64, optInTimePeriod, optInROCPeriod int) (*CVIStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -532,7 +554,8 @@ func (c *Core) CVIOpen(inHigh, inLow []float64, optInTimePeriod, optInROCPeriod 
 // no memory with an input or another output.
 //
 // The errors are those of [Core.CVIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CVIOpenAndFill(inHigh, inLow []float64, optInTimePeriod, optInROCPeriod int, outReal []float64) (*CVIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

@@ -107,20 +107,8 @@ func (c *Core) plusDmImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 			tempReal = inLow[today]
 			diffM = prevLow - tempReal
 			prevLow = tempReal
-			var _T0 float64
-			if diffP > 0.0 {
-				_T0 = diffP
-			} else {
-				_T0 = 0.0
-			}
-			plusDM1 = _T0
-			var _T1 float64
-			if diffP > diffM {
-				_T1 = plusDM1
-			} else {
-				_T1 = 0.0
-			}
-			plusDM1 = _T1
+			plusDM1 = selF(diffP > 0.0, diffP, 0.0)
+			plusDM1 = selF(diffP > diffM, plusDM1, 0.0)
 			outReal[outIdx] = plusDM1
 			outIdx++
 		}
@@ -135,9 +123,9 @@ func (c *Core) plusDmImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 	prevLow = inLow[today]
 	i = optInTimePeriod - 1
 	for {
-		_C4 := i > 0
+		_C1 := i > 0
 		i--
-		if !_C4 {
+		if !_C1 {
 			break
 		}
 		today += 1
@@ -148,27 +136,21 @@ func (c *Core) plusDmImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 		diffM = prevLow - tempReal
 		prevLow = tempReal
 		tempReal = diffP - diffM
-		var _T2 float64
-		if tempReal > 0.0 {
-			_T2 = diffP
-		} else {
-			_T2 = 0.0
-		}
-		plusDM1 = _T2
+		plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 		tempReal = prevPlusDM + plusDM1
-		var _T3 float64
+		var _T0 float64
 		if prevPlusDM > tempReal {
-			_T3 = prevPlusDM
+			_T0 = prevPlusDM
 		} else {
-			_T3 = tempReal
+			_T0 = tempReal
 		}
-		prevPlusDM = _T3
+		prevPlusDM = _T0
 	}
 	i = lookbackTotal - (optInTimePeriod - 1)
 	for {
-		_C7 := i != 0
+		_C3 := i != 0
 		i--
-		if !_C7 {
+		if !_C3 {
 			break
 		}
 		today += 1
@@ -179,22 +161,16 @@ func (c *Core) plusDmImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 		diffM = prevLow - tempReal
 		prevLow = tempReal
 		tempReal = diffP - diffM
-		var _T5 float64
-		if tempReal > 0.0 {
-			_T5 = diffP
-		} else {
-			_T5 = 0.0
-		}
-		plusDM1 = _T5
+		plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 		tempReal = prevPlusDM - float64(prevPlusDM*invPeriod)
 		prevPlusDM = tempReal + plusDM1
-		var _T6 float64
+		var _T2 float64
 		if tempReal > prevPlusDM {
-			_T6 = tempReal
+			_T2 = tempReal
 		} else {
-			_T6 = prevPlusDM
+			_T2 = prevPlusDM
 		}
-		prevPlusDM = _T6
+		prevPlusDM = _T2
 	}
 	outReal[0] = prevPlusDM
 	outIdx = 1
@@ -207,22 +183,10 @@ func (c *Core) plusDmImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 		diffM = prevLow - tempReal
 		prevLow = tempReal
 		tempReal = diffP - diffM
-		var _T8 float64
-		if tempReal > 0.0 {
-			_T8 = diffP
-		} else {
-			_T8 = 0.0
-		}
-		plusDM1 = _T8
+		plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 		tempReal = prevPlusDM - float64(prevPlusDM*invPeriod)
 		prevPlusDM = tempReal + plusDM1
-		var _T9 float64
-		if tempReal > prevPlusDM {
-			_T9 = tempReal
-		} else {
-			_T9 = prevPlusDM
-		}
-		prevPlusDM = _T9
+		prevPlusDM = selF(tempReal > prevPlusDM, tempReal, prevPlusDM)
 		outReal[outIdx] = prevPlusDM
 		outIdx++
 	}
@@ -247,6 +211,25 @@ func (c *Core) PLUS_DMLookback(optInTimePeriod int) (int, error) {
 		return 0, BadParam
 	}
 	return int(lookback), nil
+}
+
+// PLUS_DMDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.PLUS_DM]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.PLUS_DM] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.PLUS_DMLookback] rejects or an index that names no output.
+func (c *Core) PLUS_DMDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.PLUS_DMLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
 }
 
 // PLUS_DM computes the Plus Directional Movement over bars startIdx through
@@ -283,7 +266,8 @@ func (c *Core) PLUS_DMLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) PLUS_DM(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -362,18 +346,49 @@ func (sp *PLUS_DMStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	plusDmStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	if sp.optInTimePeriod <= 1 {
+		var tempReal float64
+		var diffP float64
+		var diffM float64
+		var plusDM1 float64
+		tempReal = inHigh
+		diffP = tempReal - sp.prevHigh
+		sp.prevHigh = tempReal
+		tempReal = inLow
+		diffM = sp.prevLow - tempReal
+		sp.prevLow = tempReal
+		plusDM1 = selF(diffP > 0.0, diffP, 0.0)
+		plusDM1 = selF(diffP > diffM, plusDM1, 0.0)
+		sp.cur_outReal = plusDM1
+	} else {
+		var tempReal float64
+		var diffP float64
+		var diffM float64
+		var plusDM1 float64
+		tempReal = inHigh
+		diffP = tempReal - sp.prevHigh
+		sp.prevHigh = tempReal
+		tempReal = inLow
+		diffM = sp.prevLow - tempReal
+		sp.prevLow = tempReal
+		tempReal = diffP - diffM
+		plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
+		tempReal = sp.prevPlusDM - float64(sp.prevPlusDM*sp.invPeriod)
+		sp.prevPlusDM = tempReal + plusDM1
+		sp.prevPlusDM = selF(tempReal > sp.prevPlusDM, tempReal, sp.prevPlusDM)
+		sp.cur_outReal = sp.prevPlusDM
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *PLUS_DMStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -390,20 +405,8 @@ func (sp *PLUS_DMStream) Peek(inHigh, inLow float64) (float64, error) {
 		tempReal = inLow
 		diffM = prevLow - tempReal
 		prevLow = tempReal
-		var _T0 float64
-		if diffP > 0.0 {
-			_T0 = diffP
-		} else {
-			_T0 = 0.0
-		}
-		plusDM1 = _T0
-		var _T1 float64
-		if diffP > diffM {
-			_T1 = plusDM1
-		} else {
-			_T1 = 0.0
-		}
-		plusDM1 = _T1
+		plusDM1 = selF(diffP > 0.0, diffP, 0.0)
+		plusDM1 = selF(diffP > diffM, plusDM1, 0.0)
 		cur_outReal = plusDM1
 	} else {
 		var tempReal float64
@@ -420,22 +423,10 @@ func (sp *PLUS_DMStream) Peek(inHigh, inLow float64) (float64, error) {
 		diffM = prevLow - tempReal
 		prevLow = tempReal
 		tempReal = diffP - diffM
-		var _T2 float64
-		if tempReal > 0.0 {
-			_T2 = diffP
-		} else {
-			_T2 = 0.0
-		}
-		plusDM1 = _T2
+		plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 		tempReal = prevPlusDM - float64(prevPlusDM*sp.invPeriod)
 		prevPlusDM = tempReal + plusDM1
-		var _T3 float64
-		if tempReal > prevPlusDM {
-			_T3 = tempReal
-		} else {
-			_T3 = prevPlusDM
-		}
-		prevPlusDM = _T3
+		prevPlusDM = selF(tempReal > prevPlusDM, tempReal, prevPlusDM)
 		cur_outReal = prevPlusDM
 	}
 	return cur_outReal, nil
@@ -451,65 +442,6 @@ func (sp *PLUS_DMStream) Value() float64 {
 func (sp *PLUS_DMStream) Clone() *PLUS_DMStream {
 	cl := *sp
 	return &cl
-}
-
-func plusDmStepImpl(sp *PLUS_DMStream, inHigh, inLow float64) {
-	if sp.optInTimePeriod <= 1 {
-		var tempReal float64
-		var diffP float64
-		var diffM float64
-		var plusDM1 float64
-		tempReal = inHigh
-		diffP = tempReal - sp.prevHigh
-		sp.prevHigh = tempReal
-		tempReal = inLow
-		diffM = sp.prevLow - tempReal
-		sp.prevLow = tempReal
-		var _T4 float64
-		if diffP > 0.0 {
-			_T4 = diffP
-		} else {
-			_T4 = 0.0
-		}
-		plusDM1 = _T4
-		var _T5 float64
-		if diffP > diffM {
-			_T5 = plusDM1
-		} else {
-			_T5 = 0.0
-		}
-		plusDM1 = _T5
-		sp.cur_outReal = plusDM1
-	} else {
-		var tempReal float64
-		var diffP float64
-		var diffM float64
-		var plusDM1 float64
-		tempReal = inHigh
-		diffP = tempReal - sp.prevHigh
-		sp.prevHigh = tempReal
-		tempReal = inLow
-		diffM = sp.prevLow - tempReal
-		sp.prevLow = tempReal
-		tempReal = diffP - diffM
-		var _T6 float64
-		if tempReal > 0.0 {
-			_T6 = diffP
-		} else {
-			_T6 = 0.0
-		}
-		plusDM1 = _T6
-		tempReal = sp.prevPlusDM - float64(sp.prevPlusDM*sp.invPeriod)
-		sp.prevPlusDM = tempReal + plusDM1
-		var _T7 float64
-		if tempReal > sp.prevPlusDM {
-			_T7 = tempReal
-		} else {
-			_T7 = sp.prevPlusDM
-		}
-		sp.prevPlusDM = _T7
-		sp.cur_outReal = sp.prevPlusDM
-	}
 }
 
 func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -560,20 +492,8 @@ func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startI
 			tempReal = inLow[today]
 			diffM = prevLow - tempReal
 			prevLow = tempReal
-			var _T8 float64
-			if diffP > 0.0 {
-				_T8 = diffP
-			} else {
-				_T8 = 0.0
-			}
-			plusDM1 = _T8
-			var _T9 float64
-			if diffP > diffM {
-				_T9 = plusDM1
-			} else {
-				_T9 = 0.0
-			}
-			plusDM1 = _T9
+			plusDM1 = selF(diffP > 0.0, diffP, 0.0)
+			plusDM1 = selF(diffP > diffM, plusDM1, 0.0)
 			outReal[outIdx*outStride] = plusDM1
 			outIdx++
 		}
@@ -616,9 +536,9 @@ func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startI
 		prevLow = inLow[today]
 		i = optInTimePeriod - 1
 		for {
-			_C12 := i > 0
+			_C1 := i > 0
 			i--
-			if !_C12 {
+			if !_C1 {
 				break
 			}
 			today += 1
@@ -629,27 +549,21 @@ func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startI
 			diffM = prevLow - tempReal
 			prevLow = tempReal
 			tempReal = diffP - diffM
-			var _T10 float64
-			if tempReal > 0.0 {
-				_T10 = diffP
-			} else {
-				_T10 = 0.0
-			}
-			plusDM1 = _T10
+			plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 			tempReal = prevPlusDM + plusDM1
-			var _T11 float64
+			var _T0 float64
 			if prevPlusDM > tempReal {
-				_T11 = prevPlusDM
+				_T0 = prevPlusDM
 			} else {
-				_T11 = tempReal
+				_T0 = tempReal
 			}
-			prevPlusDM = _T11
+			prevPlusDM = _T0
 		}
 		i = lookbackTotal - (optInTimePeriod - 1)
 		for {
-			_C15 := i != 0
+			_C3 := i != 0
 			i--
-			if !_C15 {
+			if !_C3 {
 				break
 			}
 			today += 1
@@ -660,22 +574,16 @@ func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startI
 			diffM = prevLow - tempReal
 			prevLow = tempReal
 			tempReal = diffP - diffM
-			var _T13 float64
-			if tempReal > 0.0 {
-				_T13 = diffP
-			} else {
-				_T13 = 0.0
-			}
-			plusDM1 = _T13
+			plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 			tempReal = prevPlusDM - float64(prevPlusDM*invPeriod)
 			prevPlusDM = tempReal + plusDM1
-			var _T14 float64
+			var _T2 float64
 			if tempReal > prevPlusDM {
-				_T14 = tempReal
+				_T2 = tempReal
 			} else {
-				_T14 = prevPlusDM
+				_T2 = prevPlusDM
 			}
-			prevPlusDM = _T14
+			prevPlusDM = _T2
 		}
 		outReal[0*outStride] = prevPlusDM
 		outIdx = 1
@@ -688,22 +596,10 @@ func (c *Core) plusDmOpenImpl(sp *PLUS_DMStream, inHigh, inLow []float64, startI
 			diffM = prevLow - tempReal
 			prevLow = tempReal
 			tempReal = diffP - diffM
-			var _T16 float64
-			if tempReal > 0.0 {
-				_T16 = diffP
-			} else {
-				_T16 = 0.0
-			}
-			plusDM1 = _T16
+			plusDM1 = selF(tempReal > 0.0, diffP, 0.0)
 			tempReal = prevPlusDM - float64(prevPlusDM*invPeriod)
 			prevPlusDM = tempReal + plusDM1
-			var _T17 float64
-			if tempReal > prevPlusDM {
-				_T17 = tempReal
-			} else {
-				_T17 = prevPlusDM
-			}
-			prevPlusDM = _T17
+			prevPlusDM = selF(tempReal > prevPlusDM, tempReal, prevPlusDM)
 			outReal[outIdx*outStride] = prevPlusDM
 			outIdx++
 		}
@@ -748,8 +644,9 @@ func (c *Core) plusDmOpenInternal(inHigh, inLow []float64, startIdx, optInTimePe
 // of [Core.PLUS_DM].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.PLUS_DMLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.PLUS_DMLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) PLUS_DMOpen(inHigh, inLow []float64, optInTimePeriod int) (*PLUS_DMStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -769,7 +666,8 @@ func (c *Core) PLUS_DMOpen(inHigh, inLow []float64, optInTimePeriod int) (*PLUS_
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.PLUS_DMOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) PLUS_DMOpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (*PLUS_DMStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

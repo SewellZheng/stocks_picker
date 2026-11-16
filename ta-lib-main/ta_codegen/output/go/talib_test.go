@@ -127,6 +127,34 @@ func TestLookback(t *testing.T) {
 	}
 }
 
+func TestDisplayShift(t *testing.T) {
+	c := NewCore()
+	check := func(what string, got int, err error, want int, wantErr error) {
+		t.Helper()
+		if got != want || wantErr == nil && err != nil || wantErr != nil && !errors.Is(err, wantErr) {
+			t.Errorf("%s: %d, %v; want %d, %v", what, got, err, want, wantErr)
+		}
+	}
+	ds, err := c.DPODisplayShift(20, 0)
+	check("DPO(20) output 0", ds, err, -11, nil)
+	ds, err = c.DPODisplayShift(IntegerDefault, 0)
+	check("DPO at its default", ds, err, -11, nil)
+	ds, err = c.ICHIMOKUDisplayShift(9, 30, 52, 2)
+	check("ICHIMOKU span A", ds, err, 30, nil)
+	ds, err = c.ICHIMOKUDisplayShift(9, 30, 52, 0)
+	check("ICHIMOKU conversion line", ds, err, 0, nil)
+	ds, err = c.SMADisplayShift(30, 0)
+	check("SMA", ds, err, 0, nil)
+	ds, err = c.SMADisplayShift(30, 1)
+	check("SMA output 1", ds, err, 0, BadParam)
+	ds, err = c.SMADisplayShift(30, -1)
+	check("SMA output -1", ds, err, 0, BadParam)
+	ds, err = c.SMADisplayShift(0, 0)
+	check("SMA period 0", ds, err, 0, BadParam)
+	ds, err = c.ADDDisplayShift(0)
+	check("ADD", ds, err, 0, nil)
+}
+
 func TestNoUnsafeOrReflectImport(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) < 100 {
@@ -190,6 +218,97 @@ func TestStreamShapes(t *testing.T) {
 	}
 	if _, _, _, err := h.Peek(math.NaN()); !errors.Is(err, BadParam) {
 		t.Errorf("MACD Peek(NaN): %v", err)
+	}
+}
+
+// A zero Core computes what NewCore's does: three candlestick functions,
+// batch and stream, also after a setting was changed and restored.
+func TestZeroCoreIsNewCore(t *testing.T) {
+	const n, hist = 400, 300
+	o, h, l, cl := make([]float64, n), make([]float64, n), make([]float64, n), make([]float64, n)
+	for i := range cl {
+		mid := 100 + float64(i%23) - float64(i%7)*0.5
+		body := float64(i%9-4) * 0.3
+		o[i], cl[i] = mid-body, mid+body
+		h[i] = math.Max(o[i], cl[i]) + float64(i%5)*0.4
+		l[i] = math.Min(o[i], cl[i]) - float64(i%3)*0.6
+	}
+	type cdl struct {
+		name  string
+		batch func(c *Core, out []int32) error
+		open  func(c *Core) (func(i int) int32, error)
+	}
+	cdls := []cdl{
+		{"CDLHIGHWAVE", func(c *Core, out []int32) error { _, err := c.CDLHIGHWAVE(0, n-1, o, h, l, cl, out); return err },
+			func(c *Core) (func(int) int32, error) {
+				s, _, err := c.CDLHIGHWAVEOpen(o[:hist], h[:hist], l[:hist], cl[:hist])
+				return func(i int) int32 { v, _ := s.Update(o[i], h[i], l[i], cl[i]); return v }, err
+			}},
+		{"CDLSHORTLINE", func(c *Core, out []int32) error { _, err := c.CDLSHORTLINE(0, n-1, o, h, l, cl, out); return err },
+			func(c *Core) (func(int) int32, error) {
+				s, _, err := c.CDLSHORTLINEOpen(o[:hist], h[:hist], l[:hist], cl[:hist])
+				return func(i int) int32 { v, _ := s.Update(o[i], h[i], l[i], cl[i]); return v }, err
+			}},
+		{"CDLHAMMER", func(c *Core, out []int32) error { _, err := c.CDLHAMMER(0, n-1, o, h, l, cl, out); return err },
+			func(c *Core) (func(int) int32, error) {
+				s, _, err := c.CDLHAMMEROpen(o[:hist], h[:hist], l[:hist], cl[:hist])
+				return func(i int) int32 { v, _ := s.Update(o[i], h[i], l[i], cl[i]); return v }, err
+			}},
+	}
+	run := func(c *Core, f cdl) []int32 {
+		out := make([]int32, n)
+		if err := f.batch(c, out); err != nil {
+			t.Fatalf("%s: %v", f.name, err)
+		}
+		next, err := f.open(c)
+		if err != nil {
+			t.Fatalf("%sOpen: %v", f.name, err)
+		}
+		for i := hist; i < n; i++ {
+			out = append(out, next(i))
+		}
+		return out
+	}
+	var zero, restoredAll, restoredOne, custom Core
+	for _, c := range []*Core{&restoredAll, &restoredOne, &custom} {
+		if err := c.SetCandleSetting(CandleSettingTypeBodyShort, RangeTypeHighLow, 3, 0.5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	restoredAll.RestoreCandleDefault(CandleSettingTypeAllCandleSettings)
+	restoredOne.RestoreCandleDefault(CandleSettingTypeBodyShort)
+	moved := 0
+	for _, f := range cdls {
+		want := run(NewCore(), f)
+		for i, v := range run(&custom, f) {
+			if v != want[i] {
+				moved++
+				break
+			}
+		}
+		hits := 0
+		for _, v := range want {
+			if v != 0 {
+				hits++
+			}
+		}
+		if hits == 0 {
+			t.Fatalf("%s finds nothing in the test series", f.name)
+		}
+		for which, c := range map[string]*Core{"zero": &zero, "restored": &restoredAll, "restored one": &restoredOne} {
+			got := run(c, f)
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("%s, %s Core, value %d: %d, want %d", f.name, which, i, got[i], want[i])
+				}
+			}
+		}
+	}
+	if moved == 0 {
+		t.Fatal("a changed candle setting moves no result: the settings are not read")
+	}
+	if s, err := zero.CandleSetting(CandleSettingTypeEqual); err != nil || s != defaultCandleSettings[CandleSettingTypeEqual] {
+		t.Errorf("a zero Core's Equal setting: %+v, %v", s, err)
 	}
 }
 

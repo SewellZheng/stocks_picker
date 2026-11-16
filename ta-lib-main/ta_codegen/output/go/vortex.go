@@ -218,6 +218,25 @@ func (c *Core) VORTEXLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// VORTEXDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.VORTEX]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.VORTEX] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.VORTEXLookback] rejects or an index that names no output.
+func (c *Core) VORTEXDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.VORTEXLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // VORTEX computes the Vortex Indicator over bars startIdx through endIdx.
 //
 // Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
@@ -252,7 +271,8 @@ func (c *Core) VORTEXLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) VORTEX(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outPlusVI, outMinusVI []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -350,156 +370,10 @@ func (sp *VORTEXStream) Update(inHigh, inLow, inClose float64) (float64, float64
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	vortexStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outPlusVI, sp.cur_outMinusVI, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *VORTEXStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, 0, BadParam
-	}
-	var live int32
-	var curTR float64
-	var curVMP float64
-	var curVMM float64
-	var trueRange float64
-	var tempDouble float64
-	var tempLT float64
-	var tempHT float64
-	var tempCY float64
-	var cur_outMinusVI float64
-	var cur_outPlusVI float64
-	nullRun := sp.nullRun
-	sTR := sp.sTR
-	sVMM := sp.sVMM
-	sVMP := sp.sVMP
-	pkSlot0 := int32(-1)
-	var pkVal0 float64
-	pkSlot1 := int32(-1)
-	var pkVal1 float64
-	pkSlot2 := int32(-1)
-	var pkVal2 float64
-	pkSlot0 = sp.ringPos_trailingIdx
-	pkVal0 = inHigh
-	pkSlot1 = sp.ringPos_trailingIdx
-	pkVal1 = inLow
-	pkSlot2 = sp.ringPos_trailingIdx
-	pkVal2 = inClose
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	trueRange = tempHT - tempLT
-	tempDouble = math.Abs(tempCY - tempHT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	tempDouble = math.Abs(tempCY - tempLT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	sTR += trueRange
-	sVMP += math.Abs(inHigh - sp.lag1_inLow)
-	sVMM += math.Abs(inLow - sp.lag1_inHigh)
-	live = b2i(!(trueRange <= 0.0))
-	nullRun = (nullRun + 1) & (live - 1)
-	if nullRun >= sp.optInTimePeriod {
-		nullRun = sp.optInTimePeriod
-		sTR = 0.0
-	}
-	curTR = sTR
-	curVMP = sVMP
-	curVMM = sVMM
-	var _T0 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot1 {
-		_T0 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
-	} else {
-		_T0 = pkVal1
-	}
-	tempLT = _T0
-	var _T1 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot0 {
-		_T1 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
-	} else {
-		_T1 = pkVal0
-	}
-	tempHT = _T1
-	var _T2 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot2 {
-		_T2 = sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
-	} else {
-		_T2 = pkVal2
-	}
-	tempCY = _T2
-	trueRange = tempHT - tempLT
-	tempDouble = math.Abs(tempCY - tempHT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	tempDouble = math.Abs(tempCY - tempLT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	sTR -= trueRange
-	var _T3 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot0 {
-		_T3 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
-	} else {
-		_T3 = pkVal0
-	}
-	var _T4 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot1 {
-		_T4 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
-	} else {
-		_T4 = pkVal1
-	}
-	sVMP -= math.Abs(_T3 - _T4)
-	var _T5 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot1 {
-		_T5 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
-	} else {
-		_T5 = pkVal1
-	}
-	var _T6 float64
-	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot0 {
-		_T6 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
-	} else {
-		_T6 = pkVal0
-	}
-	sVMM -= math.Abs(_T5 - _T6)
-	if curTR > 0.0 {
-		cur_outPlusVI = curVMP / curTR
-		cur_outMinusVI = curVMM / curTR
-	} else {
-		cur_outPlusVI = 0.0
-		cur_outMinusVI = 0.0
-	}
-	return cur_outPlusVI, cur_outMinusVI, nil
-}
-
-// Value returns the outputs at the last bar of OutRange, in Update's order;
-// Peek does not change them.
-func (sp *VORTEXStream) Value() (float64, float64) {
-	return sp.cur_outPlusVI, sp.cur_outMinusVI
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *VORTEXStream) Clone() *VORTEXStream {
-	cl := *sp
-	cl.ring_trailingIdx_inHigh = append(sp.ring_trailingIdx_inHigh[:0:0], sp.ring_trailingIdx_inHigh...)
-	cl.ring_trailingIdx_inLow = append(sp.ring_trailingIdx_inLow[:0:0], sp.ring_trailingIdx_inLow...)
-	cl.ring_trailingIdx_inClose = append(sp.ring_trailingIdx_inClose[:0:0], sp.ring_trailingIdx_inClose...)
-	return &cl
-}
-
-func vortexStepImpl(sp *VORTEXStream, inHigh, inLow, inClose float64) {
 	var i int32
 	var live int32
 	var seeded int32
@@ -512,6 +386,18 @@ func vortexStepImpl(sp *VORTEXStream, inHigh, inLow, inClose float64) {
 	var tempHT float64
 	var tempCY float64
 	var ringPosL_trailingIdx int32
+	var optInTimePeriod int32
+	var prevClose float64
+	var prevHigh float64
+	var prevLow float64
+	var ringCap_trailingIdx int32
+	var ringPos_trailingIdx int32
+	var ring_trailingIdx_inClose []float64
+	var ring_trailingIdx_inHigh []float64
+	var ring_trailingIdx_inLow []float64
+	var sTR float64
+	var sVMM float64
+	var sVMP float64
 	sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh
 	sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow
 	sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose
@@ -566,58 +452,76 @@ func vortexStepImpl(sp *VORTEXStream, inHigh, inLow, inClose float64) {
 		sp.sVMP = 0.0
 		sp.sVMM = 0.0
 		seeded = 0
-		for i = sp.optInTimePeriod; i >= 0; i -= 1 {
+		optInTimePeriod = sp.optInTimePeriod
+		prevClose = sp.prevClose
+		prevHigh = sp.prevHigh
+		prevLow = sp.prevLow
+		ringCap_trailingIdx = sp.ringCap_trailingIdx
+		ringPos_trailingIdx = sp.ringPos_trailingIdx
+		ring_trailingIdx_inClose = sp.ring_trailingIdx_inClose
+		ring_trailingIdx_inHigh = sp.ring_trailingIdx_inHigh
+		ring_trailingIdx_inLow = sp.ring_trailingIdx_inLow
+		sTR = sp.sTR
+		sVMM = sp.sVMM
+		sVMP = sp.sVMP
+		for i = optInTimePeriod; i >= 0; i -= 1 {
 			if seeded > 1 {
 				var _T7 int32
-				if sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-i >= sp.ringCap_trailingIdx {
-					_T7 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx
+				if ringPos_trailingIdx+ringCap_trailingIdx-i >= ringCap_trailingIdx {
+					_T7 = ringPos_trailingIdx + ringCap_trailingIdx - i - ringCap_trailingIdx
 				} else {
-					_T7 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i
+					_T7 = ringPos_trailingIdx + ringCap_trailingIdx - i
 				}
-				tempLT = sp.ring_trailingIdx_inLow[_T7]
+				tempLT = ring_trailingIdx_inLow[_T7]
 				var _T8 int32
-				if sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-i >= sp.ringCap_trailingIdx {
-					_T8 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx
+				if ringPos_trailingIdx+ringCap_trailingIdx-i >= ringCap_trailingIdx {
+					_T8 = ringPos_trailingIdx + ringCap_trailingIdx - i - ringCap_trailingIdx
 				} else {
-					_T8 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i
+					_T8 = ringPos_trailingIdx + ringCap_trailingIdx - i
 				}
-				tempHT = sp.ring_trailingIdx_inHigh[_T8]
+				tempHT = ring_trailingIdx_inHigh[_T8]
 				trueRange = tempHT - tempLT
-				tempDouble = math.Abs(sp.prevClose - tempHT)
+				tempDouble = math.Abs(prevClose - tempHT)
 				if tempDouble > trueRange {
 					trueRange = tempDouble
 				}
-				tempDouble = math.Abs(sp.prevClose - tempLT)
+				tempDouble = math.Abs(prevClose - tempLT)
 				if tempDouble > trueRange {
 					trueRange = tempDouble
 				}
-				sp.sTR += trueRange
-				sp.sVMP += math.Abs(tempHT - sp.prevLow)
-				sp.sVMM += math.Abs(tempLT - sp.prevHigh)
+				sTR += trueRange
+				sVMP += math.Abs(tempHT - prevLow)
+				sVMM += math.Abs(tempLT - prevHigh)
 			}
 			var _T9 int32
-			if sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-i >= sp.ringCap_trailingIdx {
-				_T9 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx
+			if ringPos_trailingIdx+ringCap_trailingIdx-i >= ringCap_trailingIdx {
+				_T9 = ringPos_trailingIdx + ringCap_trailingIdx - i - ringCap_trailingIdx
 			} else {
-				_T9 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i
+				_T9 = ringPos_trailingIdx + ringCap_trailingIdx - i
 			}
-			sp.prevHigh = sp.ring_trailingIdx_inHigh[_T9]
+			prevHigh = ring_trailingIdx_inHigh[_T9]
 			var _T10 int32
-			if sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-i >= sp.ringCap_trailingIdx {
-				_T10 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx
+			if ringPos_trailingIdx+ringCap_trailingIdx-i >= ringCap_trailingIdx {
+				_T10 = ringPos_trailingIdx + ringCap_trailingIdx - i - ringCap_trailingIdx
 			} else {
-				_T10 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i
+				_T10 = ringPos_trailingIdx + ringCap_trailingIdx - i
 			}
-			sp.prevLow = sp.ring_trailingIdx_inLow[_T10]
+			prevLow = ring_trailingIdx_inLow[_T10]
 			var _T11 int32
-			if sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-i >= sp.ringCap_trailingIdx {
-				_T11 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i - sp.ringCap_trailingIdx
+			if ringPos_trailingIdx+ringCap_trailingIdx-i >= ringCap_trailingIdx {
+				_T11 = ringPos_trailingIdx + ringCap_trailingIdx - i - ringCap_trailingIdx
 			} else {
-				_T11 = sp.ringPos_trailingIdx + sp.ringCap_trailingIdx - i
+				_T11 = ringPos_trailingIdx + ringCap_trailingIdx - i
 			}
-			sp.prevClose = sp.ring_trailingIdx_inClose[_T11]
+			prevClose = ring_trailingIdx_inClose[_T11]
 			seeded += 1
 		}
+		sp.prevClose = prevClose
+		sp.prevHigh = prevHigh
+		sp.prevLow = prevLow
+		sp.sTR = sTR
+		sp.sVMM = sVMM
+		sp.sVMP = sVMP
 	}
 	sp.lag1_inHigh = inHigh
 	sp.lag1_inLow = inLow
@@ -628,6 +532,140 @@ func vortexStepImpl(sp *VORTEXStream, inHigh, inLow, inClose float64) {
 		ringPosL_trailingIdx = 0
 	}
 	sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	return sp.cur_outPlusVI, sp.cur_outMinusVI, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *VORTEXStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, 0, BadParam
+	}
+	var live int32
+	var curTR float64
+	var curVMP float64
+	var curVMM float64
+	var trueRange float64
+	var tempDouble float64
+	var tempLT float64
+	var tempHT float64
+	var tempCY float64
+	var cur_outMinusVI float64
+	var cur_outPlusVI float64
+	nullRun := sp.nullRun
+	sTR := sp.sTR
+	sVMM := sp.sVMM
+	sVMP := sp.sVMP
+	pkSlot0 := int32(-1)
+	var pkVal0 float64
+	pkSlot1 := int32(-1)
+	var pkVal1 float64
+	pkSlot2 := int32(-1)
+	var pkVal2 float64
+	pkSlot0 = sp.ringPos_trailingIdx
+	pkVal0 = inHigh
+	pkSlot1 = sp.ringPos_trailingIdx
+	pkVal1 = inLow
+	pkSlot2 = sp.ringPos_trailingIdx
+	pkVal2 = inClose
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	trueRange = tempHT - tempLT
+	tempDouble = math.Abs(tempCY - tempHT)
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
+	tempDouble = math.Abs(tempCY - tempLT)
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
+	sTR += trueRange
+	sVMP += math.Abs(inHigh - sp.lag1_inLow)
+	sVMM += math.Abs(inLow - sp.lag1_inHigh)
+	live = b2i(!(trueRange <= 0.0))
+	nullRun = (nullRun + 1) & (live - 1)
+	if nullRun >= sp.optInTimePeriod {
+		nullRun = sp.optInTimePeriod
+		sTR = 0.0
+	}
+	curTR = sTR
+	curVMP = sVMP
+	curVMM = sVMM
+	var _T0 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot1 {
+		_T0 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
+	} else {
+		_T0 = pkVal1
+	}
+	tempLT = _T0
+	var _T1 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot0 {
+		_T1 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
+	} else {
+		_T1 = pkVal0
+	}
+	tempHT = _T1
+	var _T2 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot2 {
+		_T2 = sp.ring_trailingIdx_inClose[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
+	} else {
+		_T2 = pkVal2
+	}
+	tempCY = _T2
+	trueRange = tempHT - tempLT
+	tempDouble = math.Abs(tempCY - tempHT)
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
+	tempDouble = math.Abs(tempCY - tempLT)
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
+	sTR -= trueRange
+	var _T3 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot0 {
+		_T3 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
+	} else {
+		_T3 = pkVal0
+	}
+	var _T4 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot1 {
+		_T4 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
+	} else {
+		_T4 = pkVal1
+	}
+	sVMP -= math.Abs(_T3 - _T4)
+	var _T5 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx != pkSlot1 {
+		_T5 = sp.ring_trailingIdx_inLow[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx)%sp.ringCap_trailingIdx]
+	} else {
+		_T5 = pkVal1
+	}
+	var _T6 float64
+	if (sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx != pkSlot0 {
+		_T6 = sp.ring_trailingIdx_inHigh[(sp.ringPos_trailingIdx+sp.ringCap_trailingIdx-sp.ringLag_trailingIdx-1)%sp.ringCap_trailingIdx]
+	} else {
+		_T6 = pkVal0
+	}
+	sVMM -= math.Abs(_T5 - _T6)
+	if curTR > 0.0 {
+		cur_outPlusVI = curVMP / curTR
+		cur_outMinusVI = curVMM / curTR
+	} else {
+		cur_outPlusVI = 0.0
+		cur_outMinusVI = 0.0
+	}
+	return cur_outPlusVI, cur_outMinusVI, nil
+}
+
+// Value returns the outputs at the last bar of OutRange, in Update's order;
+// Peek does not change them.
+func (sp *VORTEXStream) Value() (float64, float64) {
+	return sp.cur_outPlusVI, sp.cur_outMinusVI
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *VORTEXStream) Clone() *VORTEXStream {
+	cl := *sp
+	cl.ring_trailingIdx_inHigh = append(sp.ring_trailingIdx_inHigh[:0:0], sp.ring_trailingIdx_inHigh...)
+	cl.ring_trailingIdx_inLow = append(sp.ring_trailingIdx_inLow[:0:0], sp.ring_trailingIdx_inLow...)
+	cl.ring_trailingIdx_inClose = append(sp.ring_trailingIdx_inClose[:0:0], sp.ring_trailingIdx_inClose...)
+	return &cl
 }
 
 func (c *Core) vortexOpenImpl(sp *VORTEXStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outPlusVI, outMinusVI []float64, outStride int32) RetCode {
@@ -857,8 +895,9 @@ func (c *Core) vortexOpenInternal(inHigh, inLow, inClose []float64, startIdx, op
 // are those of [Core.VORTEX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.VORTEXLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.VORTEXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) VORTEXOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*VORTEXStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -878,7 +917,8 @@ func (c *Core) VORTEXOpen(inHigh, inLow, inClose []float64, optInTimePeriod int)
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.VORTEXOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) VORTEXOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outPlusVI, outMinusVI []float64) (*VORTEXStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

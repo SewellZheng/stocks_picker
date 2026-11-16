@@ -207,6 +207,25 @@ func (c *Core) NATRLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// NATRDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.NATR].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.NATR] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.NATRLookback] rejects or an index that names no output.
+func (c *Core) NATRDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.NATRLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // NATR computes the Normalized Average True Range over bars startIdx through
 // endIdx.
 //
@@ -243,7 +262,8 @@ func (c *Core) NATRLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) NATR(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -324,69 +344,10 @@ func (sp *NATRStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	natrStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *NATRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, BadParam
-	}
-	var tempValue float64
-	var val2 float64
-	var val3 float64
-	var greatest float64
-	var tempCY float64
-	var tempLT float64
-	var tempHT float64
-	var cur_outReal float64
-	prevATR := sp.prevATR
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	greatest = tempHT - tempLT
-	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
-	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
-	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
-	if sp.optInTimePeriod <= 1 {
-		cur_outReal = prevATR
-	} else {
-		tempValue = inClose
-		if tempValue != 0.0 {
-			cur_outReal = float64(prevATR / tempValue * 100.0)
-		} else {
-			cur_outReal = 0.0
-		}
-	}
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *NATRStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *NATRStream) Clone() *NATRStream {
-	cl := *sp
-	return &cl
-}
-
-func natrStepImpl(sp *NATRStream, inHigh, inLow, inClose float64) {
 	var tempValue float64
 	var val2 float64
 	var val3 float64
@@ -418,6 +379,57 @@ func natrStepImpl(sp *NATRStream, inHigh, inLow, inClose float64) {
 		}
 	}
 	sp.lag1_inClose = inClose
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *NATRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, BadParam
+	}
+	var tempValue float64
+	var val2 float64
+	var val3 float64
+	var greatest float64
+	var tempCY float64
+	var tempLT float64
+	var tempHT float64
+	var cur_outReal float64
+	prevATR := sp.prevATR
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	greatest = tempHT - tempLT
+	val2 = math.Abs(tempCY - tempHT)
+	greatest = selF(val2 > greatest, val2, greatest)
+	val3 = math.Abs(tempCY - tempLT)
+	greatest = selF(val3 > greatest, val3, greatest)
+	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
+	if sp.optInTimePeriod <= 1 {
+		cur_outReal = prevATR
+	} else {
+		tempValue = inClose
+		if tempValue != 0.0 {
+			cur_outReal = float64(prevATR / tempValue * 100.0)
+		} else {
+			cur_outReal = 0.0
+		}
+	}
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *NATRStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *NATRStream) Clone() *NATRStream {
+	cl := *sp
+	return &cl
 }
 
 func (c *Core) natrOpenImpl(sp *NATRStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -593,8 +605,9 @@ func (c *Core) natrOpenInternal(inHigh, inLow, inClose []float64, startIdx, optI
 // are those of [Core.NATR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.NATRLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.NATRLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) NATROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*NATRStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -614,7 +627,8 @@ func (c *Core) NATROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (
 // no memory with an input or another output.
 //
 // The errors are those of [Core.NATROpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) NATROpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (*NATRStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

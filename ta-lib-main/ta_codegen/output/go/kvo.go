@@ -225,10 +225,8 @@ func (c *Core) kvoImpl(startIdx, endIdx int32, inHigh, inLow, inClose, inVolume 
 		dmToday = inHigh[today] - inLow[today]
 		if hlc > prevHlc {
 			trend = 1.0
-		} else if hlc < prevHlc {
-			trend = -1.0
 		} else {
-			trend = prevTrend
+			trend = selF(hlc < prevHlc, -1.0, prevTrend)
 		}
 		if trend != prevTrend {
 			cm = prevDm + dmToday
@@ -279,6 +277,25 @@ func (c *Core) KVOLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod i
 	return int(lookback), nil
 }
 
+// KVODisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.KVO]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.KVO] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.KVOLookback] rejects or an index that names no output.
+func (c *Core) KVODisplayShift(optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outputIdx int) (int, error) {
+	if _, err := c.KVOLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // KVO computes the Klinger Volume Oscillator over bars startIdx through endIdx.
 //
 // Klinger Volume Oscillator: each bar's volume is signed by the direction of
@@ -321,7 +338,8 @@ func (c *Core) KVOLookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod i
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) KVO(startIdx, endIdx int, inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outKVO, outKVOSignal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -425,11 +443,41 @@ func (sp *KVOStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, 0, BadParam
 	}
-	kvoStepImpl(sp, inHigh, inLow, inClose, inVolume)
 	sp.outRangeCount++
+	var hlc float64
+	var dmToday float64
+	var vf float64
+	var trend float64
+	var kvoValue float64
+	hlc = inHigh + inLow + inClose
+	dmToday = inHigh - inLow
+	if hlc > sp.prevHlc {
+		trend = 1.0
+	} else {
+		trend = selF(hlc < sp.prevHlc, -1.0, sp.prevTrend)
+	}
+	if trend != sp.prevTrend {
+		sp.cm = sp.prevDm + dmToday
+	} else {
+		sp.cm = sp.cm + dmToday
+	}
+	if sp.cm == 0.0 {
+		vf = 0.0
+	} else {
+		vf = float64(float64(float64(inVolume*math.Abs(float64(2.0*(dmToday/sp.cm))-1.0))*100.0) * trend)
+	}
+	sp.emaFast = math.FMA(sp.betaFast, sp.emaFast, float64(sp.kFast*vf))
+	sp.emaSlow = math.FMA(sp.betaSlow, sp.emaSlow, float64(sp.kSlow*vf))
+	kvoValue = sp.emaFast - sp.emaSlow
+	sp.signalValue = math.FMA(sp.betaSignal, sp.signalValue, float64(sp.kSignal*kvoValue))
+	sp.cur_outKVO = kvoValue
+	sp.cur_outKVOSignal = sp.signalValue
+	sp.prevHlc = hlc
+	sp.prevDm = dmToday
+	sp.prevTrend = trend
 	return sp.cur_outKVO, sp.cur_outKVOSignal, nil
 }
 
@@ -437,7 +485,7 @@ func (sp *KVOStream) Update(inHigh, inLow, inClose, inVolume float64) (float64, 
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *KVOStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, 0, BadParam
 	}
 	var hlc float64
@@ -455,10 +503,8 @@ func (sp *KVOStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, fl
 	dmToday = inHigh - inLow
 	if hlc > sp.prevHlc {
 		trend = 1.0
-	} else if hlc < sp.prevHlc {
-		trend = -1.0
 	} else {
-		trend = sp.prevTrend
+		trend = selF(hlc < sp.prevHlc, -1.0, sp.prevTrend)
 	}
 	if trend != sp.prevTrend {
 		cm = sp.prevDm + dmToday
@@ -490,42 +536,6 @@ func (sp *KVOStream) Value() (float64, float64) {
 func (sp *KVOStream) Clone() *KVOStream {
 	cl := *sp
 	return &cl
-}
-
-func kvoStepImpl(sp *KVOStream, inHigh, inLow, inClose, inVolume float64) {
-	var hlc float64
-	var dmToday float64
-	var vf float64
-	var trend float64
-	var kvoValue float64
-	hlc = inHigh + inLow + inClose
-	dmToday = inHigh - inLow
-	if hlc > sp.prevHlc {
-		trend = 1.0
-	} else if hlc < sp.prevHlc {
-		trend = -1.0
-	} else {
-		trend = sp.prevTrend
-	}
-	if trend != sp.prevTrend {
-		sp.cm = sp.prevDm + dmToday
-	} else {
-		sp.cm = sp.cm + dmToday
-	}
-	if sp.cm == 0.0 {
-		vf = 0.0
-	} else {
-		vf = float64(float64(float64(inVolume*math.Abs(float64(2.0*(dmToday/sp.cm))-1.0))*100.0) * trend)
-	}
-	sp.emaFast = math.FMA(sp.betaFast, sp.emaFast, float64(sp.kFast*vf))
-	sp.emaSlow = math.FMA(sp.betaSlow, sp.emaSlow, float64(sp.kSlow*vf))
-	kvoValue = sp.emaFast - sp.emaSlow
-	sp.signalValue = math.FMA(sp.betaSignal, sp.signalValue, float64(sp.kSignal*kvoValue))
-	sp.cur_outKVO = kvoValue
-	sp.cur_outKVOSignal = sp.signalValue
-	sp.prevHlc = hlc
-	sp.prevDm = dmToday
-	sp.prevTrend = trend
 }
 
 func (c *Core) kvoOpenImpl(sp *KVOStream, inHigh, inLow, inClose, inVolume []float64, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int32, outBegIdx, outNBElement *int32, outKVO, outKVOSignal []float64, outStride int32) RetCode {
@@ -665,10 +675,8 @@ func (c *Core) kvoOpenImpl(sp *KVOStream, inHigh, inLow, inClose, inVolume []flo
 		dmToday = inHigh[today] - inLow[today]
 		if hlc > prevHlc {
 			trend = 1.0
-		} else if hlc < prevHlc {
-			trend = -1.0
 		} else {
-			trend = prevTrend
+			trend = selF(hlc < prevHlc, -1.0, prevTrend)
 		}
 		if trend != prevTrend {
 			cm = prevDm + dmToday
@@ -746,8 +754,9 @@ func (c *Core) kvoOpenInternal(inHigh, inLow, inClose, inVolume []float64, start
 // parameters are those of [Core.KVO].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.KVOLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.KVOLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) KVOOpen(inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int) (*KVOStream, float64, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, 0, BadParam
@@ -773,7 +782,8 @@ func (c *Core) KVOOpen(inHigh, inLow, inClose, inVolume []float64, optInFastPeri
 // no memory with an input or another output.
 //
 // The errors are those of [Core.KVOOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) KVOOpenAndFill(inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod, optInSignalPeriod int, outKVO, outKVOSignal []float64) (*KVOStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

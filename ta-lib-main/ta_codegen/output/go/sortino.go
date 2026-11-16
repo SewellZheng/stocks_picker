@@ -161,20 +161,8 @@ func (c *Core) sortinoImpl(startIdx, endIdx int32, inReal []float64, optInTimePe
 		} else if dev > 0.0 {
 			nbAbove += 1
 		}
-		var _T0 float64
-		if downTotal > peakDown {
-			_T0 = downTotal
-		} else {
-			_T0 = peakDown
-		}
-		peakDown = _T0
-		var _T1 float64
-		if absTotal > peakAbs {
-			_T1 = absTotal
-		} else {
-			_T1 = peakAbs
-		}
-		peakAbs = _T1
+		peakDown = selF(downTotal > peakDown, downTotal, peakDown)
+		peakAbs = selF(absTotal > peakAbs, absTotal, peakAbs)
 		windowTotal = periodTotal
 		windowDown = downTotal
 		windowAbs = absTotal
@@ -267,6 +255,25 @@ func (c *Core) SORTINOLookback(optInTimePeriod int, optInMAR, optInAnnualization
 	return int(lookback), nil
 }
 
+// SORTINODisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SORTINO]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SORTINO] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SORTINOLookback] rejects or an index that names no output.
+func (c *Core) SORTINODisplayShift(optInTimePeriod int, optInMAR, optInAnnualization float64, outputIdx int) (int, error) {
+	if _, err := c.SORTINOLookback(optInTimePeriod, optInMAR, optInAnnualization); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SORTINO computes the Rolling Sortino Ratio over bars startIdx through endIdx.
 //
 // The rolling Sortino ratio: the mean return in excess of a minimum acceptable
@@ -304,7 +311,8 @@ func (c *Core) SORTINOLookback(optInTimePeriod int, optInMAR, optInAnnualization
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SORTINO(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInMAR, optInAnnualization float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -394,18 +402,126 @@ func (sp *SORTINOStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	sortinoStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var windowTotal float64
+	var windowDown float64
+	var windowAbs float64
+	var price float64
+	var trailingPrevPrice float64
+	var windowPrevPrice float64
+	var ret float64
+	var dev float64
+	var excess float64
+	var ratio float64
+	var windowBelow int32
+	var windowAbove int32
+	var i int32
+	var j int32
+	var optInMAR float64
+	var windowStart int32
+	var xMask int32
+	var x_inReal []float64
+	sp.x_inReal[sp.i&sp.xMask] = inReal
+	price = sp.x_inReal[sp.i&sp.xMask]
+	ret = 0.0
+	if sp.prevPrice != 0.0 {
+		ret = (price - sp.prevPrice) / sp.prevPrice
+	}
+	sp.prevPrice = price
+	sp.periodTotal += ret
+	sp.absTotal += math.Abs(ret)
+	dev = ret - sp.optInMAR
+	if dev < 0.0 {
+		sp.downTotal += float64(dev * dev)
+		sp.nbBelow += 1
+	} else if dev > 0.0 {
+		sp.nbAbove += 1
+	}
+	sp.peakDown = selF(sp.downTotal > sp.peakDown, sp.downTotal, sp.peakDown)
+	sp.peakAbs = selF(sp.absTotal > sp.peakAbs, sp.absTotal, sp.peakAbs)
+	windowTotal = sp.periodTotal
+	windowDown = sp.downTotal
+	windowAbs = sp.absTotal
+	windowBelow = sp.nbBelow
+	windowAbove = sp.nbAbove
+	trailingPrevPrice = sp.x_inReal[sp.trailingIdx&sp.xMask]
+	sp.trailingIdx += 1
+	price = sp.x_inReal[sp.trailingIdx&sp.xMask]
+	ret = 0.0
+	if trailingPrevPrice != 0.0 {
+		ret = (price - trailingPrevPrice) / trailingPrevPrice
+	}
+	sp.periodTotal -= ret
+	sp.absTotal -= math.Abs(ret)
+	dev = ret - sp.optInMAR
+	if dev < 0.0 {
+		sp.downTotal -= float64(dev * dev)
+		sp.nbBelow -= 1
+	} else if dev > 0.0 {
+		sp.nbAbove -= 1
+	}
+	sp.barsSinceReseed -= 1
+	if windowDown < float64(0.01*sp.peakDown) || windowAbs < float64(0.01*sp.peakAbs) || sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = 32 * sp.optInTimePeriod
+		sp.windowStart = sp.i - sp.optInTimePeriod + 1
+		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+		windowTotal = 0.0
+		windowDown = 0.0
+		windowAbs = 0.0
+		i = sp.i
+		j = sp.j
+		optInMAR = sp.optInMAR
+		windowStart = sp.windowStart
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			price = x_inReal[j&xMask]
+			ret = 0.0
+			if windowPrevPrice != 0.0 {
+				ret = (price - windowPrevPrice) / windowPrevPrice
+			}
+			windowPrevPrice = price
+			windowTotal += ret
+			windowAbs += math.Abs(ret)
+			dev = ret - optInMAR
+			if dev < 0.0 {
+				windowDown += float64(dev * dev)
+			}
+		}
+		sp.j = j
+		sp.peakDown = windowDown
+		sp.peakAbs = windowAbs
+		price = sp.x_inReal[sp.windowStart&sp.xMask]
+		ret = 0.0
+		if sp.x_inReal[(sp.windowStart-1)&sp.xMask] != 0.0 {
+			ret = (price - sp.x_inReal[(sp.windowStart-1)&sp.xMask]) / sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+		}
+		sp.periodTotal = windowTotal - ret
+		sp.absTotal = windowAbs - math.Abs(ret)
+		sp.downTotal = windowDown
+		dev = ret - sp.optInMAR
+		if dev < 0.0 {
+			sp.downTotal -= float64(dev * dev)
+		}
+	}
+	excess = float64(windowTotal*sp.invPeriod) - sp.optInMAR
+	if windowBelow == 0 {
+		windowDown = 0.0
+		excess = float64(windowAbove)
+	}
+	ratio = excess / math.Sqrt(float64(windowDown*sp.invPeriod))
+	sp.cur_outReal = float64(sp.sqrtAnnual * ratio)
+	sp.i += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SORTINOStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var windowTotal float64
@@ -420,6 +536,10 @@ func (sp *SORTINOStream) Peek(inReal float64) (float64, error) {
 	var ratio float64
 	var windowBelow int32
 	var windowAbove int32
+	var i int32
+	var optInMAR float64
+	var xMask int32
+	var x_inReal []float64
 	absTotal := sp.absTotal
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
@@ -458,40 +578,28 @@ func (sp *SORTINOStream) Peek(inReal float64) (float64, error) {
 	} else if dev > 0.0 {
 		nbAbove += 1
 	}
-	var _T1 float64
-	if downTotal > peakDown {
-		_T1 = downTotal
-	} else {
-		_T1 = peakDown
-	}
-	peakDown = _T1
-	var _T2 float64
-	if absTotal > peakAbs {
-		_T2 = absTotal
-	} else {
-		_T2 = peakAbs
-	}
-	peakAbs = _T2
+	peakDown = selF(downTotal > peakDown, downTotal, peakDown)
+	peakAbs = selF(absTotal > peakAbs, absTotal, peakAbs)
 	windowTotal = periodTotal
 	windowDown = downTotal
 	windowAbs = absTotal
 	windowBelow = nbBelow
 	windowAbove = nbAbove
-	var _T3 float64
+	var _T1 float64
 	if trailingIdx&sp.xMask != pkSlot0 {
-		_T3 = sp.x_inReal[trailingIdx&sp.xMask]
+		_T1 = sp.x_inReal[trailingIdx&sp.xMask]
 	} else {
-		_T3 = pkVal0
+		_T1 = pkVal0
 	}
-	trailingPrevPrice = _T3
+	trailingPrevPrice = _T1
 	trailingIdx += 1
-	var _T4 float64
+	var _T2 float64
 	if trailingIdx&sp.xMask != pkSlot0 {
-		_T4 = sp.x_inReal[trailingIdx&sp.xMask]
+		_T2 = sp.x_inReal[trailingIdx&sp.xMask]
 	} else {
-		_T4 = pkVal0
+		_T2 = pkVal0
 	}
-	price = _T4
+	price = _T2
 	ret = 0.0
 	if trailingPrevPrice != 0.0 {
 		ret = (price - trailingPrevPrice) / trailingPrevPrice
@@ -509,24 +617,28 @@ func (sp *SORTINOStream) Peek(inReal float64) (float64, error) {
 	if windowDown < float64(0.01*peakDown) || windowAbs < float64(0.01*peakAbs) || barsSinceReseed <= 0 {
 		barsSinceReseed = 32 * sp.optInTimePeriod
 		windowStart = sp.i - sp.optInTimePeriod + 1
-		var _T5 float64
+		var _T3 float64
 		if (windowStart-1)&sp.xMask != pkSlot0 {
-			_T5 = sp.x_inReal[(windowStart-1)&sp.xMask]
+			_T3 = sp.x_inReal[(windowStart-1)&sp.xMask]
 		} else {
-			_T5 = pkVal0
+			_T3 = pkVal0
 		}
-		windowPrevPrice = _T5
+		windowPrevPrice = _T3
 		windowTotal = 0.0
 		windowDown = 0.0
 		windowAbs = 0.0
-		for j = windowStart; j <= sp.i; j += 1 {
-			var _T6 float64
-			if j&sp.xMask != pkSlot0 {
-				_T6 = sp.x_inReal[j&sp.xMask]
+		i = sp.i
+		optInMAR = sp.optInMAR
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			var _T4 float64
+			if j&xMask != pkSlot0 {
+				_T4 = x_inReal[j&xMask]
 			} else {
-				_T6 = pkVal0
+				_T4 = pkVal0
 			}
-			price = _T6
+			price = _T4
 			ret = 0.0
 			if windowPrevPrice != 0.0 {
 				ret = (price - windowPrevPrice) / windowPrevPrice
@@ -534,41 +646,41 @@ func (sp *SORTINOStream) Peek(inReal float64) (float64, error) {
 			windowPrevPrice = price
 			windowTotal += ret
 			windowAbs += math.Abs(ret)
-			dev = ret - sp.optInMAR
+			dev = ret - optInMAR
 			if dev < 0.0 {
 				windowDown += float64(dev * dev)
 			}
 		}
 		peakDown = windowDown
 		peakAbs = windowAbs
-		var _T7 float64
+		var _T5 float64
 		if windowStart&sp.xMask != pkSlot0 {
-			_T7 = sp.x_inReal[windowStart&sp.xMask]
+			_T5 = sp.x_inReal[windowStart&sp.xMask]
 		} else {
-			_T7 = pkVal0
+			_T5 = pkVal0
 		}
-		price = _T7
+		price = _T5
 		ret = 0.0
-		var _T8 float64
+		var _T6 float64
 		if (windowStart-1)&sp.xMask != pkSlot0 {
-			_T8 = sp.x_inReal[(windowStart-1)&sp.xMask]
+			_T6 = sp.x_inReal[(windowStart-1)&sp.xMask]
 		} else {
-			_T8 = pkVal0
+			_T6 = pkVal0
 		}
-		if _T8 != 0.0 {
-			var _T9 float64
+		if _T6 != 0.0 {
+			var _T7 float64
 			if (windowStart-1)&sp.xMask != pkSlot0 {
-				_T9 = sp.x_inReal[(windowStart-1)&sp.xMask]
+				_T7 = sp.x_inReal[(windowStart-1)&sp.xMask]
 			} else {
-				_T9 = pkVal0
+				_T7 = pkVal0
 			}
-			var _T10 float64
+			var _T8 float64
 			if (windowStart-1)&sp.xMask != pkSlot0 {
-				_T10 = sp.x_inReal[(windowStart-1)&sp.xMask]
+				_T8 = sp.x_inReal[(windowStart-1)&sp.xMask]
 			} else {
-				_T10 = pkVal0
+				_T8 = pkVal0
 			}
-			ret = (price - _T9) / _T10
+			ret = (price - _T7) / _T8
 		}
 		periodTotal = windowTotal - ret
 		absTotal = windowAbs - math.Abs(ret)
@@ -599,117 +711,6 @@ func (sp *SORTINOStream) Clone() *SORTINOStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func sortinoStepImpl(sp *SORTINOStream, inReal float64) {
-	var windowTotal float64
-	var windowDown float64
-	var windowAbs float64
-	var price float64
-	var trailingPrevPrice float64
-	var windowPrevPrice float64
-	var ret float64
-	var dev float64
-	var excess float64
-	var ratio float64
-	var windowBelow int32
-	var windowAbove int32
-	sp.x_inReal[sp.i&sp.xMask] = inReal
-	price = sp.x_inReal[sp.i&sp.xMask]
-	ret = 0.0
-	if sp.prevPrice != 0.0 {
-		ret = (price - sp.prevPrice) / sp.prevPrice
-	}
-	sp.prevPrice = price
-	sp.periodTotal += ret
-	sp.absTotal += math.Abs(ret)
-	dev = ret - sp.optInMAR
-	if dev < 0.0 {
-		sp.downTotal += float64(dev * dev)
-		sp.nbBelow += 1
-	} else if dev > 0.0 {
-		sp.nbAbove += 1
-	}
-	var _T11 float64
-	if sp.downTotal > sp.peakDown {
-		_T11 = sp.downTotal
-	} else {
-		_T11 = sp.peakDown
-	}
-	sp.peakDown = _T11
-	var _T12 float64
-	if sp.absTotal > sp.peakAbs {
-		_T12 = sp.absTotal
-	} else {
-		_T12 = sp.peakAbs
-	}
-	sp.peakAbs = _T12
-	windowTotal = sp.periodTotal
-	windowDown = sp.downTotal
-	windowAbs = sp.absTotal
-	windowBelow = sp.nbBelow
-	windowAbove = sp.nbAbove
-	trailingPrevPrice = sp.x_inReal[sp.trailingIdx&sp.xMask]
-	sp.trailingIdx += 1
-	price = sp.x_inReal[sp.trailingIdx&sp.xMask]
-	ret = 0.0
-	if trailingPrevPrice != 0.0 {
-		ret = (price - trailingPrevPrice) / trailingPrevPrice
-	}
-	sp.periodTotal -= ret
-	sp.absTotal -= math.Abs(ret)
-	dev = ret - sp.optInMAR
-	if dev < 0.0 {
-		sp.downTotal -= float64(dev * dev)
-		sp.nbBelow -= 1
-	} else if dev > 0.0 {
-		sp.nbAbove -= 1
-	}
-	sp.barsSinceReseed -= 1
-	if windowDown < float64(0.01*sp.peakDown) || windowAbs < float64(0.01*sp.peakAbs) || sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = 32 * sp.optInTimePeriod
-		sp.windowStart = sp.i - sp.optInTimePeriod + 1
-		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-		windowTotal = 0.0
-		windowDown = 0.0
-		windowAbs = 0.0
-		for sp.j = sp.windowStart; sp.j <= sp.i; sp.j += 1 {
-			price = sp.x_inReal[sp.j&sp.xMask]
-			ret = 0.0
-			if windowPrevPrice != 0.0 {
-				ret = (price - windowPrevPrice) / windowPrevPrice
-			}
-			windowPrevPrice = price
-			windowTotal += ret
-			windowAbs += math.Abs(ret)
-			dev = ret - sp.optInMAR
-			if dev < 0.0 {
-				windowDown += float64(dev * dev)
-			}
-		}
-		sp.peakDown = windowDown
-		sp.peakAbs = windowAbs
-		price = sp.x_inReal[sp.windowStart&sp.xMask]
-		ret = 0.0
-		if sp.x_inReal[(sp.windowStart-1)&sp.xMask] != 0.0 {
-			ret = (price - sp.x_inReal[(sp.windowStart-1)&sp.xMask]) / sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-		}
-		sp.periodTotal = windowTotal - ret
-		sp.absTotal = windowAbs - math.Abs(ret)
-		sp.downTotal = windowDown
-		dev = ret - sp.optInMAR
-		if dev < 0.0 {
-			sp.downTotal -= float64(dev * dev)
-		}
-	}
-	excess = float64(windowTotal*sp.invPeriod) - sp.optInMAR
-	if windowBelow == 0 {
-		windowDown = 0.0
-		excess = float64(windowAbove)
-	}
-	ratio = excess / math.Sqrt(float64(windowDown*sp.invPeriod))
-	sp.cur_outReal = float64(sp.sqrtAnnual * ratio)
-	sp.i += 1
 }
 
 func (c *Core) sortinoOpenImpl(sp *SORTINOStream, inReal []float64, startIdx, optInTimePeriod int32, optInMAR, optInAnnualization float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -821,20 +822,8 @@ func (c *Core) sortinoOpenImpl(sp *SORTINOStream, inReal []float64, startIdx, op
 		} else if dev > 0.0 {
 			nbAbove += 1
 		}
-		var _T13 float64
-		if downTotal > peakDown {
-			_T13 = downTotal
-		} else {
-			_T13 = peakDown
-		}
-		peakDown = _T13
-		var _T14 float64
-		if absTotal > peakAbs {
-			_T14 = absTotal
-		} else {
-			_T14 = peakAbs
-		}
-		peakAbs = _T14
+		peakDown = selF(downTotal > peakDown, downTotal, peakDown)
+		peakAbs = selF(absTotal > peakAbs, absTotal, peakAbs)
 		windowTotal = periodTotal
 		windowDown = downTotal
 		windowAbs = absTotal
@@ -973,7 +962,8 @@ func (c *Core) sortinoOpenInternal(inReal []float64, startIdx, optInTimePeriod i
 // inReal is the history; the parameters are those of [Core.SORTINO].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SORTINOLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SORTINOLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SORTINOOpen(inReal []float64, optInTimePeriod int, optInMAR, optInAnnualization float64) (*SORTINOStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -993,7 +983,8 @@ func (c *Core) SORTINOOpen(inReal []float64, optInTimePeriod int, optInMAR, optI
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SORTINOOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SORTINOOpenAndFill(inReal []float64, optInTimePeriod int, optInMAR, optInAnnualization float64, outReal []float64) (*SORTINOStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

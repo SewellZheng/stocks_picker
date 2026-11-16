@@ -71,7 +71,7 @@ impl Core {
     #[doc(alias = "TA_TYPPRICE_Lookback")]
     pub fn typprice_lookback(&self) -> Result<usize, RetCode> {
         // This function have no lookback needed.
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::typprice`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -119,7 +119,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let inHigh = &inHigh[..=endIdx];
@@ -135,13 +134,12 @@ impl Core {
             let _w2 = &inLow[i..][.._wn];
             let _w3 = &mut outReal[outIdx..][.._wn];
             for _wk in 0.._wn {
-                _w3[_wk] = (((_w1[_wk] + _w2[_wk] + _w0[_wk]) / 3.0) as f64);
+                _w3[_wk] = ((_w1[_wk] + _w2[_wk] + _w0[_wk]) / 3.0) as f64;
                 outIdx += 1;
-                i += 1;
             }
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Typical Price: the average of the high, low, and close of each bar. A single representative
@@ -183,19 +181,23 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.typprice(0, high.len() - 1, &high, &low, &close, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -283,8 +285,8 @@ struct TyppriceStreamState {
 #[allow(unused_parens)]
 impl Core {
     fn typprice_step_impl(sp: &mut TyppriceStreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
-        (*outReal) = (inHigh + inLow + inClose) / 3.0;
-        sp.cur_outReal = (*outReal);
+        *outReal = (inHigh + inLow + inClose) / 3.0;
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::typprice_open_internal`]
@@ -300,24 +302,19 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
-        let mut i: usize = 0_usize;
         // Typical price = (High + Low + Close ) / 3
         outIdx = 0;
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
-            outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (((inHigh[i] + inLow[i] + inClose[i]) / 3.0) as f64);
+        for i in startIdx..endIdx + 1 {
+            outReal[{ let _v = outIdx; outIdx += 1; _v } * outStride] = ((inHigh[i] + inLow[i] + inClose[i]) / 3.0) as f64;
         }
-        i = (endIdx as usize) + 1;
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
 
         // Capture the live batch state into the handle.
         let state = TyppriceStreamState {
@@ -352,10 +349,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -387,10 +388,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -496,7 +501,7 @@ impl TyppriceStream {
         let mut outReal: f64 = 0.0_f64;
         {
             let outReal = &mut outReal;
-            (*outReal) = (inHigh + inLow + inClose) / 3.0;
+            *outReal = (inHigh + inLow + inClose) / 3.0;
         }
         Ok(outReal)
     }

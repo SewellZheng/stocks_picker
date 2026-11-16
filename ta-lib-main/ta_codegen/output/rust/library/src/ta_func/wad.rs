@@ -72,7 +72,7 @@ impl Core {
         // lines in the tree: OBV, AD, NVI, PVI and PVT all return 0 here and emit
         // a seed value at startIdx. Tulip's ti_wad_start() returns 1 instead, so its
         // series is this one without the leading zero.
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::wad`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -120,12 +120,10 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
         let mut sum: f64 = 0.0_f64;
         let mut prevClose: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
         let mut trueExtreme: f64 = 0.0_f64;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let inHigh = &inHigh[..=endIdx];
         let inLow = &inLow[..=endIdx];
@@ -169,7 +167,7 @@ impl Core {
         // contributes exactly 0.0. The accumulator therefore restarts wherever the
         // caller starts, which is why this function is flagged path_dependent.
         prevClose = inClose[startIdx];
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             close = inClose[i];
             if close > prevClose {
                 trueExtreme = inLow[i];
@@ -184,9 +182,8 @@ impl Core {
             outIdx = outIdx + 1;
             prevClose = close;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// Williams' Accumulation/Distribution: a cumulative line meant to expose whether a security is
@@ -237,19 +234,23 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.wad(0, high.len() - 1, &high, &low, &close, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -365,9 +366,9 @@ impl Core {
             trueExtreme = c_max(sp.prevClose, trueExtreme);
             sp.sum += close - trueExtreme;
         }
-        (*outReal) = sp.sum;
+        *outReal = sp.sum;
         sp.prevClose = close;
-        sp.cur_outReal = (*outReal);
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::wad_open_internal`]
@@ -383,19 +384,15 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut sum: f64 = 0.0_f64;
         let mut prevClose: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
         let mut trueExtreme: f64 = 0.0_f64;
-        let mut i: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         // Williams' Accumulation/Distribution, in the form Steven Achelis
         // published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
@@ -436,7 +433,7 @@ impl Core {
         // contributes exactly 0.0. The accumulator therefore restarts wherever the
         // caller starts, which is why this function is flagged path_dependent.
         prevClose = inClose[startIdx];
-        for i in (startIdx as usize)..(endIdx as usize) + 1 {
+        for i in startIdx..endIdx + 1 {
             close = inClose[i];
             if close > prevClose {
                 trueExtreme = inLow[i];
@@ -447,13 +444,12 @@ impl Core {
                 trueExtreme = c_max(prevClose, trueExtreme);
                 sum += close - trueExtreme;
             }
-            outReal[(outIdx * outStride) as usize] = sum;
+            outReal[outIdx * outStride] = sum;
             outIdx = outIdx + 1;
             prevClose = close;
         }
-        i = (endIdx as usize) + 1;
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = WadStreamState {
@@ -487,10 +483,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -522,10 +522,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -645,7 +649,7 @@ impl WadStream {
                 trueExtreme = c_max(sp.prevClose, trueExtreme);
                 sum += close - trueExtreme;
             }
-            (*outReal) = sum;
+            *outReal = sum;
         }
         Ok(outReal)
     }

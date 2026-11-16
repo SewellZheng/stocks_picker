@@ -279,6 +279,25 @@ func (c *Core) BETALookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// BETADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.BETA].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.BETA] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.BETALookback] rejects or an index that names no output.
+func (c *Core) BETADisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.BETALookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // BETA computes the Beta over bars startIdx through endIdx.
 //
 // Beta: the slope of a least-squares linear regression of one series'
@@ -311,7 +330,8 @@ func (c *Core) BETALookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) BETA(startIdx, endIdx int, inReal0, inReal1 []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -406,18 +426,166 @@ func (sp *BETAStream) Update(inReal0, inReal1 float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
-	betaStepImpl(sp, inReal0, inReal1)
 	sp.outRangeCount++
+	var tmp_real float64
+	var denom float64
+	var denom_scale float64
+	var prev_x float64
+	var prev_y float64
+	var windowStart int32
+	var x float64
+	var y float64
+	var i int32
+	var j int32
+	var shift_y float64
+	var xMask int32
+	var x_inReal0 []float64
+	var x_inReal1 []float64
+	var S_x float64
+	var S_xx float64
+	var S_xy float64
+	var S_y float64
+	var S_yy float64
+	var shift_x float64
+	sp.x_inReal0[sp.i&sp.xMask] = inReal0
+	sp.x_inReal1[sp.i&sp.xMask] = inReal1
+	tmp_real = sp.x_inReal0[sp.i&sp.xMask]
+	if sp.last_price_x != 0.0 {
+		x = (tmp_real-sp.last_price_x)/sp.last_price_x - sp.shift_x
+	} else {
+		x = -sp.shift_x
+	}
+	sp.last_price_x = tmp_real
+	tmp_real = sp.x_inReal1[sp.i&sp.xMask]
+	sp.i++
+	if sp.last_price_y != 0.0 {
+		y = (tmp_real-sp.last_price_y)/sp.last_price_y - sp.shift_y
+	} else {
+		y = -sp.shift_y
+	}
+	sp.last_price_y = tmp_real
+	sp.S_xx += float64(x * x)
+	sp.S_yy += float64(y * y)
+	sp.S_xy += float64(x * y)
+	sp.S_x += x
+	sp.S_y += y
+	denom_scale = float64(sp.n * sp.S_xx)
+	denom = denom_scale - float64(sp.S_x*sp.S_x)
+	sp.barsSinceReseed -= 1
+	if denom < float64(1e-6*denom_scale) || sp.leaving_xx > float64(1000.0*sp.S_xx) || sp.leaving_yy > float64(1000.0*sp.S_yy) || sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = 32 * sp.optInTimePeriod
+		windowStart = sp.trailingIdx
+		prev_x = sp.trailing_last_price_x
+		prev_y = sp.trailing_last_price_y
+		tmp_real = 0.0
+		sp.shift_y = 0.0
+		i = sp.i
+		j = sp.j
+		shift_y = sp.shift_y
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j < i; j += 1 {
+			if prev_x != 0.0 {
+				tmp_real += (x_inReal0[j&xMask] - prev_x) / prev_x
+			}
+			prev_x = x_inReal0[j&xMask]
+			if prev_y != 0.0 {
+				shift_y += (x_inReal1[j&xMask] - prev_y) / prev_y
+			}
+			prev_y = x_inReal1[j&xMask]
+		}
+		sp.j = j
+		sp.shift_y = shift_y
+		sp.shift_x = tmp_real / sp.n
+		sp.shift_y = sp.shift_y / sp.n
+		prev_x = sp.trailing_last_price_x
+		prev_y = sp.trailing_last_price_y
+		sp.S_xx = 0.0
+		sp.S_yy = 0.0
+		sp.S_xy = 0.0
+		sp.S_x = 0.0
+		sp.S_y = 0.0
+		S_x = sp.S_x
+		S_xx = sp.S_xx
+		S_xy = sp.S_xy
+		S_y = sp.S_y
+		S_yy = sp.S_yy
+		i = sp.i
+		j = sp.j
+		shift_x = sp.shift_x
+		shift_y = sp.shift_y
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j < i; j += 1 {
+			if prev_x != 0.0 {
+				x = (x_inReal0[j&xMask]-prev_x)/prev_x - shift_x
+			} else {
+				x = -shift_x
+			}
+			prev_x = x_inReal0[j&xMask]
+			if prev_y != 0.0 {
+				y = (x_inReal1[j&xMask]-prev_y)/prev_y - shift_y
+			} else {
+				y = -shift_y
+			}
+			prev_y = x_inReal1[j&xMask]
+			S_xx += float64(x * x)
+			S_yy += float64(y * y)
+			S_xy += float64(x * y)
+			S_x += x
+			S_y += y
+		}
+		sp.S_x = S_x
+		sp.S_xx = S_xx
+		sp.S_xy = S_xy
+		sp.S_y = S_y
+		sp.S_yy = S_yy
+		sp.j = j
+		denom_scale = float64(sp.n * sp.S_xx)
+		denom = denom_scale - float64(sp.S_x*sp.S_x)
+		if denom < 0.0 {
+			denom = 0.0
+		}
+	}
+	tmp_real = sp.x_inReal0[sp.trailingIdx&sp.xMask]
+	if sp.trailing_last_price_x != 0.0 {
+		x = (tmp_real-sp.trailing_last_price_x)/sp.trailing_last_price_x - sp.shift_x
+	} else {
+		x = -sp.shift_x
+	}
+	sp.trailing_last_price_x = tmp_real
+	tmp_real = sp.x_inReal1[sp.trailingIdx&sp.xMask]
+	sp.trailingIdx += 1
+	if sp.trailing_last_price_y != 0.0 {
+		y = (tmp_real-sp.trailing_last_price_y)/sp.trailing_last_price_y - sp.shift_y
+	} else {
+		y = -sp.shift_y
+	}
+	sp.trailing_last_price_y = tmp_real
+	if denom > float64(1e-14*denom_scale) {
+		sp.cur_outReal = (float64(sp.n*sp.S_xy) - float64(sp.S_x*sp.S_y)) / denom
+	} else {
+		sp.cur_outReal = 0.0
+	}
+	sp.leaving_xx = float64(x * x)
+	sp.leaving_yy = float64(y * y)
+	sp.S_xx -= float64(x * x)
+	sp.S_yy -= float64(y * y)
+	sp.S_xy -= float64(x * y)
+	sp.S_x -= x
+	sp.S_y -= y
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inReal0 and inReal1),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
 	var tmp_real float64
@@ -428,6 +596,9 @@ func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
 	var windowStart int32
 	var x float64
 	var y float64
+	var xMask int32
+	var x_inReal0 []float64
+	var x_inReal1 []float64
 	S_x := sp.S_x
 	S_xx := sp.S_xx
 	S_xy := sp.S_xy
@@ -496,35 +667,38 @@ func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
 		prev_y = trailing_last_price_y
 		tmp_real = 0.0
 		shift_y = 0.0
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
 		for j = windowStart; j < i; j += 1 {
 			if prev_x != 0.0 {
 				var _T2 float64
-				if j&sp.xMask != pkSlot0 {
-					_T2 = sp.x_inReal0[j&sp.xMask]
+				if j&xMask != pkSlot0 {
+					_T2 = x_inReal0[j&xMask]
 				} else {
 					_T2 = pkVal0
 				}
 				tmp_real += (_T2 - prev_x) / prev_x
 			}
 			var _T3 float64
-			if j&sp.xMask != pkSlot0 {
-				_T3 = sp.x_inReal0[j&sp.xMask]
+			if j&xMask != pkSlot0 {
+				_T3 = x_inReal0[j&xMask]
 			} else {
 				_T3 = pkVal0
 			}
 			prev_x = _T3
 			if prev_y != 0.0 {
 				var _T4 float64
-				if j&sp.xMask != pkSlot1 {
-					_T4 = sp.x_inReal1[j&sp.xMask]
+				if j&xMask != pkSlot1 {
+					_T4 = x_inReal1[j&xMask]
 				} else {
 					_T4 = pkVal1
 				}
 				shift_y += (_T4 - prev_y) / prev_y
 			}
 			var _T5 float64
-			if j&sp.xMask != pkSlot1 {
-				_T5 = sp.x_inReal1[j&sp.xMask]
+			if j&xMask != pkSlot1 {
+				_T5 = x_inReal1[j&xMask]
 			} else {
 				_T5 = pkVal1
 			}
@@ -539,11 +713,14 @@ func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
 		S_xy = 0.0
 		S_x = 0.0
 		S_y = 0.0
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
 		for j = windowStart; j < i; j += 1 {
 			if prev_x != 0.0 {
 				var _T6 float64
-				if j&sp.xMask != pkSlot0 {
-					_T6 = sp.x_inReal0[j&sp.xMask]
+				if j&xMask != pkSlot0 {
+					_T6 = x_inReal0[j&xMask]
 				} else {
 					_T6 = pkVal0
 				}
@@ -552,16 +729,16 @@ func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
 				x = -shift_x
 			}
 			var _T7 float64
-			if j&sp.xMask != pkSlot0 {
-				_T7 = sp.x_inReal0[j&sp.xMask]
+			if j&xMask != pkSlot0 {
+				_T7 = x_inReal0[j&xMask]
 			} else {
 				_T7 = pkVal0
 			}
 			prev_x = _T7
 			if prev_y != 0.0 {
 				var _T8 float64
-				if j&sp.xMask != pkSlot1 {
-					_T8 = sp.x_inReal1[j&sp.xMask]
+				if j&xMask != pkSlot1 {
+					_T8 = x_inReal1[j&xMask]
 				} else {
 					_T8 = pkVal1
 				}
@@ -570,8 +747,8 @@ func (sp *BETAStream) Peek(inReal0, inReal1 float64) (float64, error) {
 				y = -shift_y
 			}
 			var _T9 float64
-			if j&sp.xMask != pkSlot1 {
-				_T9 = sp.x_inReal1[j&sp.xMask]
+			if j&xMask != pkSlot1 {
+				_T9 = x_inReal1[j&xMask]
 			} else {
 				_T9 = pkVal1
 			}
@@ -635,120 +812,6 @@ func (sp *BETAStream) Clone() *BETAStream {
 	cl.x_inReal0 = append(sp.x_inReal0[:0:0], sp.x_inReal0...)
 	cl.x_inReal1 = append(sp.x_inReal1[:0:0], sp.x_inReal1...)
 	return &cl
-}
-
-func betaStepImpl(sp *BETAStream, inReal0, inReal1 float64) {
-	var tmp_real float64
-	var denom float64
-	var denom_scale float64
-	var prev_x float64
-	var prev_y float64
-	var windowStart int32
-	var x float64
-	var y float64
-	sp.x_inReal0[sp.i&sp.xMask] = inReal0
-	sp.x_inReal1[sp.i&sp.xMask] = inReal1
-	tmp_real = sp.x_inReal0[sp.i&sp.xMask]
-	if sp.last_price_x != 0.0 {
-		x = (tmp_real-sp.last_price_x)/sp.last_price_x - sp.shift_x
-	} else {
-		x = -sp.shift_x
-	}
-	sp.last_price_x = tmp_real
-	tmp_real = sp.x_inReal1[sp.i&sp.xMask]
-	sp.i++
-	if sp.last_price_y != 0.0 {
-		y = (tmp_real-sp.last_price_y)/sp.last_price_y - sp.shift_y
-	} else {
-		y = -sp.shift_y
-	}
-	sp.last_price_y = tmp_real
-	sp.S_xx += float64(x * x)
-	sp.S_yy += float64(y * y)
-	sp.S_xy += float64(x * y)
-	sp.S_x += x
-	sp.S_y += y
-	denom_scale = float64(sp.n * sp.S_xx)
-	denom = denom_scale - float64(sp.S_x*sp.S_x)
-	sp.barsSinceReseed -= 1
-	if denom < float64(1e-6*denom_scale) || sp.leaving_xx > float64(1000.0*sp.S_xx) || sp.leaving_yy > float64(1000.0*sp.S_yy) || sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = 32 * sp.optInTimePeriod
-		windowStart = sp.trailingIdx
-		prev_x = sp.trailing_last_price_x
-		prev_y = sp.trailing_last_price_y
-		tmp_real = 0.0
-		sp.shift_y = 0.0
-		for sp.j = windowStart; sp.j < sp.i; sp.j += 1 {
-			if prev_x != 0.0 {
-				tmp_real += (sp.x_inReal0[sp.j&sp.xMask] - prev_x) / prev_x
-			}
-			prev_x = sp.x_inReal0[sp.j&sp.xMask]
-			if prev_y != 0.0 {
-				sp.shift_y += (sp.x_inReal1[sp.j&sp.xMask] - prev_y) / prev_y
-			}
-			prev_y = sp.x_inReal1[sp.j&sp.xMask]
-		}
-		sp.shift_x = tmp_real / sp.n
-		sp.shift_y = sp.shift_y / sp.n
-		prev_x = sp.trailing_last_price_x
-		prev_y = sp.trailing_last_price_y
-		sp.S_xx = 0.0
-		sp.S_yy = 0.0
-		sp.S_xy = 0.0
-		sp.S_x = 0.0
-		sp.S_y = 0.0
-		for sp.j = windowStart; sp.j < sp.i; sp.j += 1 {
-			if prev_x != 0.0 {
-				x = (sp.x_inReal0[sp.j&sp.xMask]-prev_x)/prev_x - sp.shift_x
-			} else {
-				x = -sp.shift_x
-			}
-			prev_x = sp.x_inReal0[sp.j&sp.xMask]
-			if prev_y != 0.0 {
-				y = (sp.x_inReal1[sp.j&sp.xMask]-prev_y)/prev_y - sp.shift_y
-			} else {
-				y = -sp.shift_y
-			}
-			prev_y = sp.x_inReal1[sp.j&sp.xMask]
-			sp.S_xx += float64(x * x)
-			sp.S_yy += float64(y * y)
-			sp.S_xy += float64(x * y)
-			sp.S_x += x
-			sp.S_y += y
-		}
-		denom_scale = float64(sp.n * sp.S_xx)
-		denom = denom_scale - float64(sp.S_x*sp.S_x)
-		if denom < 0.0 {
-			denom = 0.0
-		}
-	}
-	tmp_real = sp.x_inReal0[sp.trailingIdx&sp.xMask]
-	if sp.trailing_last_price_x != 0.0 {
-		x = (tmp_real-sp.trailing_last_price_x)/sp.trailing_last_price_x - sp.shift_x
-	} else {
-		x = -sp.shift_x
-	}
-	sp.trailing_last_price_x = tmp_real
-	tmp_real = sp.x_inReal1[sp.trailingIdx&sp.xMask]
-	sp.trailingIdx += 1
-	if sp.trailing_last_price_y != 0.0 {
-		y = (tmp_real-sp.trailing_last_price_y)/sp.trailing_last_price_y - sp.shift_y
-	} else {
-		y = -sp.shift_y
-	}
-	sp.trailing_last_price_y = tmp_real
-	if denom > float64(1e-14*denom_scale) {
-		sp.cur_outReal = (float64(sp.n*sp.S_xy) - float64(sp.S_x*sp.S_y)) / denom
-	} else {
-		sp.cur_outReal = 0.0
-	}
-	sp.leaving_xx = float64(x * x)
-	sp.leaving_yy = float64(y * y)
-	sp.S_xx -= float64(x * x)
-	sp.S_yy -= float64(y * y)
-	sp.S_xy -= float64(x * y)
-	sp.S_x -= x
-	sp.S_y -= y
 }
 
 func (c *Core) betaOpenImpl(sp *BETAStream, inReal0, inReal1 []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -1044,8 +1107,9 @@ func (c *Core) betaOpenInternal(inReal0, inReal1 []float64, startIdx, optInTimeP
 // those of [Core.BETA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.BETALookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.BETALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) BETAOpen(inReal0, inReal1 []float64, optInTimePeriod int) (*BETAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -1065,7 +1129,8 @@ func (c *Core) BETAOpen(inReal0, inReal1 []float64, optInTimePeriod int) (*BETAS
 // no memory with an input or another output.
 //
 // The errors are those of [Core.BETAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) BETAOpenAndFill(inReal0, inReal1 []float64, optInTimePeriod int, outReal []float64) (*BETAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

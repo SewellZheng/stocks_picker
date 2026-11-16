@@ -360,9 +360,12 @@ fn c_batch_prologue_orders_parameters_before_presence() {
 
     // Two per function, double and float. Literal floors: derived ones move with
     // whatever the scan happens to find.
-    assert!(prologues >= 340, "only {prologues} C batch prologues scanned");
     assert!(
-        with_params >= 150,
+        common::sweep_filtered() || prologues >= 340,
+        "only {prologues} C batch prologues scanned"
+    );
+    assert!(
+        common::sweep_filtered() || with_params >= 150,
         "only {with_params} prologues carried parameter validation — rB3 is barely covered"
     );
 }
@@ -398,10 +401,12 @@ fn rust_alias_guard(func: &ir::FuncDef) -> Option<String> {
     if pairs.is_empty() {
         return None;
     }
-    Some(format!(
-        "        if {} {{\n            return RetCode::BadParam;\n        }}\n",
-        pairs.join(" || ")
-    ))
+    // A lone comparison is the whole condition, so it carries no parentheses.
+    let cond = match &pairs[..] {
+        [one] => one.strip_prefix('(').and_then(|p| p.strip_suffix(')')).unwrap_or(one).to_string(),
+        _ => pairs.join(" || "),
+    };
+    Some(format!("        if {cond} {{\n            return RetCode::BadParam;\n        }}\n"))
 }
 
 /// The term a cross-typed pair WOULD contribute if the generator stopped
@@ -483,7 +488,7 @@ fn rust_batch_impl_orders_capacity_before_aliasing() {
             .filter_map(|opt| {
                 let head = match opt.param_type {
                     ir::ParamType::Integer => {
-                        format!("if (({}) as i32) == (i32::MIN) {{", opt.name)
+                        format!("if {} == i32::MIN {{", opt.name)
                     }
                     ir::ParamType::Real => format!("if {} == Self::REAL_DEFAULT {{", opt.name),
                     _ => return None,
@@ -535,9 +540,12 @@ fn rust_batch_impl_orders_capacity_before_aliasing() {
     }
 
     // Literal floors: derived ones move with whatever the scan happens to find.
-    assert!(scanned >= 15, "only {scanned} multi-output Rust bodies scanned");
     assert!(
-        with_params >= 12,
+        common::sweep_filtered() || scanned >= 15,
+        "only {scanned} multi-output Rust bodies scanned"
+    );
+    assert!(
+        common::sweep_filtered() || with_params >= 12,
         "only {with_params} carried parameter validation — rB3 is barely covered"
     );
 }
@@ -628,10 +636,19 @@ fn rust_public_entry_orders_the_argument_contract() {
     }
 
     // Literal floors: derived ones move with whatever the scan happens to find.
-    assert!(scanned >= 200, "only {scanned} public entries scanned");
-    assert!(with_params >= 80, "only {with_params} carried optional parameters");
-    assert!(inputs_checked >= 380, "only {inputs_checked} input bounds found");
-    assert!(outputs_checked >= 190, "only {outputs_checked} output bounds found");
+    assert!(common::sweep_filtered() || scanned >= 200, "only {scanned} public entries scanned");
+    assert!(
+        common::sweep_filtered() || with_params >= 80,
+        "only {with_params} carried optional parameters"
+    );
+    assert!(
+        common::sweep_filtered() || inputs_checked >= 380,
+        "only {inputs_checked} input bounds found"
+    );
+    assert!(
+        common::sweep_filtered() || outputs_checked >= 190,
+        "only {outputs_checked} output bounds found"
+    );
 }
 
 /// Rust's metadata tier calls the PUBLIC entry point, so every rule the batch
@@ -719,8 +736,11 @@ fn rust_binder_calls_the_public_tier() {
         "the binder's own output bound is back; there must be exactly one, and it \
          is the public tier's"
     );
-    assert!(called >= 200, "only {called} binder arms scanned");
-    assert!(guarded >= 200, "only {guarded} arms carried a binding guard");
+    assert!(common::sweep_filtered() || called >= 200, "only {called} binder arms scanned");
+    assert!(
+        common::sweep_filtered() || guarded >= 200,
+        "only {guarded} arms carried a binding guard"
+    );
 }
 
 /// The metadata tier's price setter validates every consumed component before
@@ -827,7 +847,53 @@ fn metadata_price_setter_validates_before_writing() {
         "ts: the write is not the whole-bundle commit -- an indexed write is the interleaved shape",
     );
     assert!(t_check < t_write, "ts: the bundle is committed before the last component is checked");
+    let t_loop = t_sec.find("for (let k = 0; k < COMPONENTS.length; k++) {").expect("ts: no validating loop");
+    let t_end = t_loop + t_sec[t_loop..].find("\n    }\n").expect("ts: the validating loop does not close");
+    assert!(t_end < t_write, "ts: the write is inside the validating loop");
     assert_eq!(t_sec.matches("this.prices[").count(), 1, "ts: the bundle is written more than once");
+
+    // Go: the same shape as TypeScript, the bundle committed whole after the loop.
+    let go = backends::go_metadata::render_param_holder();
+    let g_sec = extract_section(&go, "func (h *ParamHolder) SetPriceInput(", "\n}\n");
+    let g_check = g_sec.find("&& s == nil {").expect("go: no per-component validation");
+    let g_write = g_sec.find("h.prices[idx] = given").expect(
+        "go: the write is not the whole-bundle commit -- an indexed write is the interleaved shape",
+    );
+    assert!(g_check < g_write, "go: the bundle is committed before the last component is checked");
+    let g_loop = g_sec.find("for k, s := range given {").expect("go: no validating loop");
+    let g_end = g_loop + g_sec[g_loop..].find("\n\t}\n").expect("go: the validating loop does not close");
+    assert!(g_end < g_write, "go: the write is inside the validating loop");
+    assert_eq!(g_sec.matches("h.prices[").count(), 1, "go: the bundle is written more than once");
+}
+
+/// Go's metadata thunks call each function's exported methods, so a holder's
+/// lookback, display shift and call meet the argument contract a direct call
+/// does, a leg shorter than the range included. On the PR gate, as the
+/// runtime probes in the Go module's own suite are not.
+#[test]
+fn go_metadata_calls_the_public_tier() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|n| parser::yaml::parse_yaml(&base.join(format!("{n}/{n}.yaml"))))
+        .collect();
+    let files = backends::go_metadata::render_all(&funcs, &enums);
+    let out = &files.iter().find(|(n, _)| *n == "functions.go").expect("functions.go").1;
+    for f in &funcs {
+        let names = backends::go::go_names(&f.name);
+        for (thunk, callee) in [
+            ("lookback", &names.lookback_public),
+            ("displayShift", &names.display_shift_public),
+            ("call", &names.public),
+        ] {
+            let head = format!("func {thunk}{}(", f.name);
+            let body = extract_section(out, &head, "\n}\n");
+            assert!(body.contains(&format!("return c.{callee}(")), "{}: {thunk} does not call {callee}", f.name);
+        }
+    }
+    assert!(!out.contains("Impl("), "a thunk calls an unexported body");
+    assert!(common::sweep_filtered() || funcs.len() >= 200, "only {} functions", funcs.len());
 }
 
 /// Rust's transcribed bodies call their callee's PUBLIC entry point, as C, Java
@@ -933,9 +999,12 @@ fn rust_cross_calls_target_the_public_tier() {
     // and they are what makes this non-vacuous — `scanned` is incremented once
     // per corpus entry and could only disagree with the corpus by panicking
     // first, so it is these two that prove the sweep found anything at all.
-    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
-    assert!(callers >= 14, "only {callers} composed indicators scanned");
-    assert!(sites >= 39, "only {sites} cross-call sites scanned");
+    assert!(common::sweep_filtered() || scanned >= 200, "only {scanned} indicators in the corpus");
+    assert!(
+        common::sweep_filtered() || callers >= 14,
+        "only {callers} composed indicators scanned"
+    );
+    assert!(common::sweep_filtered() || sites >= 39, "only {sites} cross-call sites scanned");
 }
 
 /// A cross-call's rejection is answered where the call is made, so the guard the
@@ -1001,23 +1070,9 @@ fn an_answered_cross_call_guard_is_folded_in_every_ported_backend() {
         let (func, enums) = load_indicator(&name);
         scanned += 1;
 
-        let mut rust = backends::rust_lang::generate(&func, &enums, registry, &helpers);
-        let mut java = backends::java::generate(&func, &enums, registry, &helpers);
-        let mut csharp = backends::csharp::generate(&func, &enums, registry, &helpers);
-        if func.streaming {
-            if backends::rust_stream::emits_stream(&func, registry) {
-                rust.push_str(&backends::rust_stream::generate(&func, &enums, registry, &helpers));
-            }
-            if backends::java_stream::emits_stream(&func, registry) {
-                java.push_str(&backends::java_stream::generate(&func, &enums, registry, &helpers));
-            }
-            if backends::csharp_stream::emits_stream(&func, registry) {
-                csharp
-                    .push_str(&backends::csharp_stream::generate(&func, &enums, registry, &helpers));
-            }
-        }
-
-        // TS's generate carries its stream section already.
+        let rust = backends::rust_lang::generate(&func, &enums, registry, &helpers);
+        let java = backends::java::generate(&func, &enums, registry, &helpers);
+        let csharp = backends::csharp::generate(&func, &enums, registry, &helpers);
         let ts = backends::ts::generate(&func, &enums, registry, common::make_helpers());
         for (src, success, ne, lang) in [
             (&rust, "RetCode::Success", "!=", "rust"),
@@ -1040,13 +1095,21 @@ fn an_answered_cross_call_guard_is_folded_in_every_ported_backend() {
     assert_eq!(dead, 0, "{dead} dead guards survived");
     // Literal floors. Without them an emitter that stopped assigning the literal
     // would read green on a corpus with nothing left to check.
-    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
+    assert!(common::sweep_filtered() || scanned >= 200, "only {scanned} indicators in the corpus");
     assert!(assigns >= 100, "only {assigns} success assignments seen — the sweep found nothing");
-    // TS drops a code no later statement reads, with its assignment, so only
-    // the sites that read it again remain, and only those can hold a guard.
+    // TS and Rust drop a code no later statement reads, with its assignment,
+    // so only the sites that read it again remain, and only those can hold a
+    // guard.
     for (lang, a) in &per_lang {
-        let floor = if *lang == "ts" { 25 } else { 100 };
-        assert!(*a >= floor, "{lang}: only {a} success assignments seen — the sweep found nothing");
+        let floor = match *lang {
+            "rust" => 20,
+            "ts" => 25,
+            _ => 100,
+        };
+        assert!(
+            common::sweep_filtered() || *a >= floor,
+            "{lang}: only {a} success assignments seen — the sweep found nothing"
+        );
     }
 }
 
@@ -1112,7 +1175,7 @@ fn deallocation_is_dropped_only_where_the_backend_has_none() {
     }
 
     assert_eq!(ported_inert, 0);
-    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
+    assert!(common::sweep_filtered() || scanned >= 200, "only {scanned} indicators in the corpus");
     // C keeps every one. Without this floor the whole test is satisfied by a
     // pass that ran on C too and freed nothing anywhere.
     assert!(c_guards >= 10, "only {c_guards} free() call(s) left in C — the cleanup reached c.rs");
@@ -1275,8 +1338,11 @@ fn a_cross_call_rejection_is_answered_before_its_result_is_used() {
             bad.join("; ")
         );
     }
-    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
-    assert!(composed >= 10, "only {composed} composed indicators found — the sweep found nothing");
+    assert!(common::sweep_filtered() || scanned >= 200, "only {scanned} indicators in the corpus");
+    assert!(
+        common::sweep_filtered() || composed >= 10,
+        "only {composed} composed indicators found — the sweep found nothing"
+    );
 }
 
 #[test]

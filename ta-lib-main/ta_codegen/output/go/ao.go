@@ -137,6 +137,25 @@ func (c *Core) AOLookback(optInFastPeriod, optInSlowPeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// AODisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.AO]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.AO] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.AOLookback]
+// rejects or an index that names no output.
+func (c *Core) AODisplayShift(optInFastPeriod, optInSlowPeriod, outputIdx int) (int, error) {
+	if _, err := c.AOLookback(optInFastPeriod, optInSlowPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // AO computes the Awesome Oscillator over bars startIdx through endIdx.
 //
 // Bill Williams' Awesome Oscillator (New Trading Dimensions, 1998): market
@@ -171,7 +190,8 @@ func (c *Core) AOLookback(optInFastPeriod, optInSlowPeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) AO(startIdx, endIdx int, inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -256,50 +276,10 @@ func (sp *AOStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	aoStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh and inLow),
-// changing nothing. It returns [BadParam] for a bar value that is not finite.
-func (sp *AOStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
-		return 0, BadParam
-	}
-	var medianPrice float64
-	var tempReal float64
-	var cur_outReal float64
-	sumFast := sp.sumFast
-	sumSlow := sp.sumSlow
-	medianPrice = (inHigh + inLow) / 2.0
-	sumFast += medianPrice
-	sumSlow += medianPrice
-	tempReal = sumFast/float64(sp.optInFastPeriod) - sumSlow/float64(sp.optInSlowPeriod)
-	sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx]
-	sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx]
-	cur_outReal = tempReal
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *AOStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *AOStream) Clone() *AOStream {
-	cl := *sp
-	cl.ring_trailingFastIdx_derived = append(sp.ring_trailingFastIdx_derived[:0:0], sp.ring_trailingFastIdx_derived...)
-	cl.ring_trailingSlowIdx_derived = append(sp.ring_trailingSlowIdx_derived[:0:0], sp.ring_trailingSlowIdx_derived...)
-	return &cl
-}
-
-func aoStepImpl(sp *AOStream, inHigh, inLow float64) {
 	var medianPrice float64
 	var tempReal float64
 	var ringPosL_trailingFastIdx int32
@@ -329,6 +309,42 @@ func aoStepImpl(sp *AOStream, inHigh, inLow float64) {
 		ringPosL_trailingSlowIdx = 0
 	}
 	sp.ringPos_trailingSlowIdx = ringPosL_trailingSlowIdx
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh and inLow),
+// changing nothing. It returns [BadParam] for a bar value that is not finite.
+func (sp *AOStream) Peek(inHigh, inLow float64) (float64, error) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
+		return 0, BadParam
+	}
+	var medianPrice float64
+	var tempReal float64
+	var cur_outReal float64
+	sumFast := sp.sumFast
+	sumSlow := sp.sumSlow
+	medianPrice = (inHigh + inLow) / 2.0
+	sumFast += medianPrice
+	sumSlow += medianPrice
+	tempReal = sumFast/float64(sp.optInFastPeriod) - sumSlow/float64(sp.optInSlowPeriod)
+	sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx]
+	sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx]
+	cur_outReal = tempReal
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *AOStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *AOStream) Clone() *AOStream {
+	cl := *sp
+	cl.ring_trailingFastIdx_derived = append(sp.ring_trailingFastIdx_derived[:0:0], sp.ring_trailingFastIdx_derived...)
+	cl.ring_trailingSlowIdx_derived = append(sp.ring_trailingSlowIdx_derived[:0:0], sp.ring_trailingSlowIdx_derived...)
+	return &cl
 }
 
 func (c *Core) aoOpenImpl(sp *AOStream, inHigh, inLow []float64, startIdx, optInFastPeriod, optInSlowPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -464,8 +480,8 @@ func (c *Core) aoOpenInternal(inHigh, inLow []float64, startIdx, optInFastPeriod
 // of [Core.AO].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.AOLookback]
-// bars, and [BadParam] for a parameter out of range or histories of different
-// lengths.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range or histories of different lengths.
 func (c *Core) AOOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int) (*AOStream, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, BadParam
@@ -488,7 +504,8 @@ func (c *Core) AOOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod 
 // memory with an input or another output.
 //
 // The errors are those of [Core.AOOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) AOOpenAndFill(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (*AOStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

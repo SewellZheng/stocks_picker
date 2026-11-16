@@ -43,9 +43,10 @@ func (c *Core) cdleveningdojistarLookback(optInPenetration float64) int32 {
 	} else if !(optInPenetration >= 0e0 && optInPenetration <= RealMax) {
 		return -1
 	}
-	BodyDoji_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyDoji].AvgPeriod)
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	BodyShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyShort].AvgPeriod)
+	candles := c.candles()
+	BodyDoji_avgPeriod := int32(candles[CandleSettingTypeBodyDoji].AvgPeriod)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyShort_avgPeriod := int32(candles[CandleSettingTypeBodyShort].AvgPeriod)
 	return maxI(maxI(BodyDoji_avgPeriod, BodyLong_avgPeriod), BodyShort_avgPeriod) + 2
 }
 
@@ -59,15 +60,16 @@ func (c *Core) cdleveningdojistarImpl(startIdx, endIdx int32, inOpen, inHigh, in
 	var BodyLongTrailingIdx int32
 	var BodyShortTrailingIdx int32
 	var lookbackTotal int32
-	BodyDoji_rangeType := int32(c.candleSettings[CandleSettingTypeBodyDoji].RangeType)
-	BodyDoji_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyDoji].AvgPeriod)
-	BodyDoji_factor := c.candleSettings[CandleSettingTypeBodyDoji].Factor
-	BodyLong_rangeType := int32(c.candleSettings[CandleSettingTypeBodyLong].RangeType)
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	BodyLong_factor := c.candleSettings[CandleSettingTypeBodyLong].Factor
-	BodyShort_rangeType := int32(c.candleSettings[CandleSettingTypeBodyShort].RangeType)
-	BodyShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyShort].AvgPeriod)
-	BodyShort_factor := c.candleSettings[CandleSettingTypeBodyShort].Factor
+	candles := c.candles()
+	BodyDoji_rangeType := int32(candles[CandleSettingTypeBodyDoji].RangeType)
+	BodyDoji_avgPeriod := int32(candles[CandleSettingTypeBodyDoji].AvgPeriod)
+	BodyDoji_factor := candles[CandleSettingTypeBodyDoji].Factor
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	BodyShort_rangeType := int32(candles[CandleSettingTypeBodyShort].RangeType)
+	BodyShort_avgPeriod := int32(candles[CandleSettingTypeBodyShort].AvgPeriod)
+	BodyShort_factor := candles[CandleSettingTypeBodyShort].Factor
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -88,67 +90,209 @@ func (c *Core) cdleveningdojistarImpl(startIdx, endIdx int32, inOpen, inHigh, in
 		*outNBElement = 0
 		return Success
 	}
-	BodyLongPeriodTotal = 0.0
-	BodyDojiPeriodTotal = 0.0
-	BodyShortPeriodTotal = 0.0
-	BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
-	BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
-	BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
-	i = BodyLongTrailingIdx
-	for i < startIdx-2 {
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = BodyDojiTrailingIdx
-	for i < startIdx-1 {
-		BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = BodyShortTrailingIdx
-	for i < startIdx {
-		BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = startIdx
-	outIdx = 0
-	for {
-		var _T0 int32
-		if inClose[i-2] >= inOpen[i-2] {
-			_T0 = 1
-		} else {
-			_T0 = -1
+	if BodyDoji_rangeType == 1 && BodyLong_rangeType == 0 && BodyShort_rangeType == 0 {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
 		}
-		_B2 := _T0 == 1
-		if _B2 {
-			var _T1 int32
-			if inClose[i] >= inOpen[i] {
-				_T1 = 1
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += (inHigh[i] - inLow[i])
+			i += 1
+		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for {
+			var _T0 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T0 = 1
 			} else {
-				_T1 = -1
+				_T0 = -1
 			}
-			_B2 = _T1 == -1
+			_B2 := _T0 == 1
+			if _B2 {
+				var _T1 int32
+				if inClose[i] >= inOpen[i] {
+					_T1 = 1
+				} else {
+					_T1 = -1
+				}
+				_B2 = _T1 == -1
+			}
+			_B4 := _B2 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+			if _B4 {
+				var _T3 float64
+				if BodyLong_avgPeriod != 0 {
+					_T3 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T3 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+				}
+				_B4 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T3)
+			}
+			_B6 := _B4
+			if _B6 {
+				var _T5 float64
+				if BodyDoji_avgPeriod != 0 {
+					_T5 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+				} else {
+					_T5 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B6 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T5)
+			}
+			_B8 := _B6
+			if _B8 {
+				var _T7 float64
+				if BodyShort_avgPeriod != 0 {
+					_T7 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+				} else {
+					_T7 = (math.Abs(inClose[i] - inOpen[i]))
+				}
+				_B8 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T7)
+			}
+			if _B8 {
+				outInteger[outIdx] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx] = 0
+				outIdx++
+			}
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]))
+			BodyDojiPeriodTotal += (inHigh[i-1] - inLow[i-1]) - (inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i])) - (math.Abs(inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]))
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
 		}
-		if _B2 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration) && math.Abs(inClose[i-2]-inOpen[i-2]) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, BodyLongPeriodTotal, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && math.Abs(inClose[i-1]-inOpen[i-1]) <= candleAverage(BodyDoji_rangeType, BodyDoji_avgPeriod, BodyDoji_factor, BodyDojiPeriodTotal, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) && math.Abs(inClose[i]-inOpen[i]) > candleAverage(BodyShort_rangeType, BodyShort_avgPeriod, BodyShort_factor, BodyShortPeriodTotal, inOpen[i], inHigh[i], inLow[i], inClose[i]) {
-			outInteger[outIdx] = -100
-			outIdx++
-		} else {
-			outInteger[outIdx] = 0
-			outIdx++
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+		return Success
+	} else {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
 		}
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
-		BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
-		BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
-		i += 1
-		BodyLongTrailingIdx += 1
-		BodyDojiTrailingIdx += 1
-		BodyShortTrailingIdx += 1
-		if !(i <= endIdx) {
-			break
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
 		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for {
+			var _T9 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T9 = 1
+			} else {
+				_T9 = -1
+			}
+			_B11 := _T9 == 1
+			if _B11 {
+				var _T10 int32
+				if inClose[i] >= inOpen[i] {
+					_T10 = 1
+				} else {
+					_T10 = -1
+				}
+				_B11 = _T10 == -1
+			}
+			_B14 := _B11 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+			if _B14 {
+				var _T12 float64
+				if BodyLong_avgPeriod != 0 {
+					_T12 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T12 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T13 float64
+				if BodyLong_rangeType == 2 {
+					_T13 = 2.0
+				} else {
+					_T13 = 1.0
+				}
+				_B14 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T12)/_T13
+			}
+			_B17 := _B14
+			if _B17 {
+				var _T15 float64
+				if BodyDoji_avgPeriod != 0 {
+					_T15 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+				} else {
+					_T15 = candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T16 float64
+				if BodyDoji_rangeType == 2 {
+					_T16 = 2.0
+				} else {
+					_T16 = 1.0
+				}
+				_B17 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T15)/_T16
+			}
+			_B20 := _B17
+			if _B20 {
+				var _T18 float64
+				if BodyShort_avgPeriod != 0 {
+					_T18 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+				} else {
+					_T18 = candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+				}
+				var _T19 float64
+				if BodyShort_rangeType == 2 {
+					_T19 = 2.0
+				} else {
+					_T19 = 1.0
+				}
+				_B20 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T18)/_T19
+			}
+			if _B20 {
+				outInteger[outIdx] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx] = 0
+				outIdx++
+			}
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
+		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+		return Success
 	}
-	*outNBElement = outIdx
-	*outBegIdx = startIdx
-	return Success
 }
 
 // CDLEVENINGDOJISTARLookback returns how many leading bars
@@ -163,6 +307,25 @@ func (c *Core) CDLEVENINGDOJISTARLookback(optInPenetration float64) (int, error)
 		return 0, BadParam
 	}
 	return int(lookback), nil
+}
+
+// CDLEVENINGDOJISTARDisplayShift returns how many bars ahead (positive) or
+// behind (negative) of the bar that computed it a chart draws output outputIdx
+// of [Core.CDLEVENINGDOJISTAR]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CDLEVENINGDOJISTAR] followed by the output's
+// position among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CDLEVENINGDOJISTARLookback] rejects or an index that names no output.
+func (c *Core) CDLEVENINGDOJISTARDisplayShift(optInPenetration float64, outputIdx int) (int, error) {
+	if _, err := c.CDLEVENINGDOJISTARLookback(optInPenetration); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
 }
 
 // CDLEVENINGDOJISTAR recognizes the Evening Doji Star pattern over bars
@@ -302,11 +465,213 @@ func (sp *CDLEVENINGDOJISTARStream) Update(inOpen, inHigh, inLow, inClose float6
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cdleveningdojistarStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var ringPosL_BodyDojiTrailingIdx int32
+	var ringPosL_BodyLongTrailingIdx int32
+	var ringPosL_BodyShortTrailingIdx int32
+	BodyDoji_rangeType := sp.cs_BodyDoji_rangeType
+	BodyDoji_avgPeriod := sp.cs_BodyDoji_avgPeriod
+	BodyDoji_factor := sp.cs_BodyDoji_factor
+	BodyLong_rangeType := sp.cs_BodyLong_rangeType
+	BodyLong_avgPeriod := sp.cs_BodyLong_avgPeriod
+	BodyLong_factor := sp.cs_BodyLong_factor
+	BodyShort_rangeType := sp.cs_BodyShort_rangeType
+	BodyShort_avgPeriod := sp.cs_BodyShort_avgPeriod
+	BodyShort_factor := sp.cs_BodyShort_factor
+	if sp.ringCap_BodyDojiTrailingIdx == 0 {
+		var _R15 float64
+		switch BodyDoji_rangeType {
+		case 0:
+			_R15 = math.Abs(inClose - inOpen)
+		case 1:
+			_R15 = inHigh - inLow
+		case 2:
+			_R15 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+		}
+		sp.ring_BodyDojiTrailingIdx_derived[0] = _R15
+	}
+	if sp.ringCap_BodyLongTrailingIdx == 0 {
+		var _R16 float64
+		switch BodyLong_rangeType {
+		case 0:
+			_R16 = math.Abs(inClose - inOpen)
+		case 1:
+			_R16 = inHigh - inLow
+		case 2:
+			_R16 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+		}
+		sp.ring_BodyLongTrailingIdx_derived[0] = _R16
+	}
+	if sp.ringCap_BodyShortTrailingIdx == 0 {
+		var _R17 float64
+		switch BodyShort_rangeType {
+		case 0:
+			_R17 = math.Abs(inClose - inOpen)
+		case 1:
+			_R17 = inHigh - inLow
+		case 2:
+			_R17 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+		}
+		sp.ring_BodyShortTrailingIdx_derived[0] = _R17
+	}
+	var _T18 int32
+	if sp.lag2_inClose >= sp.lag2_inOpen {
+		_T18 = 1
+	} else {
+		_T18 = -1
+	}
+	_B20 := _T18 == 1
+	if _B20 {
+		var _T19 int32
+		if inClose >= inOpen {
+			_T19 = 1
+		} else {
+			_T19 = -1
+		}
+		_B20 = _T19 == -1
+	}
+	_B24 := _B20 && selF(sp.lag1_inOpen < sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) > selF(sp.lag2_inOpen > sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose) && inClose < sp.lag2_inClose-float64(math.Abs(sp.lag2_inClose-sp.lag2_inOpen)*sp.optInPenetration)
+	if _B24 {
+		var _T22 float64
+		if BodyLong_avgPeriod != 0 {
+			_T22 = sp.BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+		} else {
+			var _R21 float64
+			switch BodyLong_rangeType {
+			case 0:
+				_R21 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R21 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R21 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T22 = _R21
+		}
+		var _T23 float64
+		if BodyLong_rangeType == 2 {
+			_T23 = 2.0
+		} else {
+			_T23 = 1.0
+		}
+		_B24 = math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > float64(BodyLong_factor*_T22)/_T23
+	}
+	_B28 := _B24
+	if _B28 {
+		var _T26 float64
+		if BodyDoji_avgPeriod != 0 {
+			_T26 = sp.BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+		} else {
+			var _R25 float64
+			switch BodyDoji_rangeType {
+			case 0:
+				_R25 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+			case 1:
+				_R25 = sp.lag1_inHigh - sp.lag1_inLow
+			case 2:
+				_R25 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+			}
+			_T26 = _R25
+		}
+		var _T27 float64
+		if BodyDoji_rangeType == 2 {
+			_T27 = 2.0
+		} else {
+			_T27 = 1.0
+		}
+		_B28 = math.Abs(sp.lag1_inClose-sp.lag1_inOpen) <= float64(BodyDoji_factor*_T26)/_T27
+	}
+	_B32 := _B28
+	if _B32 {
+		var _T30 float64
+		if BodyShort_avgPeriod != 0 {
+			_T30 = sp.BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+		} else {
+			var _R29 float64
+			switch BodyShort_rangeType {
+			case 0:
+				_R29 = math.Abs(inClose - inOpen)
+			case 1:
+				_R29 = inHigh - inLow
+			case 2:
+				_R29 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+			}
+			_T30 = _R29
+		}
+		var _T31 float64
+		if BodyShort_rangeType == 2 {
+			_T31 = 2.0
+		} else {
+			_T31 = 1.0
+		}
+		_B32 = math.Abs(inClose-inOpen) > float64(BodyShort_factor*_T30)/_T31
+	}
+	if _B32 {
+		sp.cur_outInteger = -100
+	} else {
+		sp.cur_outInteger = 0
+	}
+	sp.BodyLongPeriodTotal += candleRange(BodyLong_rangeType, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) - sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx]
+	sp.BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx]
+	sp.BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen, inHigh, inLow, inClose) - sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx]
+	sp.lag2_inOpen = sp.lag1_inOpen
+	sp.lag1_inOpen = inOpen
+	sp.lag2_inHigh = sp.lag1_inHigh
+	sp.lag1_inHigh = inHigh
+	sp.lag2_inLow = sp.lag1_inLow
+	sp.lag1_inLow = inLow
+	sp.lag2_inClose = sp.lag1_inClose
+	sp.lag1_inClose = inClose
+	ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx
+	var _R33 float64
+	switch BodyDoji_rangeType {
+	case 0:
+		_R33 = math.Abs(inClose - inOpen)
+	case 1:
+		_R33 = inHigh - inLow
+	case 2:
+		_R33 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = _R33
+	ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1
+	if ringPosL_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx {
+		ringPosL_BodyDojiTrailingIdx = 0
+	}
+	sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx
+	ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx
+	var _R34 float64
+	switch BodyLong_rangeType {
+	case 0:
+		_R34 = math.Abs(inClose - inOpen)
+	case 1:
+		_R34 = inHigh - inLow
+	case 2:
+		_R34 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = _R34
+	ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1
+	if ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
+		ringPosL_BodyLongTrailingIdx = 0
+	}
+	sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx
+	ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx
+	var _R35 float64
+	switch BodyShort_rangeType {
+	case 0:
+		_R35 = math.Abs(inClose - inOpen)
+	case 1:
+		_R35 = inHigh - inLow
+	case 2:
+		_R35 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = _R35
+	ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1
+	if ringPosL_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx {
+		ringPosL_BodyShortTrailingIdx = 0
+	}
+	sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx
 	return sp.cur_outInteger, nil
 }
 
@@ -314,7 +679,7 @@ func (sp *CDLEVENINGDOJISTARStream) Update(inOpen, inHigh, inLow, inClose float6
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CDLEVENINGDOJISTARStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var cur_outInteger int32
@@ -343,7 +708,82 @@ func (sp *CDLEVENINGDOJISTARStream) Peek(inOpen, inHigh, inLow, inClose float64)
 		}
 		_B2 = _T1 == -1
 	}
-	if _B2 && minF(sp.lag1_inOpen, sp.lag1_inClose) > maxF(sp.lag2_inOpen, sp.lag2_inClose) && inClose < sp.lag2_inClose-float64(math.Abs(sp.lag2_inClose-sp.lag2_inOpen)*sp.optInPenetration) && math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, sp.BodyLongPeriodTotal, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) <= candleAverage(BodyDoji_rangeType, BodyDoji_avgPeriod, BodyDoji_factor, sp.BodyDojiPeriodTotal, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) && math.Abs(inClose-inOpen) > candleAverage(BodyShort_rangeType, BodyShort_avgPeriod, BodyShort_factor, sp.BodyShortPeriodTotal, inOpen, inHigh, inLow, inClose) {
+	_B6 := _B2 && selF(sp.lag1_inOpen < sp.lag1_inClose, sp.lag1_inOpen, sp.lag1_inClose) > selF(sp.lag2_inOpen > sp.lag2_inClose, sp.lag2_inOpen, sp.lag2_inClose) && inClose < sp.lag2_inClose-float64(math.Abs(sp.lag2_inClose-sp.lag2_inOpen)*sp.optInPenetration)
+	if _B6 {
+		var _T4 float64
+		if BodyLong_avgPeriod != 0 {
+			_T4 = sp.BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+		} else {
+			var _R3 float64
+			switch BodyLong_rangeType {
+			case 0:
+				_R3 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R3 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R3 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T4 = _R3
+		}
+		var _T5 float64
+		if BodyLong_rangeType == 2 {
+			_T5 = 2.0
+		} else {
+			_T5 = 1.0
+		}
+		_B6 = math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > float64(BodyLong_factor*_T4)/_T5
+	}
+	_B10 := _B6
+	if _B10 {
+		var _T8 float64
+		if BodyDoji_avgPeriod != 0 {
+			_T8 = sp.BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+		} else {
+			var _R7 float64
+			switch BodyDoji_rangeType {
+			case 0:
+				_R7 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+			case 1:
+				_R7 = sp.lag1_inHigh - sp.lag1_inLow
+			case 2:
+				_R7 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+			}
+			_T8 = _R7
+		}
+		var _T9 float64
+		if BodyDoji_rangeType == 2 {
+			_T9 = 2.0
+		} else {
+			_T9 = 1.0
+		}
+		_B10 = math.Abs(sp.lag1_inClose-sp.lag1_inOpen) <= float64(BodyDoji_factor*_T8)/_T9
+	}
+	_B14 := _B10
+	if _B14 {
+		var _T12 float64
+		if BodyShort_avgPeriod != 0 {
+			_T12 = sp.BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+		} else {
+			var _R11 float64
+			switch BodyShort_rangeType {
+			case 0:
+				_R11 = math.Abs(inClose - inOpen)
+			case 1:
+				_R11 = inHigh - inLow
+			case 2:
+				_R11 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+			}
+			_T12 = _R11
+		}
+		var _T13 float64
+		if BodyShort_rangeType == 2 {
+			_T13 = 2.0
+		} else {
+			_T13 = 1.0
+		}
+		_B14 = math.Abs(inClose-inOpen) > float64(BodyShort_factor*_T12)/_T13
+	}
+	if _B14 {
 		cur_outInteger = -100
 	} else {
 		cur_outInteger = 0
@@ -364,83 +804,6 @@ func (sp *CDLEVENINGDOJISTARStream) Clone() *CDLEVENINGDOJISTARStream {
 	cl.ring_BodyLongTrailingIdx_derived = append(sp.ring_BodyLongTrailingIdx_derived[:0:0], sp.ring_BodyLongTrailingIdx_derived...)
 	cl.ring_BodyShortTrailingIdx_derived = append(sp.ring_BodyShortTrailingIdx_derived[:0:0], sp.ring_BodyShortTrailingIdx_derived...)
 	return &cl
-}
-
-func cdleveningdojistarStepImpl(sp *CDLEVENINGDOJISTARStream, inOpen, inHigh, inLow, inClose float64) {
-	var ringPosL_BodyDojiTrailingIdx int32
-	var ringPosL_BodyLongTrailingIdx int32
-	var ringPosL_BodyShortTrailingIdx int32
-	BodyDoji_rangeType := sp.cs_BodyDoji_rangeType
-	BodyDoji_avgPeriod := sp.cs_BodyDoji_avgPeriod
-	BodyDoji_factor := sp.cs_BodyDoji_factor
-	BodyLong_rangeType := sp.cs_BodyLong_rangeType
-	BodyLong_avgPeriod := sp.cs_BodyLong_avgPeriod
-	BodyLong_factor := sp.cs_BodyLong_factor
-	BodyShort_rangeType := sp.cs_BodyShort_rangeType
-	BodyShort_avgPeriod := sp.cs_BodyShort_avgPeriod
-	BodyShort_factor := sp.cs_BodyShort_factor
-	if sp.ringCap_BodyDojiTrailingIdx == 0 {
-		sp.ring_BodyDojiTrailingIdx_derived[0] = candleRange(BodyDoji_rangeType, inOpen, inHigh, inLow, inClose)
-	}
-	if sp.ringCap_BodyLongTrailingIdx == 0 {
-		sp.ring_BodyLongTrailingIdx_derived[0] = candleRange(BodyLong_rangeType, inOpen, inHigh, inLow, inClose)
-	}
-	if sp.ringCap_BodyShortTrailingIdx == 0 {
-		sp.ring_BodyShortTrailingIdx_derived[0] = candleRange(BodyShort_rangeType, inOpen, inHigh, inLow, inClose)
-	}
-	var _T3 int32
-	if sp.lag2_inClose >= sp.lag2_inOpen {
-		_T3 = 1
-	} else {
-		_T3 = -1
-	}
-	_B5 := _T3 == 1
-	if _B5 {
-		var _T4 int32
-		if inClose >= inOpen {
-			_T4 = 1
-		} else {
-			_T4 = -1
-		}
-		_B5 = _T4 == -1
-	}
-	if _B5 && minF(sp.lag1_inOpen, sp.lag1_inClose) > maxF(sp.lag2_inOpen, sp.lag2_inClose) && inClose < sp.lag2_inClose-float64(math.Abs(sp.lag2_inClose-sp.lag2_inOpen)*sp.optInPenetration) && math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, sp.BodyLongPeriodTotal, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) <= candleAverage(BodyDoji_rangeType, BodyDoji_avgPeriod, BodyDoji_factor, sp.BodyDojiPeriodTotal, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) && math.Abs(inClose-inOpen) > candleAverage(BodyShort_rangeType, BodyShort_avgPeriod, BodyShort_factor, sp.BodyShortPeriodTotal, inOpen, inHigh, inLow, inClose) {
-		sp.cur_outInteger = -100
-	} else {
-		sp.cur_outInteger = 0
-	}
-	sp.BodyLongPeriodTotal += candleRange(BodyLong_rangeType, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) - sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx]
-	sp.BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) - sp.ring_BodyDojiTrailingIdx_derived[sp.ringPos_BodyDojiTrailingIdx]
-	sp.BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen, inHigh, inLow, inClose) - sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx]
-	sp.lag2_inOpen = sp.lag1_inOpen
-	sp.lag1_inOpen = inOpen
-	sp.lag2_inHigh = sp.lag1_inHigh
-	sp.lag1_inHigh = inHigh
-	sp.lag2_inLow = sp.lag1_inLow
-	sp.lag1_inLow = inLow
-	sp.lag2_inClose = sp.lag1_inClose
-	sp.lag1_inClose = inClose
-	ringPosL_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx
-	sp.ring_BodyDojiTrailingIdx_derived[ringPosL_BodyDojiTrailingIdx] = candleRange(BodyDoji_rangeType, inOpen, inHigh, inLow, inClose)
-	ringPosL_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx + 1
-	if ringPosL_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx {
-		ringPosL_BodyDojiTrailingIdx = 0
-	}
-	sp.ringPos_BodyDojiTrailingIdx = ringPosL_BodyDojiTrailingIdx
-	ringPosL_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx
-	sp.ring_BodyLongTrailingIdx_derived[ringPosL_BodyLongTrailingIdx] = candleRange(BodyLong_rangeType, inOpen, inHigh, inLow, inClose)
-	ringPosL_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx + 1
-	if ringPosL_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
-		ringPosL_BodyLongTrailingIdx = 0
-	}
-	sp.ringPos_BodyLongTrailingIdx = ringPosL_BodyLongTrailingIdx
-	ringPosL_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx
-	sp.ring_BodyShortTrailingIdx_derived[ringPosL_BodyShortTrailingIdx] = candleRange(BodyShort_rangeType, inOpen, inHigh, inLow, inClose)
-	ringPosL_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx + 1
-	if ringPosL_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx {
-		ringPosL_BodyShortTrailingIdx = 0
-	}
-	sp.ringPos_BodyShortTrailingIdx = ringPosL_BodyShortTrailingIdx
 }
 
 func (c *Core) cdleveningdojistarOpenImpl(sp *CDLEVENINGDOJISTARStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, optInPenetration float64, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -471,15 +834,16 @@ func (c *Core) cdleveningdojistarOpenImpl(sp *CDLEVENINGDOJISTARStream, inOpen, 
 		*outNBElement = 0
 		return InsufficientHistory
 	}
-	BodyDoji_rangeType := int32(c.candleSettings[CandleSettingTypeBodyDoji].RangeType)
-	BodyDoji_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyDoji].AvgPeriod)
-	BodyDoji_factor := c.candleSettings[CandleSettingTypeBodyDoji].Factor
-	BodyLong_rangeType := int32(c.candleSettings[CandleSettingTypeBodyLong].RangeType)
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	BodyLong_factor := c.candleSettings[CandleSettingTypeBodyLong].Factor
-	BodyShort_rangeType := int32(c.candleSettings[CandleSettingTypeBodyShort].RangeType)
-	BodyShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyShort].AvgPeriod)
-	BodyShort_factor := c.candleSettings[CandleSettingTypeBodyShort].Factor
+	candles := c.candles()
+	BodyDoji_rangeType := int32(candles[CandleSettingTypeBodyDoji].RangeType)
+	BodyDoji_avgPeriod := int32(candles[CandleSettingTypeBodyDoji].AvgPeriod)
+	BodyDoji_factor := candles[CandleSettingTypeBodyDoji].Factor
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	BodyShort_rangeType := int32(candles[CandleSettingTypeBodyShort].RangeType)
+	BodyShort_avgPeriod := int32(candles[CandleSettingTypeBodyShort].AvgPeriod)
+	BodyShort_factor := candles[CandleSettingTypeBodyShort].Factor
 	lookbackTotal = c.cdleveningdojistarLookback(optInPenetration)
 	if startIdx < lookbackTotal {
 		startIdx = lookbackTotal
@@ -489,66 +853,207 @@ func (c *Core) cdleveningdojistarOpenImpl(sp *CDLEVENINGDOJISTARStream, inOpen, 
 		*outNBElement = 0
 		return InsufficientHistory
 	}
-	BodyLongPeriodTotal = 0.0
-	BodyDojiPeriodTotal = 0.0
-	BodyShortPeriodTotal = 0.0
-	BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
-	BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
-	BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
-	i = BodyLongTrailingIdx
-	for i < startIdx-2 {
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = BodyDojiTrailingIdx
-	for i < startIdx-1 {
-		BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = BodyShortTrailingIdx
-	for i < startIdx {
-		BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = startIdx
-	outIdx = 0
-	for {
-		var _T6 int32
-		if inClose[i-2] >= inOpen[i-2] {
-			_T6 = 1
-		} else {
-			_T6 = -1
+	if BodyDoji_rangeType == 1 && BodyLong_rangeType == 0 && BodyShort_rangeType == 0 {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
 		}
-		_B8 := _T6 == 1
-		if _B8 {
-			var _T7 int32
-			if inClose[i] >= inOpen[i] {
-				_T7 = 1
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += (inHigh[i] - inLow[i])
+			i += 1
+		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for {
+			var _T36 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T36 = 1
 			} else {
-				_T7 = -1
+				_T36 = -1
 			}
-			_B8 = _T7 == -1
+			_B38 := _T36 == 1
+			if _B38 {
+				var _T37 int32
+				if inClose[i] >= inOpen[i] {
+					_T37 = 1
+				} else {
+					_T37 = -1
+				}
+				_B38 = _T37 == -1
+			}
+			_B40 := _B38 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+			if _B40 {
+				var _T39 float64
+				if BodyLong_avgPeriod != 0 {
+					_T39 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T39 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+				}
+				_B40 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T39)
+			}
+			_B42 := _B40
+			if _B42 {
+				var _T41 float64
+				if BodyDoji_avgPeriod != 0 {
+					_T41 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+				} else {
+					_T41 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B42 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T41)
+			}
+			_B44 := _B42
+			if _B44 {
+				var _T43 float64
+				if BodyShort_avgPeriod != 0 {
+					_T43 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+				} else {
+					_T43 = (math.Abs(inClose[i] - inOpen[i]))
+				}
+				_B44 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T43)
+			}
+			if _B44 {
+				outInteger[outIdx*outStride] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx*outStride] = 0
+				outIdx++
+			}
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]))
+			BodyDojiPeriodTotal += (inHigh[i-1] - inLow[i-1]) - (inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i])) - (math.Abs(inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]))
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
 		}
-		if _B8 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration) && math.Abs(inClose[i-2]-inOpen[i-2]) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, BodyLongPeriodTotal, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && math.Abs(inClose[i-1]-inOpen[i-1]) <= candleAverage(BodyDoji_rangeType, BodyDoji_avgPeriod, BodyDoji_factor, BodyDojiPeriodTotal, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) && math.Abs(inClose[i]-inOpen[i]) > candleAverage(BodyShort_rangeType, BodyShort_avgPeriod, BodyShort_factor, BodyShortPeriodTotal, inOpen[i], inHigh[i], inLow[i], inClose[i]) {
-			outInteger[outIdx*outStride] = -100
-			outIdx++
-		} else {
-			outInteger[outIdx*outStride] = 0
-			outIdx++
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	} else {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
 		}
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
-		BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
-		BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
-		i += 1
-		BodyLongTrailingIdx += 1
-		BodyDojiTrailingIdx += 1
-		BodyShortTrailingIdx += 1
-		if !(i <= endIdx) {
-			break
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
 		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for {
+			var _T45 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T45 = 1
+			} else {
+				_T45 = -1
+			}
+			_B47 := _T45 == 1
+			if _B47 {
+				var _T46 int32
+				if inClose[i] >= inOpen[i] {
+					_T46 = 1
+				} else {
+					_T46 = -1
+				}
+				_B47 = _T46 == -1
+			}
+			_B50 := _B47 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+			if _B50 {
+				var _T48 float64
+				if BodyLong_avgPeriod != 0 {
+					_T48 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T48 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T49 float64
+				if BodyLong_rangeType == 2 {
+					_T49 = 2.0
+				} else {
+					_T49 = 1.0
+				}
+				_B50 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T48)/_T49
+			}
+			_B53 := _B50
+			if _B53 {
+				var _T51 float64
+				if BodyDoji_avgPeriod != 0 {
+					_T51 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+				} else {
+					_T51 = candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T52 float64
+				if BodyDoji_rangeType == 2 {
+					_T52 = 2.0
+				} else {
+					_T52 = 1.0
+				}
+				_B53 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T51)/_T52
+			}
+			_B56 := _B53
+			if _B56 {
+				var _T54 float64
+				if BodyShort_avgPeriod != 0 {
+					_T54 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+				} else {
+					_T54 = candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+				}
+				var _T55 float64
+				if BodyShort_rangeType == 2 {
+					_T55 = 2.0
+				} else {
+					_T55 = 1.0
+				}
+				_B56 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T54)/_T55
+			}
+			if _B56 {
+				outInteger[outIdx*outStride] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx*outStride] = 0
+				outIdx++
+			}
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
+		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
 	}
-	*outNBElement = outIdx
-	*outBegIdx = startIdx
 	cap_BodyDojiTrailingIdx := i - BodyDojiTrailingIdx
 	if cap_BodyDojiTrailingIdx < 0 || cap_BodyDojiTrailingIdx > historyLen {
 		return InternalError
@@ -607,6 +1112,322 @@ func (c *Core) cdleveningdojistarOpenImpl(sp *CDLEVENINGDOJISTARStream, inOpen, 
 	return Success
 }
 
+func (c *Core) cdleveningdojistarOpenSinkFrame(sp *CDLEVENINGDOJISTARStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, optInPenetration float64, outBegIdx, outNBElement *int32, outInteger []int32) RetCode {
+	var BodyDojiPeriodTotal float64
+	var BodyLongPeriodTotal float64
+	var BodyShortPeriodTotal float64
+	var i int32
+	var outIdx int32
+	var BodyDojiTrailingIdx int32
+	var BodyLongTrailingIdx int32
+	var BodyShortTrailingIdx int32
+	var lookbackTotal int32
+	if len(inOpen) > IndexMax+1 {
+		return OutOfRangeEndIndex
+	}
+	historyLen := int32(len(inOpen))
+	endIdx := historyLen - 1
+	if len(inHigh) != len(inOpen) || len(inLow) != len(inOpen) || len(inClose) != len(inOpen) {
+		return BadParam
+	}
+	if optInPenetration == RealDefault {
+		optInPenetration = 0.3
+	} else if !(optInPenetration >= 0e0 && optInPenetration <= RealMax) {
+		return BadParam
+	}
+	if startIdx >= historyLen {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	candles := c.candles()
+	BodyDoji_rangeType := int32(candles[CandleSettingTypeBodyDoji].RangeType)
+	BodyDoji_avgPeriod := int32(candles[CandleSettingTypeBodyDoji].AvgPeriod)
+	BodyDoji_factor := candles[CandleSettingTypeBodyDoji].Factor
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	BodyShort_rangeType := int32(candles[CandleSettingTypeBodyShort].RangeType)
+	BodyShort_avgPeriod := int32(candles[CandleSettingTypeBodyShort].AvgPeriod)
+	BodyShort_factor := candles[CandleSettingTypeBodyShort].Factor
+	lookbackTotal = c.cdleveningdojistarLookback(optInPenetration)
+	if startIdx < lookbackTotal {
+		startIdx = lookbackTotal
+	}
+	if startIdx > endIdx {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	if BodyDoji_rangeType == 1 && BodyLong_rangeType == 0 && BodyShort_rangeType == 0 {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
+		}
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += (inHigh[i] - inLow[i])
+			i += 1
+		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for i < endIdx {
+			outIdx += 1
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]))
+			BodyDojiPeriodTotal += (inHigh[i-1] - inLow[i-1]) - (inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i])) - (math.Abs(inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]))
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+		}
+		var _T57 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T57 = 1
+		} else {
+			_T57 = -1
+		}
+		_B59 := _T57 == 1
+		if _B59 {
+			var _T58 int32
+			if inClose[i] >= inOpen[i] {
+				_T58 = 1
+			} else {
+				_T58 = -1
+			}
+			_B59 = _T58 == -1
+		}
+		_B61 := _B59 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+		if _B61 {
+			var _T60 float64
+			if BodyLong_avgPeriod != 0 {
+				_T60 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+			} else {
+				_T60 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+			}
+			_B61 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T60)
+		}
+		_B63 := _B61
+		if _B63 {
+			var _T62 float64
+			if BodyDoji_avgPeriod != 0 {
+				_T62 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+			} else {
+				_T62 = (inHigh[i-1] - inLow[i-1])
+			}
+			_B63 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T62)
+		}
+		_B65 := _B63
+		if _B65 {
+			var _T64 float64
+			if BodyShort_avgPeriod != 0 {
+				_T64 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+			} else {
+				_T64 = (math.Abs(inClose[i] - inOpen[i]))
+			}
+			_B65 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T64)
+		}
+		if _B65 {
+			outInteger[0] = -100
+			outIdx += 1
+		} else {
+			outInteger[0] = 0
+			outIdx += 1
+		}
+		BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx] - inOpen[BodyLongTrailingIdx]))
+		BodyDojiPeriodTotal += (inHigh[i-1] - inLow[i-1]) - (inHigh[BodyDojiTrailingIdx] - inLow[BodyDojiTrailingIdx])
+		BodyShortPeriodTotal += (math.Abs(inClose[i] - inOpen[i])) - (math.Abs(inClose[BodyShortTrailingIdx] - inOpen[BodyShortTrailingIdx]))
+		i += 1
+		BodyLongTrailingIdx += 1
+		BodyDojiTrailingIdx += 1
+		BodyShortTrailingIdx += 1
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	} else {
+		BodyLongPeriodTotal = 0.0
+		BodyDojiPeriodTotal = 0.0
+		BodyShortPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - 2 - BodyLong_avgPeriod
+		BodyDojiTrailingIdx = startIdx - 1 - BodyDoji_avgPeriod
+		BodyShortTrailingIdx = startIdx - BodyShort_avgPeriod
+		i = BodyLongTrailingIdx
+		for i < startIdx-2 {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = BodyDojiTrailingIdx
+		for i < startIdx-1 {
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = BodyShortTrailingIdx
+		for i < startIdx {
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		for i < endIdx {
+			outIdx += 1
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
+			BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
+			BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
+			i += 1
+			BodyLongTrailingIdx += 1
+			BodyDojiTrailingIdx += 1
+			BodyShortTrailingIdx += 1
+		}
+		var _T66 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T66 = 1
+		} else {
+			_T66 = -1
+		}
+		_B68 := _T66 == 1
+		if _B68 {
+			var _T67 int32
+			if inClose[i] >= inOpen[i] {
+				_T67 = 1
+			} else {
+				_T67 = -1
+			}
+			_B68 = _T67 == -1
+		}
+		_B71 := _B68 && minF(inOpen[i-1], inClose[i-1]) > maxF(inOpen[i-2], inClose[i-2]) && inClose[i] < inClose[i-2]-float64(math.Abs(inClose[i-2]-inOpen[i-2])*optInPenetration)
+		if _B71 {
+			var _T69 float64
+			if BodyLong_avgPeriod != 0 {
+				_T69 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+			} else {
+				_T69 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			}
+			var _T70 float64
+			if BodyLong_rangeType == 2 {
+				_T70 = 2.0
+			} else {
+				_T70 = 1.0
+			}
+			_B71 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T69)/_T70
+		}
+		_B74 := _B71
+		if _B74 {
+			var _T72 float64
+			if BodyDoji_avgPeriod != 0 {
+				_T72 = BodyDojiPeriodTotal / float64(BodyDoji_avgPeriod)
+			} else {
+				_T72 = candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			}
+			var _T73 float64
+			if BodyDoji_rangeType == 2 {
+				_T73 = 2.0
+			} else {
+				_T73 = 1.0
+			}
+			_B74 = math.Abs(inClose[i-1]-inOpen[i-1]) <= float64(BodyDoji_factor*_T72)/_T73
+		}
+		_B77 := _B74
+		if _B77 {
+			var _T75 float64
+			if BodyShort_avgPeriod != 0 {
+				_T75 = BodyShortPeriodTotal / float64(BodyShort_avgPeriod)
+			} else {
+				_T75 = candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			}
+			var _T76 float64
+			if BodyShort_rangeType == 2 {
+				_T76 = 2.0
+			} else {
+				_T76 = 1.0
+			}
+			_B77 = math.Abs(inClose[i]-inOpen[i]) > float64(BodyShort_factor*_T75)/_T76
+		}
+		if _B77 {
+			outInteger[0] = -100
+			outIdx += 1
+		} else {
+			outInteger[0] = 0
+			outIdx += 1
+		}
+		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx], inHigh[BodyLongTrailingIdx], inLow[BodyLongTrailingIdx], inClose[BodyLongTrailingIdx])
+		BodyDojiPeriodTotal += candleRange(BodyDoji_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) - candleRange(BodyDoji_rangeType, inOpen[BodyDojiTrailingIdx], inHigh[BodyDojiTrailingIdx], inLow[BodyDojiTrailingIdx], inClose[BodyDojiTrailingIdx])
+		BodyShortPeriodTotal += candleRange(BodyShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i]) - candleRange(BodyShort_rangeType, inOpen[BodyShortTrailingIdx], inHigh[BodyShortTrailingIdx], inLow[BodyShortTrailingIdx], inClose[BodyShortTrailingIdx])
+		i += 1
+		BodyLongTrailingIdx += 1
+		BodyDojiTrailingIdx += 1
+		BodyShortTrailingIdx += 1
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	}
+	cap_BodyDojiTrailingIdx := i - BodyDojiTrailingIdx
+	if cap_BodyDojiTrailingIdx < 0 || cap_BodyDojiTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_BodyDojiTrailingIdx_derived := make([]float64, max(cap_BodyDojiTrailingIdx, 1))
+	for fillJ := historyLen - cap_BodyDojiTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_BodyDojiTrailingIdx_derived[fillJ-(historyLen-cap_BodyDojiTrailingIdx)] = candleRange(BodyDoji_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	cap_BodyLongTrailingIdx := i - BodyLongTrailingIdx
+	if cap_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_BodyLongTrailingIdx_derived := make([]float64, max(cap_BodyLongTrailingIdx, 1))
+	for fillJ := historyLen - cap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_BodyLongTrailingIdx_derived[fillJ-(historyLen-cap_BodyLongTrailingIdx)] = candleRange(BodyLong_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	cap_BodyShortTrailingIdx := i - BodyShortTrailingIdx
+	if cap_BodyShortTrailingIdx < 0 || cap_BodyShortTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_BodyShortTrailingIdx_derived := make([]float64, max(cap_BodyShortTrailingIdx, 1))
+	for fillJ := historyLen - cap_BodyShortTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_BodyShortTrailingIdx_derived[fillJ-(historyLen-cap_BodyShortTrailingIdx)] = candleRange(BodyShort_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	sp.optInPenetration = optInPenetration
+	sp.BodyDojiPeriodTotal = BodyDojiPeriodTotal
+	sp.BodyLongPeriodTotal = BodyLongPeriodTotal
+	sp.BodyShortPeriodTotal = BodyShortPeriodTotal
+	sp.lag1_inOpen = inOpen[historyLen-1]
+	sp.lag2_inOpen = inOpen[historyLen-2]
+	sp.lag1_inHigh = inHigh[historyLen-1]
+	sp.lag2_inHigh = inHigh[historyLen-2]
+	sp.lag1_inLow = inLow[historyLen-1]
+	sp.lag2_inLow = inLow[historyLen-2]
+	sp.lag1_inClose = inClose[historyLen-1]
+	sp.lag2_inClose = inClose[historyLen-2]
+	sp.ringPos_BodyDojiTrailingIdx = 0
+	sp.ringCap_BodyDojiTrailingIdx = cap_BodyDojiTrailingIdx
+	sp.ring_BodyDojiTrailingIdx_derived = capRing_BodyDojiTrailingIdx_derived
+	sp.ringPos_BodyLongTrailingIdx = 0
+	sp.ringCap_BodyLongTrailingIdx = cap_BodyLongTrailingIdx
+	sp.ring_BodyLongTrailingIdx_derived = capRing_BodyLongTrailingIdx_derived
+	sp.ringPos_BodyShortTrailingIdx = 0
+	sp.ringCap_BodyShortTrailingIdx = cap_BodyShortTrailingIdx
+	sp.ring_BodyShortTrailingIdx_derived = capRing_BodyShortTrailingIdx_derived
+	sp.cs_BodyDoji_rangeType = BodyDoji_rangeType
+	sp.cs_BodyDoji_avgPeriod = BodyDoji_avgPeriod
+	sp.cs_BodyDoji_factor = BodyDoji_factor
+	sp.cs_BodyLong_rangeType = BodyLong_rangeType
+	sp.cs_BodyLong_avgPeriod = BodyLong_avgPeriod
+	sp.cs_BodyLong_factor = BodyLong_factor
+	sp.cs_BodyShort_rangeType = BodyShort_rangeType
+	sp.cs_BodyShort_avgPeriod = BodyShort_avgPeriod
+	sp.cs_BodyShort_factor = BodyShort_factor
+	sp.cur_outInteger = outInteger[0]
+	return Success
+}
+
 func (c *Core) cdleveningdojistarOpenAndFillInternal(inOpen, inHigh, inLow, inClose []float64, startIdx int32, optInPenetration float64, outBegIdx, outNBElement *int32, outInteger []int32) (*CDLEVENINGDOJISTARStream, error) {
 	sp := &CDLEVENINGDOJISTARStream{core: c}
 	if retCode := c.cdleveningdojistarOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1); retCode != Success {
@@ -621,7 +1442,7 @@ func (c *Core) cdleveningdojistarOpenInternal(inOpen, inHigh, inLow, inClose []f
 	sp := &CDLEVENINGDOJISTARStream{core: c}
 	var outBegIdx, outNBElement int32
 	var sink_outInteger [1]int32
-	if retCode := c.cdleveningdojistarOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, &outBegIdx, &outNBElement, sink_outInteger[:], 0); retCode != Success {
+	if retCode := c.cdleveningdojistarOpenSinkFrame(sp, inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, &outBegIdx, &outNBElement, sink_outInteger[:]); retCode != Success {
 		return nil, retCode
 	}
 	sp.outRangeBegIdx = int(outBegIdx)
@@ -637,8 +1458,9 @@ func (c *Core) cdleveningdojistarOpenInternal(inOpen, inHigh, inLow, inClose []f
 // parameters are those of [Core.CDLEVENINGDOJISTAR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CDLEVENINGDOJISTARLookback] bars, and [BadParam] for a parameter out of
-// range or histories of different lengths.
+// [Core.CDLEVENINGDOJISTARLookback] bars, [OutOfRangeEndIndex] for one longer
+// than [IndexMax]+1 bars, and [BadParam] for a parameter out of range or
+// histories of different lengths.
 func (c *Core) CDLEVENINGDOJISTAROpen(inOpen, inHigh, inLow, inClose []float64, optInPenetration float64) (*CDLEVENINGDOJISTARStream, int32, error) {
 	sp, err := c.cdleveningdojistarOpenInternal(inOpen, inHigh, inLow, inClose, 0, optInPenetration)
 	if err != nil {

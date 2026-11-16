@@ -70,6 +70,7 @@ func (c *Core) massiImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInF
 	var nBar int32
 	var n2 int32
 	var ratioRing []float64
+	var local_ratioRing [32]float64
 	var ratioRing_Idx int32
 	var maxIdx_ratioRing int32
 	maxIdx_ratioRing = 31
@@ -103,7 +104,11 @@ func (c *Core) massiImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInF
 	if optInSlowPeriod < 1 {
 		return InternalError
 	}
-	ratioRing = make([]float64, optInSlowPeriod)
+	if optInSlowPeriod <= 32 {
+		ratioRing = local_ratioRing[:optInSlowPeriod]
+	} else {
+		ratioRing = make([]float64, optInSlowPeriod)
+	}
 	maxIdx_ratioRing = optInSlowPeriod - 1
 	ratioRing_Idx = 0
 	*outBegIdx = startIdx
@@ -207,6 +212,25 @@ func (c *Core) MASSILookback(optInFastPeriod, optInSlowPeriod int) (int, error) 
 	return int(lookback), nil
 }
 
+// MASSIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.MASSI].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MASSI] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MASSILookback] rejects or an index that names no output.
+func (c *Core) MASSIDisplayShift(optInFastPeriod, optInSlowPeriod, outputIdx int) (int, error) {
+	if _, err := c.MASSILookback(optInFastPeriod, optInSlowPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MASSI computes the Mass Index over bars startIdx through endIdx.
 //
 // Mass Index: Donald Dorsey's non-directional measure of how the trading range
@@ -242,7 +266,8 @@ func (c *Core) MASSILookback(optInFastPeriod, optInSlowPeriod int) (int, error) 
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MASSI(startIdx, endIdx int, inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -329,18 +354,37 @@ func (sp *MASSIStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	massiStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var hl float64
+	var ratio float64
+	var tempReal float64
+	hl = inHigh - inLow
+	sp.ema1 = math.FMA(sp.emaBeta, sp.ema1, float64(sp.optInK_1*hl))
+	sp.ema2 = math.FMA(sp.emaBeta, sp.ema2, float64(sp.optInK_1*sp.ema1))
+	if sp.ema2 == 0.0 {
+		ratio = 1.0
+	} else {
+		ratio = sp.ema1 / sp.ema2
+	}
+	sp.cb_ratioRing[sp.ratioRing_Idx] = ratio
+	sp.total = sp.total + ratio
+	sp.ratioRing_Idx = sp.ratioRing_Idx + 1
+	if sp.ratioRing_Idx > sp.maxIdx_ratioRing {
+		sp.ratioRing_Idx = 0
+	}
+	tempReal = sp.total
+	sp.total = sp.total - sp.cb_ratioRing[sp.ratioRing_Idx]
+	sp.cur_outReal = tempReal
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *MASSIStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var hl float64
@@ -391,29 +435,6 @@ func (sp *MASSIStream) Clone() *MASSIStream {
 	cl := *sp
 	cl.cb_ratioRing = append(sp.cb_ratioRing[:0:0], sp.cb_ratioRing...)
 	return &cl
-}
-
-func massiStepImpl(sp *MASSIStream, inHigh, inLow float64) {
-	var hl float64
-	var ratio float64
-	var tempReal float64
-	hl = inHigh - inLow
-	sp.ema1 = math.FMA(sp.emaBeta, sp.ema1, float64(sp.optInK_1*hl))
-	sp.ema2 = math.FMA(sp.emaBeta, sp.ema2, float64(sp.optInK_1*sp.ema1))
-	if sp.ema2 == 0.0 {
-		ratio = 1.0
-	} else {
-		ratio = sp.ema1 / sp.ema2
-	}
-	sp.cb_ratioRing[sp.ratioRing_Idx] = ratio
-	sp.total = sp.total + ratio
-	sp.ratioRing_Idx = sp.ratioRing_Idx + 1
-	if sp.ratioRing_Idx > sp.maxIdx_ratioRing {
-		sp.ratioRing_Idx = 0
-	}
-	tempReal = sp.total
-	sp.total = sp.total - sp.cb_ratioRing[sp.ratioRing_Idx]
-	sp.cur_outReal = tempReal
 }
 
 func (c *Core) massiOpenImpl(sp *MASSIStream, inHigh, inLow []float64, startIdx, optInFastPeriod, optInSlowPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -606,8 +627,9 @@ func (c *Core) massiOpenInternal(inHigh, inLow []float64, startIdx, optInFastPer
 // of [Core.MASSI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MASSILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.MASSILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) MASSIOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int) (*MASSIStream, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, BadParam
@@ -630,7 +652,8 @@ func (c *Core) MASSIOpen(inHigh, inLow []float64, optInFastPeriod, optInSlowPeri
 // no memory with an input or another output.
 //
 // The errors are those of [Core.MASSIOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MASSIOpenAndFill(inHigh, inLow []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (*MASSIStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

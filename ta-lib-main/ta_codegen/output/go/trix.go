@@ -179,6 +179,25 @@ func (c *Core) TRIXLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// TRIXDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.TRIX].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.TRIX] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.TRIXLookback] rejects or an index that names no output.
+func (c *Core) TRIXDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.TRIXLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // TRIX computes the 1-day Rate-Of-Change (ROC) of a Triple Smooth EMA over bars
 // startIdx through endIdx.
 //
@@ -210,7 +229,8 @@ func (c *Core) TRIXLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) TRIX(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -285,18 +305,27 @@ func (sp *TRIXStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	trixStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tempReal float64
+	tempReal = sp.prevEMA3
+	sp.prevEMA1 = math.FMA(sp.emaBeta, sp.prevEMA1, float64(sp.optInK_1*inReal))
+	sp.prevEMA2 = math.FMA(sp.emaBeta, sp.prevEMA2, float64(sp.optInK_1*sp.prevEMA1))
+	sp.prevEMA3 = math.FMA(sp.emaBeta, sp.prevEMA3, float64(sp.optInK_1*sp.prevEMA2))
+	if tempReal != 0.0 {
+		sp.cur_outReal = float64((sp.prevEMA3/tempReal - 1.0) * 100.0)
+	} else {
+		sp.cur_outReal = 0.0
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *TRIXStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -326,19 +355,6 @@ func (sp *TRIXStream) Value() float64 {
 func (sp *TRIXStream) Clone() *TRIXStream {
 	cl := *sp
 	return &cl
-}
-
-func trixStepImpl(sp *TRIXStream, inReal float64) {
-	var tempReal float64
-	tempReal = sp.prevEMA3
-	sp.prevEMA1 = math.FMA(sp.emaBeta, sp.prevEMA1, float64(sp.optInK_1*inReal))
-	sp.prevEMA2 = math.FMA(sp.emaBeta, sp.prevEMA2, float64(sp.optInK_1*sp.prevEMA1))
-	sp.prevEMA3 = math.FMA(sp.emaBeta, sp.prevEMA3, float64(sp.optInK_1*sp.prevEMA2))
-	if tempReal != 0.0 {
-		sp.cur_outReal = float64((sp.prevEMA3/tempReal - 1.0) * 100.0)
-	} else {
-		sp.cur_outReal = 0.0
-	}
 }
 
 func (c *Core) trixOpenImpl(sp *TRIXStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -496,7 +512,8 @@ func (c *Core) trixOpenInternal(inReal []float64, startIdx, optInTimePeriod int3
 // inReal is the history; the parameters are those of [Core.TRIX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.TRIXLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.TRIXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) TRIXOpen(inReal []float64, optInTimePeriod int) (*TRIXStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -516,7 +533,8 @@ func (c *Core) TRIXOpen(inReal []float64, optInTimePeriod int) (*TRIXStream, flo
 // no memory with an input or another output.
 //
 // The errors are those of [Core.TRIXOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) TRIXOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*TRIXStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

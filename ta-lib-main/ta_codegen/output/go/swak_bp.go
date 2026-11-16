@@ -157,6 +157,25 @@ func (c *Core) SWAK_BPLookback(optInTimePeriod int, optInDelta float64) (int, er
 	return int(lookback), nil
 }
 
+// SWAK_BPDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SWAK_BP]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SWAK_BP] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SWAK_BPLookback] rejects or an index that names no output.
+func (c *Core) SWAK_BPDisplayShift(optInTimePeriod int, optInDelta float64, outputIdx int) (int, error) {
+	if _, err := c.SWAK_BPLookback(optInTimePeriod, optInDelta); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SWAK_BP computes the Swiss Army Knife - Band-Pass Filter over bars startIdx
 // through endIdx.
 //
@@ -195,7 +214,8 @@ func (c *Core) SWAK_BPLookback(optInTimePeriod int, optInDelta float64) (int, er
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SWAK_BP(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInDelta float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -274,18 +294,26 @@ func (sp *SWAK_BPStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	swakBpStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var x0 float64
+	var y float64
+	x0 = inReal
+	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(x0-sp.x2))))
+	sp.x2 = sp.x1
+	sp.x1 = x0
+	sp.y2 = sp.y1
+	sp.y1 = y
+	sp.cur_outReal = y
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SWAK_BPStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var x0 float64
@@ -315,18 +343,6 @@ func (sp *SWAK_BPStream) Value() float64 {
 func (sp *SWAK_BPStream) Clone() *SWAK_BPStream {
 	cl := *sp
 	return &cl
-}
-
-func swakBpStepImpl(sp *SWAK_BPStream, inReal float64) {
-	var x0 float64
-	var y float64
-	x0 = inReal
-	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(x0-sp.x2))))
-	sp.x2 = sp.x1
-	sp.x1 = x0
-	sp.y2 = sp.y1
-	sp.y1 = y
-	sp.cur_outReal = y
 }
 
 func (c *Core) swakBpOpenImpl(sp *SWAK_BPStream, inReal []float64, startIdx, optInTimePeriod int32, optInDelta float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -455,7 +471,8 @@ func (c *Core) swakBpOpenInternal(inReal []float64, startIdx, optInTimePeriod in
 // inReal is the history; the parameters are those of [Core.SWAK_BP].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SWAK_BPLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SWAK_BPLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SWAK_BPOpen(inReal []float64, optInTimePeriod int, optInDelta float64) (*SWAK_BPStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -475,7 +492,8 @@ func (c *Core) SWAK_BPOpen(inReal []float64, optInTimePeriod int, optInDelta flo
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SWAK_BPOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SWAK_BPOpenAndFill(inReal []float64, optInTimePeriod int, optInDelta float64, outReal []float64) (*SWAK_BPStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

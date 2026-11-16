@@ -153,6 +153,25 @@ func (c *Core) ACCBANDSLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// ACCBANDSDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.ACCBANDS]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ACCBANDS] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ACCBANDSLookback] rejects or an index that names no output.
+func (c *Core) ACCBANDSDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.ACCBANDSLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ACCBANDS computes the Acceleration Bands over bars startIdx through endIdx.
 //
 // Acceleration Bands: three overlap lines around price. The middle band is an
@@ -186,7 +205,8 @@ func (c *Core) ACCBANDSLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ACCBANDS(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -280,11 +300,52 @@ func (sp *ACCBANDSStream) Update(inHigh, inLow, inClose float64) (float64, float
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, BadParam
 	}
-	accbandsStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tempUpper float64
+	var tempMiddle float64
+	var tempLower float64
+	var tempReal float64
+	var ringPosL_trailingIdx int32
+	var ringCapL_trailingIdx int32
+	tempReal = inHigh + inLow
+	if !isZeroScaled(tempReal, math.Abs(inHigh)+math.Abs(inLow)) {
+		tempReal = float64(4.0*(inHigh-inLow)) / tempReal
+		sp.periodTotalUpper += float64(inHigh * (1.0 + tempReal))
+		sp.periodTotalLower += float64(inLow * (1.0 - tempReal))
+	} else {
+		sp.periodTotalUpper += inHigh
+		sp.periodTotalLower += inLow
+	}
+	sp.periodTotalMiddle += inClose
+	tempUpper = sp.periodTotalUpper
+	tempMiddle = sp.periodTotalMiddle
+	tempLower = sp.periodTotalLower
+	tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]
+	if !isZeroScaled(tempReal, math.Abs(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx])+math.Abs(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx])) {
+		tempReal = float64(4.0*(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]-sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx])) / tempReal
+		sp.periodTotalUpper -= float64(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1.0 + tempReal))
+		sp.periodTotalLower -= float64(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1.0 - tempReal))
+	} else {
+		sp.periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]
+		sp.periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]
+	}
+	sp.periodTotalMiddle -= sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx]
+	sp.cur_outRealUpperBand = tempUpper / float64(sp.optInTimePeriod)
+	sp.cur_outRealMiddleBand = tempMiddle / float64(sp.optInTimePeriod)
+	sp.cur_outRealLowerBand = tempLower / float64(sp.optInTimePeriod)
+	ringCapL_trailingIdx = sp.ringCap_trailingIdx
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_inHigh[ringPosL_trailingIdx] = inHigh
+	sp.ring_trailingIdx_inLow[ringPosL_trailingIdx] = inLow
+	sp.ring_trailingIdx_inClose[ringPosL_trailingIdx] = inClose
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand, nil
 }
 
@@ -292,7 +353,7 @@ func (sp *ACCBANDSStream) Update(inHigh, inLow, inClose float64) (float64, float
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *ACCBANDSStream) Peek(inHigh, inLow, inClose float64) (float64, float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var tempUpper float64
@@ -348,51 +409,6 @@ func (sp *ACCBANDSStream) Clone() *ACCBANDSStream {
 	cl.ring_trailingIdx_inLow = append(sp.ring_trailingIdx_inLow[:0:0], sp.ring_trailingIdx_inLow...)
 	cl.ring_trailingIdx_inClose = append(sp.ring_trailingIdx_inClose[:0:0], sp.ring_trailingIdx_inClose...)
 	return &cl
-}
-
-func accbandsStepImpl(sp *ACCBANDSStream, inHigh, inLow, inClose float64) {
-	var tempUpper float64
-	var tempMiddle float64
-	var tempLower float64
-	var tempReal float64
-	var ringPosL_trailingIdx int32
-	var ringCapL_trailingIdx int32
-	tempReal = inHigh + inLow
-	if !isZeroScaled(tempReal, math.Abs(inHigh)+math.Abs(inLow)) {
-		tempReal = float64(4.0*(inHigh-inLow)) / tempReal
-		sp.periodTotalUpper += float64(inHigh * (1.0 + tempReal))
-		sp.periodTotalLower += float64(inLow * (1.0 - tempReal))
-	} else {
-		sp.periodTotalUpper += inHigh
-		sp.periodTotalLower += inLow
-	}
-	sp.periodTotalMiddle += inClose
-	tempUpper = sp.periodTotalUpper
-	tempMiddle = sp.periodTotalMiddle
-	tempLower = sp.periodTotalLower
-	tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]
-	if !isZeroScaled(tempReal, math.Abs(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx])+math.Abs(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx])) {
-		tempReal = float64(4.0*(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]-sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx])) / tempReal
-		sp.periodTotalUpper -= float64(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1.0 + tempReal))
-		sp.periodTotalLower -= float64(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1.0 - tempReal))
-	} else {
-		sp.periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]
-		sp.periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]
-	}
-	sp.periodTotalMiddle -= sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx]
-	sp.cur_outRealUpperBand = tempUpper / float64(sp.optInTimePeriod)
-	sp.cur_outRealMiddleBand = tempMiddle / float64(sp.optInTimePeriod)
-	sp.cur_outRealLowerBand = tempLower / float64(sp.optInTimePeriod)
-	ringCapL_trailingIdx = sp.ringCap_trailingIdx
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_inHigh[ringPosL_trailingIdx] = inHigh
-	sp.ring_trailingIdx_inLow[ringPosL_trailingIdx] = inLow
-	sp.ring_trailingIdx_inClose[ringPosL_trailingIdx] = inClose
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) accbandsOpenImpl(sp *ACCBANDSStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64, outStride int32) RetCode {
@@ -544,8 +560,9 @@ func (c *Core) accbandsOpenInternal(inHigh, inLow, inClose []float64, startIdx, 
 // are those of [Core.ACCBANDS].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ACCBANDSLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ACCBANDSLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ACCBANDSOpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*ACCBANDSStream, float64, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -565,7 +582,9 @@ func (c *Core) ACCBANDSOpen(inHigh, inLow, inClose []float64, optInTimePeriod in
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.ACCBANDSOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) ACCBANDSOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (*ACCBANDSStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

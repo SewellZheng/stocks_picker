@@ -89,22 +89,22 @@ impl Core {
     #[doc(alias = "TA_KDJ_Lookback")]
     #[inline]
     pub fn kdj_lookback(&self, mut optInFastK_Period: i32, mut optInSlowK_Period: i32, mut optInSlowK_MAType: MAType, mut optInSlowD_Period: i32, mut optInSlowD_MAType: MAType) -> Result<usize, RetCode> {
-        if ((optInFastK_Period) as i32) == (i32::MIN) {
+        if optInFastK_Period == i32::MIN {
             optInFastK_Period = 9;
-        } else if (((optInFastK_Period) as i32) < 1) || (((optInFastK_Period) as i32) > 100000) {
+        } else if optInFastK_Period < 1 || optInFastK_Period > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowK_Period) as i32) == (i32::MIN) {
+        if optInSlowK_Period == i32::MIN {
             optInSlowK_Period = 3;
-        } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
+        } else if optInSlowK_Period < 1 || optInSlowK_Period > 100000 {
             return Err(RetCode::BadParam);
         }
         if optInSlowK_MAType == MAType::DEFAULT {
             optInSlowK_MAType = MAType::RMA;
         }
-        if ((optInSlowD_Period) as i32) == (i32::MIN) {
+        if optInSlowD_Period == i32::MIN {
             optInSlowD_Period = 3;
-        } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
+        } else if optInSlowD_Period < 1 || optInSlowD_Period > 100000 {
             return Err(RetCode::BadParam);
         }
         if optInSlowD_MAType == MAType::DEFAULT {
@@ -139,7 +139,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range or the index names no output. Integer
     /// parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
     #[doc(alias = "TA_KDJ_DisplayShift")]
-    pub fn kdj_display_shift(&self, mut optInFastK_Period: i32, mut optInSlowK_Period: i32, mut optInSlowK_MAType: MAType, mut optInSlowD_Period: i32, mut optInSlowD_MAType: MAType, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn kdj_display_shift(&self, optInFastK_Period: i32, optInSlowK_Period: i32, optInSlowK_MAType: MAType, optInSlowD_Period: i32, optInSlowD_MAType: MAType, outputIdx: usize) -> Result<i32, RetCode> {
         self.kdj_lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)?;
         if outputIdx >= 3 {
             return Err(RetCode::BadParam);
@@ -173,22 +173,22 @@ impl Core {
         if endIdx > Self::INDEX_MAX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if ((optInFastK_Period) as i32) == (i32::MIN) {
+        if optInFastK_Period == i32::MIN {
             optInFastK_Period = 9;
-        } else if (((optInFastK_Period) as i32) < 1) || (((optInFastK_Period) as i32) > 100000) {
+        } else if optInFastK_Period < 1 || optInFastK_Period > 100000 {
             return RetCode::BadParam;
         }
-        if ((optInSlowK_Period) as i32) == (i32::MIN) {
+        if optInSlowK_Period == i32::MIN {
             optInSlowK_Period = 3;
-        } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
+        } else if optInSlowK_Period < 1 || optInSlowK_Period > 100000 {
             return RetCode::BadParam;
         }
         if optInSlowK_MAType == MAType::DEFAULT {
             optInSlowK_MAType = MAType::RMA;
         }
-        if ((optInSlowD_Period) as i32) == (i32::MIN) {
+        if optInSlowD_Period == i32::MIN {
             optInSlowD_Period = 3;
-        } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
+        } else if optInSlowD_Period < 1 || optInSlowD_Period > 100000 {
             return RetCode::BadParam;
         }
         if optInSlowD_MAType == MAType::DEFAULT {
@@ -205,7 +205,6 @@ impl Core {
         if (outK.as_ptr() == outD.as_ptr()) || (outK.as_ptr() == outJ.as_ptr()) || (outD.as_ptr() == outJ.as_ptr()) {
             return RetCode::BadParam;
         }
-        let mut startIdx = startIdx;
         let mut retCode: RetCode = RetCode::Success;
         let mut i: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
@@ -214,30 +213,29 @@ impl Core {
         // keeps the sub-call out of the phantom-I/O sweep's zero-length range, where
         // its own argument check would reject before any array is touched.
         if lookbackTotal > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let _xr0 = match self.stoch(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outK, outD) { Ok(_r) => _r, Err(_e) => return _e };
-        (*outBegIdx) = _xr0.beg_idx;
-        (*outNBElement) = _xr0.count;
+        *outBegIdx = _xr0.beg_idx;
+        *outNBElement = _xr0.count;
         retCode = RetCode::Success;
-        if ((*outNBElement) as usize) == 0 {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+        if (*outNBElement as usize) == 0 {
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return retCode;
         }
         // Keep this one Sub expression: spelling it as an Add of a negated term
         // would arm the multiply-add fusion and move the last bits of J.
         i = 0;
-        if i < ((((*outNBElement) as usize)) as usize) {
-            let _wn: usize = ((((*outNBElement) as usize)) as usize) - i;
+        if i < ((*outNBElement as usize) as usize) {
+            let _wn: usize = ((*outNBElement as usize) as usize) - i;
             let _w0 = &outD[i..][.._wn];
             let _w1 = &mut outJ[i..][.._wn];
             let _w2 = &outK[i..][.._wn];
             for _wk in 0.._wn {
-                _w1[_wk] = ((3.0 * _w2[_wk] - 2.0 * _w0[_wk]) as f64);
-                i += 1;
+                _w1[_wk] = (3.0 * _w2[_wk] - 2.0 * _w0[_wk]) as f64;
             }
         }
         return RetCode::Success;
@@ -302,12 +300,16 @@ impl Core {
     /// use ta_lib::{Core, MAType};
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let close = vec![0.0; 252]; // your data, oldest first
     /// # let close: Vec<f64> = (0..252)
-    /// #     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    /// #     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     /// #     .collect();
     /// let mut k = vec![0.0; 252];
     /// let mut d = vec![0.0; 252];
@@ -316,8 +318,11 @@ impl Core {
     /// let core = Core::new();
     /// let range = core.kdj(0, high.len() - 1, &high, &low, &close, 9, 3, MAType::RMA, 3, MAType::RMA,
     ///                      &mut k, &mut d, &mut j)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last k = {}", range.count, range.beg_idx, k[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}:", range.count, range.beg_idx);
+    /// println!("k = [{:.4}, ..., {:.4}]", k[0], k[range.count - 1]);
+    /// println!("d = [{:.4}, ..., {:.4}]", d[0], d[range.count - 1]);
+    /// println!("j = [{:.4}, ..., {:.4}]", j[0], j[range.count - 1]);
     /// # assert!(k[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -425,11 +430,6 @@ pub struct KdjStream {
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct KdjStreamState {
-    optInFastK_Period: i32,
-    optInSlowK_Period: i32,
-    optInSlowK_MAType: MAType,
-    optInSlowD_Period: i32,
-    optInSlowD_MAType: MAType,
     sub0: StochStream,
     cur_outK: f64,
     cur_outD: f64,
@@ -455,9 +455,9 @@ impl Core {
         }
         // Combine map (batch tail, per bar).
         cur_outJ = 3.0 * cur_outK - 2.0 * cur_outD;
-        (*outK) = cur_outK;
-        (*outD) = cur_outD;
-        (*outJ) = cur_outJ;
+        *outK = cur_outK;
+        *outD = cur_outD;
+        *outJ = cur_outJ;
         Ok(())
     }
 
@@ -469,22 +469,22 @@ impl Core {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if ((optInFastK_Period) as i32) == (i32::MIN) {
+        if optInFastK_Period == i32::MIN {
             optInFastK_Period = 9;
-        } else if (((optInFastK_Period) as i32) < 1) || (((optInFastK_Period) as i32) > 100000) {
+        } else if optInFastK_Period < 1 || optInFastK_Period > 100000 {
             return Err(RetCode::BadParam);
         }
-        if ((optInSlowK_Period) as i32) == (i32::MIN) {
+        if optInSlowK_Period == i32::MIN {
             optInSlowK_Period = 3;
-        } else if (((optInSlowK_Period) as i32) < 1) || (((optInSlowK_Period) as i32) > 100000) {
+        } else if optInSlowK_Period < 1 || optInSlowK_Period > 100000 {
             return Err(RetCode::BadParam);
         }
         if optInSlowK_MAType == MAType::DEFAULT {
             optInSlowK_MAType = MAType::RMA;
         }
-        if ((optInSlowD_Period) as i32) == (i32::MIN) {
+        if optInSlowD_Period == i32::MIN {
             optInSlowD_Period = 3;
-        } else if (((optInSlowD_Period) as i32) < 1) || (((optInSlowD_Period) as i32) > 100000) {
+        } else if optInSlowD_Period < 1 || optInSlowD_Period > 100000 {
             return Err(RetCode::BadParam);
         }
         if optInSlowD_MAType == MAType::DEFAULT {
@@ -495,14 +495,11 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut owned_sc_outK: Vec<f64> =
             if outStride == 1 { Vec::new() } else { vec![0.0_f64; historyLen] };
         let sc_outK: &mut [f64] =
@@ -515,7 +512,6 @@ impl Core {
             if outStride == 1 { Vec::new() } else { vec![0.0_f64; historyLen] };
         let sc_outJ: &mut [f64] =
             if outStride == 1 { &mut *outJ } else { &mut owned_sc_outJ };
-        let mut retCode: RetCode = RetCode::Success;
         let mut i: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         lookbackTotal = self.kdj_lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType)?;
@@ -523,24 +519,23 @@ impl Core {
         // keeps the sub-call out of the phantom-I/O sweep's zero-length range, where
         // its own argument check would reject before any array is touched.
         if lookbackTotal > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         // Sub-stream 0: stoch over `inHigh, inLow, inClose`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
-        let sub0 = self.stoch_open_and_fill_internal(&inHigh[..((endIdx) as usize) + 1], &inLow[..((endIdx) as usize) + 1], &inClose[..((endIdx) as usize) + 1], ((startIdx) as usize), optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outK[..], &mut sc_outD[..])?;
-        retCode = RetCode::Success;
-        if ((*outNBElement) as usize) == 0 {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+        let sub0 = self.stoch_open_and_fill_internal(&inHigh[..(endIdx as usize) + 1], &inLow[..(endIdx as usize) + 1], &inClose[..(endIdx as usize) + 1], startIdx as usize, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, &mut sc_outK[..], &mut sc_outD[..])?;
+        if (*outNBElement as usize) == 0 {
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         // Keep this one Sub expression: spelling it as an Add of a negated term
         // would arm the multiply-add fusion and move the last bits of J.
         // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
         i = 0;
-        while i < ((((*outNBElement) as usize)) as usize) {
+        while i < ((*outNBElement as usize) as usize) {
             sc_outJ[i] = 3.0 * sc_outK[i] - 2.0 * sc_outD[i];
             i += 1;
         }
@@ -553,11 +548,6 @@ impl Core {
             cur_outK: 0.0_f64,
             cur_outD: 0.0_f64,
             cur_outJ: 0.0_f64,
-            optInFastK_Period,
-            optInSlowK_Period,
-            optInSlowK_MAType,
-            optInSlowD_Period,
-            optInSlowD_MAType,
             sub0,
         };
         state.cur_outK = sc_outK[*outNBElement - 1];
@@ -580,7 +570,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::kdj_open`] (composition seam).
     pub(crate) fn kdj_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInFastK_Period: i32, mut optInSlowK_Period: i32, mut optInSlowK_MAType: MAType, mut optInSlowD_Period: i32, mut optInSlowD_MAType: MAType,
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInFastK_Period: i32, optInSlowK_Period: i32, optInSlowK_MAType: MAType, optInSlowD_Period: i32, optInSlowD_MAType: MAType,
     ) -> Result<(KdjStream, (f64, f64, f64)), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -603,10 +593,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -640,10 +634,14 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .map(|i| 88.4 + ((i % 40 - 20) * (i % 40 - 20) + 4 * (i % 9 - 4) * (i % 9 - 4)) as f64 / 20.0)
     ///     .collect();
     ///
     /// let core = Core::new();
@@ -669,7 +667,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_KDJ_OpenAndFill")]
     pub fn kdj_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInFastK_Period: i32, mut optInSlowK_Period: i32, mut optInSlowK_MAType: MAType, mut optInSlowD_Period: i32, mut optInSlowD_MAType: MAType, outK: &mut [f64], outD: &mut [f64], outJ: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], optInFastK_Period: i32, optInSlowK_Period: i32, optInSlowK_MAType: MAType, optInSlowD_Period: i32, optInSlowD_MAType: MAType, outK: &mut [f64], outD: &mut [f64], outJ: &mut [f64],
     ) -> Result<(KdjStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -697,7 +695,7 @@ impl Core {
     /// [`Core::kdj_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn kdj_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInFastK_Period: i32, mut optInSlowK_Period: i32, mut optInSlowK_MAType: MAType, mut optInSlowD_Period: i32, mut optInSlowD_MAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outK: &mut [f64], outD: &mut [f64], outJ: &mut [f64],
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, optInFastK_Period: i32, optInSlowK_Period: i32, optInSlowK_MAType: MAType, optInSlowD_Period: i32, optInSlowD_MAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outK: &mut [f64], outD: &mut [f64], outJ: &mut [f64],
     ) -> Result<KdjStream, RetCode> {
         self.kdj_open_impl(inHigh, inLow, inClose, startIdx, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outBegIdx, outNBElement, outK, outD, outJ, 1)
     }
@@ -785,9 +783,9 @@ impl KdjStream {
             }
             // Combine map (batch tail, per bar).
             cur_outJ = 3.0 * cur_outK - 2.0 * cur_outD;
-            (*outK) = cur_outK;
-            (*outD) = cur_outD;
-            (*outJ) = cur_outJ;
+            *outK = cur_outK;
+            *outD = cur_outD;
+            *outJ = cur_outJ;
         }
         Ok((outK, outD, outJ))
     }

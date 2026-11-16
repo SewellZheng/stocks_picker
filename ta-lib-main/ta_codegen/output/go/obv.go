@@ -80,6 +80,21 @@ func (c *Core) OBVLookback() (int, error) {
 	return int(lookback), nil
 }
 
+// OBVDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.OBV]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.OBV], from 0, and
+// returns [BadParam] for an index that names no output.
+func (c *Core) OBVDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // OBV computes the On Balance Volume over bars startIdx through endIdx.
 //
 // On Balance Volume: a running cumulative total of volume, added on up-price
@@ -105,7 +120,9 @@ func (c *Core) OBVLookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) OBV(startIdx, endIdx int, inReal, inVolume, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -176,18 +193,26 @@ func (sp *OBVStream) Update(inReal, inVolume float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) || !isFinite(inVolume) {
+	if (inReal-inReal)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	obvStepImpl(sp, inReal, inVolume)
 	sp.outRangeCount++
+	var tempReal float64
+	tempReal = inReal
+	if tempReal > sp.prevReal {
+		sp.prevOBV += inVolume
+	} else if tempReal < sp.prevReal {
+		sp.prevOBV -= inVolume
+	}
+	sp.cur_outReal = sp.prevOBV
+	sp.prevReal = tempReal
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inReal and inVolume),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *OBVStream) Peek(inReal, inVolume float64) (float64, error) {
-	if !isFinite(inReal) || !isFinite(inVolume) {
+	if (inReal-inReal)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -213,18 +238,6 @@ func (sp *OBVStream) Value() float64 {
 func (sp *OBVStream) Clone() *OBVStream {
 	cl := *sp
 	return &cl
-}
-
-func obvStepImpl(sp *OBVStream, inReal, inVolume float64) {
-	var tempReal float64
-	tempReal = inReal
-	if tempReal > sp.prevReal {
-		sp.prevOBV += inVolume
-	} else if tempReal < sp.prevReal {
-		sp.prevOBV -= inVolume
-	}
-	sp.cur_outReal = sp.prevOBV
-	sp.prevReal = tempReal
 }
 
 func (c *Core) obvOpenImpl(sp *OBVStream, inReal, inVolume []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -297,7 +310,8 @@ func (c *Core) obvOpenInternal(inReal, inVolume []float64, startIdx int32) (*OBV
 // inReal and inVolume are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.OBVLookback] bars, and [BadParam] for histories of different lengths.
+// [Core.OBVLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) OBVOpen(inReal, inVolume []float64) (*OBVStream, float64, error) {
 	sp, err := c.obvOpenInternal(inReal, inVolume, 0)
 	if err != nil {
@@ -314,7 +328,8 @@ func (c *Core) OBVOpen(inReal, inVolume []float64) (*OBVStream, float64, error) 
 // no memory with an input or another output.
 //
 // The errors are those of [Core.OBVOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) OBVOpenAndFill(inReal, inVolume, outReal []float64) (*OBVStream, OutRange, error) {
 	if len(inReal) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

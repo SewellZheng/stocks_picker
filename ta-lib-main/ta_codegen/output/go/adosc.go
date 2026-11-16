@@ -174,6 +174,25 @@ func (c *Core) ADOSCLookback(optInFastPeriod, optInSlowPeriod int) (int, error) 
 	return int(lookback), nil
 }
 
+// ADOSCDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.ADOSC].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ADOSC] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ADOSCLookback] rejects or an index that names no output.
+func (c *Core) ADOSCDisplayShift(optInFastPeriod, optInSlowPeriod, outputIdx int) (int, error) {
+	if _, err := c.ADOSCLookback(optInFastPeriod, optInSlowPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ADOSC computes the Chaikin A/D Oscillator over bars startIdx through endIdx.
 //
 // Chaikin A/D Oscillator: the difference between a fast and a slow EMA of the
@@ -209,7 +228,8 @@ func (c *Core) ADOSCLookback(optInFastPeriod, optInSlowPeriod int) (int, error) 
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ADOSC(startIdx, endIdx int, inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -300,11 +320,24 @@ func (sp *ADOSCStream) Update(inHigh, inLow, inClose, inVolume float64) (float64
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	adoscStepImpl(sp, inHigh, inLow, inClose, inVolume)
 	sp.outRangeCount++
+	var high float64
+	var low float64
+	var close_ float64
+	var tmp float64
+	high = inHigh
+	low = inLow
+	tmp = high - low
+	close_ = inClose
+	if tmp > 0.0 {
+		sp.ad += float64((close_ - low - (high - close_)) / tmp * inVolume)
+	}
+	sp.fastEMA = math.FMA(sp.one_minus_fastk, sp.fastEMA, float64(sp.fastk*sp.ad))
+	sp.slowEMA = math.FMA(sp.one_minus_slowk, sp.slowEMA, float64(sp.slowk*sp.ad))
+	sp.cur_outReal = sp.fastEMA - sp.slowEMA
 	return sp.cur_outReal, nil
 }
 
@@ -312,7 +345,7 @@ func (sp *ADOSCStream) Update(inHigh, inLow, inClose, inVolume float64) (float64
 // inVolume), changing nothing. It returns [BadParam] for a bar value that is
 // not finite.
 func (sp *ADOSCStream) Peek(inHigh, inLow, inClose, inVolume float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) || !isFinite(inVolume) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var high float64
@@ -346,23 +379,6 @@ func (sp *ADOSCStream) Value() float64 {
 func (sp *ADOSCStream) Clone() *ADOSCStream {
 	cl := *sp
 	return &cl
-}
-
-func adoscStepImpl(sp *ADOSCStream, inHigh, inLow, inClose, inVolume float64) {
-	var high float64
-	var low float64
-	var close_ float64
-	var tmp float64
-	high = inHigh
-	low = inLow
-	tmp = high - low
-	close_ = inClose
-	if tmp > 0.0 {
-		sp.ad += float64((close_ - low - (high - close_)) / tmp * inVolume)
-	}
-	sp.fastEMA = math.FMA(sp.one_minus_fastk, sp.fastEMA, float64(sp.fastk*sp.ad))
-	sp.slowEMA = math.FMA(sp.one_minus_slowk, sp.slowEMA, float64(sp.slowk*sp.ad))
-	sp.cur_outReal = sp.fastEMA - sp.slowEMA
 }
 
 func (c *Core) adoscOpenImpl(sp *ADOSCStream, inHigh, inLow, inClose, inVolume []float64, startIdx, optInFastPeriod, optInSlowPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -506,8 +522,9 @@ func (c *Core) adoscOpenInternal(inHigh, inLow, inClose, inVolume []float64, sta
 // parameters are those of [Core.ADOSC].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ADOSCLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ADOSCLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ADOSCOpen(inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod int) (*ADOSCStream, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, BadParam
@@ -530,7 +547,8 @@ func (c *Core) ADOSCOpen(inHigh, inLow, inClose, inVolume []float64, optInFastPe
 // no memory with an input or another output.
 //
 // The errors are those of [Core.ADOSCOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ADOSCOpenAndFill(inHigh, inLow, inClose, inVolume []float64, optInFastPeriod, optInSlowPeriod int, outReal []float64) (*ADOSCStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

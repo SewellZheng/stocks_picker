@@ -162,6 +162,25 @@ func (c *Core) ZIGZAGLookback(optInSensitivity float64, optInMinTrendLength int)
 	return int(lookback), nil
 }
 
+// ZIGZAGDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.ZIGZAG]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ZIGZAG] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ZIGZAGLookback] rejects or an index that names no output.
+func (c *Core) ZIGZAGDisplayShift(optInSensitivity float64, optInMinTrendLength, outputIdx int) (int, error) {
+	if _, err := c.ZIGZAGLookback(optInSensitivity, optInMinTrendLength); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ZIGZAG computes the Zig Zag over bars startIdx through endIdx.
 //
 // The percent-filter swing line. A leg runs from the last confirmed pivot to
@@ -201,7 +220,8 @@ func (c *Core) ZIGZAGLookback(optInSensitivity float64, optInMinTrendLength int)
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ZIGZAG(startIdx, endIdx int, inHigh, inLow []float64, optInSensitivity float64, optInMinTrendLength int, outZigZag []float64, outTrend, outPivotIdx []int32) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -291,18 +311,42 @@ func (sp *ZIGZAGStream) Update(inHigh, inLow float64) (float64, int32, int32, er
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, 0, BadParam
 	}
-	zigzagStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var isExt int32
+	sp.barsSincePivot = sp.barsSincePivot + 1
+	sp.barIdx = sp.barIdx + 1
+	if sp.trend == -1 {
+		if inHigh >= float64(sp.pivot*sp.up) && sp.barsSincePivot >= sp.optInMinTrendLength {
+			sp.trend = 1
+			sp.pivot = inHigh
+			sp.barsSincePivot = 0
+		} else {
+			isExt = b2i(inLow <= sp.pivot)
+			sp.pivot = selF(sp.pivot < inLow, sp.pivot, inLow)
+			sp.barsSincePivot = sp.barsSincePivot - isExt*sp.barsSincePivot
+		}
+	} else if inLow <= float64(sp.pivot*sp.dn) && sp.barsSincePivot >= sp.optInMinTrendLength {
+		sp.trend = -1
+		sp.pivot = inLow
+		sp.barsSincePivot = 0
+	} else {
+		isExt = b2i(inHigh >= sp.pivot)
+		sp.pivot = selF(sp.pivot > inHigh, sp.pivot, inHigh)
+		sp.barsSincePivot = sp.barsSincePivot - isExt*sp.barsSincePivot
+	}
+	sp.cur_outZigZag = sp.pivot
+	sp.cur_outTrend = sp.trend
+	sp.cur_outPivotIdx = sp.barIdx - sp.barsSincePivot
 	return sp.cur_outZigZag, sp.cur_outTrend, sp.cur_outPivotIdx, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *ZIGZAGStream) Peek(inHigh, inLow float64) (float64, int32, int32, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var isExt int32
@@ -322,13 +366,7 @@ func (sp *ZIGZAGStream) Peek(inHigh, inLow float64) (float64, int32, int32, erro
 			barsSincePivot = 0
 		} else {
 			isExt = b2i(inLow <= pivot)
-			var _T0 float64
-			if pivot < inLow {
-				_T0 = pivot
-			} else {
-				_T0 = inLow
-			}
-			pivot = _T0
+			pivot = selF(pivot < inLow, pivot, inLow)
 			barsSincePivot = barsSincePivot - isExt*barsSincePivot
 		}
 	} else if inLow <= float64(pivot*sp.dn) && barsSincePivot >= sp.optInMinTrendLength {
@@ -337,13 +375,7 @@ func (sp *ZIGZAGStream) Peek(inHigh, inLow float64) (float64, int32, int32, erro
 		barsSincePivot = 0
 	} else {
 		isExt = b2i(inHigh >= pivot)
-		var _T1 float64
-		if pivot > inHigh {
-			_T1 = pivot
-		} else {
-			_T1 = inHigh
-		}
-		pivot = _T1
+		pivot = selF(pivot > inHigh, pivot, inHigh)
 		barsSincePivot = barsSincePivot - isExt*barsSincePivot
 	}
 	cur_outZigZag = pivot
@@ -363,46 +395,6 @@ func (sp *ZIGZAGStream) Value() (float64, int32, int32) {
 func (sp *ZIGZAGStream) Clone() *ZIGZAGStream {
 	cl := *sp
 	return &cl
-}
-
-func zigzagStepImpl(sp *ZIGZAGStream, inHigh, inLow float64) {
-	var isExt int32
-	sp.barsSincePivot = sp.barsSincePivot + 1
-	sp.barIdx = sp.barIdx + 1
-	if sp.trend == -1 {
-		if inHigh >= float64(sp.pivot*sp.up) && sp.barsSincePivot >= sp.optInMinTrendLength {
-			sp.trend = 1
-			sp.pivot = inHigh
-			sp.barsSincePivot = 0
-		} else {
-			isExt = b2i(inLow <= sp.pivot)
-			var _T2 float64
-			if sp.pivot < inLow {
-				_T2 = sp.pivot
-			} else {
-				_T2 = inLow
-			}
-			sp.pivot = _T2
-			sp.barsSincePivot = sp.barsSincePivot - isExt*sp.barsSincePivot
-		}
-	} else if inLow <= float64(sp.pivot*sp.dn) && sp.barsSincePivot >= sp.optInMinTrendLength {
-		sp.trend = -1
-		sp.pivot = inLow
-		sp.barsSincePivot = 0
-	} else {
-		isExt = b2i(inHigh >= sp.pivot)
-		var _T3 float64
-		if sp.pivot > inHigh {
-			_T3 = sp.pivot
-		} else {
-			_T3 = inHigh
-		}
-		sp.pivot = _T3
-		sp.barsSincePivot = sp.barsSincePivot - isExt*sp.barsSincePivot
-	}
-	sp.cur_outZigZag = sp.pivot
-	sp.cur_outTrend = sp.trend
-	sp.cur_outPivotIdx = sp.barIdx - sp.barsSincePivot
 }
 
 func (c *Core) zigzagOpenImpl(sp *ZIGZAGStream, inHigh, inLow []float64, startIdx int32, optInSensitivity float64, optInMinTrendLength int32, outBegIdx, outNBElement *int32, outZigZag []float64, outTrend, outPivotIdx []int32, outStride int32) RetCode {
@@ -469,13 +461,13 @@ func (c *Core) zigzagOpenImpl(sp *ZIGZAGStream, inHigh, inLow []float64, startId
 				barsSincePivot = 0
 			} else {
 				isExt = b2i(inLow[today] <= pivot)
-				var _T4 float64
+				var _T0 float64
 				if pivot < inLow[today] {
-					_T4 = pivot
+					_T0 = pivot
 				} else {
-					_T4 = inLow[today]
+					_T0 = inLow[today]
 				}
-				pivot = _T4
+				pivot = _T0
 				barsSincePivot = barsSincePivot - isExt*barsSincePivot
 			}
 		} else if inLow[today] <= float64(pivot*dn) && barsSincePivot >= optInMinTrendLength {
@@ -484,13 +476,13 @@ func (c *Core) zigzagOpenImpl(sp *ZIGZAGStream, inHigh, inLow []float64, startId
 			barsSincePivot = 0
 		} else {
 			isExt = b2i(inHigh[today] >= pivot)
-			var _T5 float64
+			var _T1 float64
 			if pivot > inHigh[today] {
-				_T5 = pivot
+				_T1 = pivot
 			} else {
-				_T5 = inHigh[today]
+				_T1 = inHigh[today]
 			}
-			pivot = _T5
+			pivot = _T1
 			barsSincePivot = barsSincePivot - isExt*barsSincePivot
 		}
 		if today >= startIdx {
@@ -549,8 +541,9 @@ func (c *Core) zigzagOpenInternal(inHigh, inLow []float64, startIdx int32, optIn
 // of [Core.ZIGZAG].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ZIGZAGLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ZIGZAGLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ZIGZAGOpen(inHigh, inLow []float64, optInSensitivity float64, optInMinTrendLength int) (*ZIGZAGStream, float64, int32, int32, error) {
 	if !fitsInt32(optInMinTrendLength) {
 		return nil, 0, 0, 0, BadParam
@@ -570,7 +563,8 @@ func (c *Core) ZIGZAGOpen(inHigh, inLow []float64, optInSensitivity float64, opt
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.ZIGZAGOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ZIGZAGOpenAndFill(inHigh, inLow []float64, optInSensitivity float64, optInMinTrendLength int, outZigZag []float64, outTrend, outPivotIdx []int32) (*ZIGZAGStream, OutRange, error) {
 	if !fitsInt32(optInMinTrendLength) {
 		return nil, OutRange{}, BadParam

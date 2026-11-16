@@ -261,6 +261,25 @@ func (c *Core) VIDYALookback(optInTimePeriod, optInCMOPeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// VIDYADisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.VIDYA].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.VIDYA] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.VIDYALookback] rejects or an index that names no output.
+func (c *Core) VIDYADisplayShift(optInTimePeriod, optInCMOPeriod, outputIdx int) (int, error) {
+	if _, err := c.VIDYALookback(optInTimePeriod, optInCMOPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // VIDYA computes the Variable Index Dynamic Average over bars startIdx through
 // endIdx.
 //
@@ -297,7 +316,8 @@ func (c *Core) VIDYALookback(optInTimePeriod, optInCMOPeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) VIDYA(startIdx, endIdx int, inReal []float64, optInTimePeriod, optInCMOPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -381,18 +401,66 @@ func (sp *VIDYAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	vidyaStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var live int32
+	var sum float64
+	var diff float64
+	var up float64
+	var tempReal float64
+	var k float64
+	var ringPosL_trailingIdx int32
+	var ringCapL_trailingIdx int32
+	if sp.optInTimePeriod == 1 {
+		sp.cur_outReal = inReal
+		return sp.cur_outReal, nil
+	}
+	tempReal = inReal
+	diff = tempReal - sp.prevValue
+	sp.prevValue = tempReal
+	up = float64((diff + math.Abs(diff)) * 0.5)
+	sp.upSum += up
+	sp.downSum += up - diff
+	live = b2i(!(math.Abs(diff) <= 0.0))
+	sp.nullRun = (sp.nullRun + 1) & (live - 1)
+	if sp.nullRun >= sp.optInCMOPeriod {
+		sp.nullRun = sp.optInCMOPeriod
+		sp.upSum = 0.0
+		sp.downSum = 0.0
+		k = 0.0
+	} else {
+		sum = sp.upSum + sp.downSum
+		if sum > 0.0 {
+			k = float64(sp.alpha * (math.Abs(float64(100.0*(sp.upSum-sp.downSum))/sum) / 100.0))
+		} else {
+			k = 0.0
+		}
+	}
+	sp.prevVIDYA = math.FMA(sp.prevValue-sp.prevVIDYA, k, sp.prevVIDYA)
+	sp.cur_outReal = sp.prevVIDYA
+	tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+	diff = tempReal - sp.trailingValue
+	sp.trailingValue = tempReal
+	up = float64((diff + math.Abs(diff)) * 0.5)
+	sp.upSum -= up
+	sp.downSum -= up - diff
+	ringCapL_trailingIdx = sp.ringCap_trailingIdx
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *VIDYAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var live int32
@@ -448,58 +516,6 @@ func (sp *VIDYAStream) Clone() *VIDYAStream {
 	cl := *sp
 	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
 	return &cl
-}
-
-func vidyaStepImpl(sp *VIDYAStream, inReal float64) {
-	var live int32
-	var sum float64
-	var diff float64
-	var up float64
-	var tempReal float64
-	var k float64
-	var ringPosL_trailingIdx int32
-	var ringCapL_trailingIdx int32
-	if sp.optInTimePeriod == 1 {
-		sp.cur_outReal = inReal
-		return
-	}
-	tempReal = inReal
-	diff = tempReal - sp.prevValue
-	sp.prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
-	sp.upSum += up
-	sp.downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
-	sp.nullRun = (sp.nullRun + 1) & (live - 1)
-	if sp.nullRun >= sp.optInCMOPeriod {
-		sp.nullRun = sp.optInCMOPeriod
-		sp.upSum = 0.0
-		sp.downSum = 0.0
-		k = 0.0
-	} else {
-		sum = sp.upSum + sp.downSum
-		if sum > 0.0 {
-			k = float64(sp.alpha * (math.Abs(float64(100.0*(sp.upSum-sp.downSum))/sum) / 100.0))
-		} else {
-			k = 0.0
-		}
-	}
-	sp.prevVIDYA = math.FMA(sp.prevValue-sp.prevVIDYA, k, sp.prevVIDYA)
-	sp.cur_outReal = sp.prevVIDYA
-	tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-	diff = tempReal - sp.trailingValue
-	sp.trailingValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
-	sp.upSum -= up
-	sp.downSum -= up - diff
-	ringCapL_trailingIdx = sp.ringCap_trailingIdx
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) vidyaOpenImpl(sp *VIDYAStream, inReal []float64, startIdx, optInTimePeriod, optInCMOPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -738,7 +754,8 @@ func (c *Core) vidyaOpenInternal(inReal []float64, startIdx, optInTimePeriod, op
 // inReal is the history; the parameters are those of [Core.VIDYA].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.VIDYALookback] bars, and [BadParam] for a parameter out of range.
+// [Core.VIDYALookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) VIDYAOpen(inReal []float64, optInTimePeriod, optInCMOPeriod int) (*VIDYAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -761,7 +778,8 @@ func (c *Core) VIDYAOpen(inReal []float64, optInTimePeriod, optInCMOPeriod int) 
 // no memory with an input or another output.
 //
 // The errors are those of [Core.VIDYAOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) VIDYAOpenAndFill(inReal []float64, optInTimePeriod, optInCMOPeriod int, outReal []float64) (*VIDYAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

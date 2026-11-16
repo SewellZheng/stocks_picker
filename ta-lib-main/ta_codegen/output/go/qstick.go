@@ -111,6 +111,25 @@ func (c *Core) QSTICKLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// QSTICKDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.QSTICK]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.QSTICK] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.QSTICKLookback] rejects or an index that names no output.
+func (c *Core) QSTICKDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.QSTICKLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // QSTICK computes the Qstick over bars startIdx through endIdx.
 //
 // Tushar Chande and Stanley Kroll's Qstick (The New Technical Trader, 1994): a
@@ -145,7 +164,8 @@ func (c *Core) QSTICKLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) QSTICK(startIdx, endIdx int, inOpen, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -224,18 +244,33 @@ func (sp *QSTICKStream) Update(inOpen, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	qstickStepImpl(sp, inOpen, inClose)
 	sp.outRangeCount++
+	var tempReal float64
+	var ringPosL_trailingIdx int32
+	if sp.ringCap_trailingIdx == 0 {
+		sp.ring_trailingIdx_derived[0] = inClose - inOpen
+	}
+	sp.periodTotal += inClose - inOpen
+	tempReal = sp.periodTotal
+	sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx]
+	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = inClose - inOpen
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inOpen and inClose),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *QSTICKStream) Peek(inOpen, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -271,25 +306,6 @@ func (sp *QSTICKStream) Clone() *QSTICKStream {
 	cl := *sp
 	cl.ring_trailingIdx_derived = append(sp.ring_trailingIdx_derived[:0:0], sp.ring_trailingIdx_derived...)
 	return &cl
-}
-
-func qstickStepImpl(sp *QSTICKStream, inOpen, inClose float64) {
-	var tempReal float64
-	var ringPosL_trailingIdx int32
-	if sp.ringCap_trailingIdx == 0 {
-		sp.ring_trailingIdx_derived[0] = inClose - inOpen
-	}
-	sp.periodTotal += inClose - inOpen
-	tempReal = sp.periodTotal
-	sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx]
-	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = inClose - inOpen
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) qstickOpenImpl(sp *QSTICKStream, inOpen, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -394,8 +410,9 @@ func (c *Core) qstickOpenInternal(inOpen, inClose []float64, startIdx, optInTime
 // of [Core.QSTICK].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.QSTICKLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.QSTICKLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) QSTICKOpen(inOpen, inClose []float64, optInTimePeriod int) (*QSTICKStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -415,7 +432,8 @@ func (c *Core) QSTICKOpen(inOpen, inClose []float64, optInTimePeriod int) (*QSTI
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.QSTICKOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) QSTICKOpenAndFill(inOpen, inClose []float64, optInTimePeriod int, outReal []float64) (*QSTICKStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

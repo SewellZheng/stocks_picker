@@ -98,6 +98,21 @@ func (c *Core) TRANGELookback() (int, error) {
 	return int(lookback), nil
 }
 
+// TRANGEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.TRANGE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.TRANGE], from 0,
+// and returns [BadParam] for an index that names no output.
+func (c *Core) TRANGEDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // TRANGE computes the True Range over bars startIdx through endIdx.
 //
 // True Range: the greatest of today's high-low span and the two gaps between
@@ -124,7 +139,9 @@ func (c *Core) TRANGELookback() (int, error) {
 //
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for an
-// input too short, an output empty or too short or memory shared otherwise.
+// input too short, an output empty or too short or memory shared otherwise. A
+// slice whose capacity a three-index expression cut, as slices.Clip does, can
+// escape the sharing check.
 func (c *Core) TRANGE(startIdx, endIdx int, inHigh, inLow, inClose, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -199,57 +216,10 @@ func (sp *TRANGEStream) Update(inHigh, inLow, inClose float64) (float64, error) 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	trangeStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar (inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *TRANGEStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, BadParam
-	}
-	var val2 float64
-	var val3 float64
-	var greatest float64
-	var tempCY float64
-	var tempLT float64
-	var tempHT float64
-	var cur_outReal float64
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	greatest = tempHT - tempLT
-	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
-	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
-	cur_outReal = greatest
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *TRANGEStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *TRANGEStream) Clone() *TRANGEStream {
-	cl := *sp
-	return &cl
-}
-
-func trangeStepImpl(sp *TRANGEStream, inHigh, inLow, inClose float64) {
 	var val2 float64
 	var val3 float64
 	var greatest float64
@@ -270,6 +240,45 @@ func trangeStepImpl(sp *TRANGEStream, inHigh, inLow, inClose float64) {
 	}
 	sp.cur_outReal = greatest
 	sp.lag1_inClose = inClose
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar (inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *TRANGEStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, BadParam
+	}
+	var val2 float64
+	var val3 float64
+	var greatest float64
+	var tempCY float64
+	var tempLT float64
+	var tempHT float64
+	var cur_outReal float64
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	greatest = tempHT - tempLT
+	val2 = math.Abs(tempCY - tempHT)
+	greatest = selF(val2 > greatest, val2, greatest)
+	val3 = math.Abs(tempCY - tempLT)
+	greatest = selF(val3 > greatest, val3, greatest)
+	cur_outReal = greatest
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *TRANGEStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *TRANGEStream) Clone() *TRANGEStream {
+	cl := *sp
+	return &cl
 }
 
 func (c *Core) trangeOpenImpl(sp *TRANGEStream, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -357,8 +366,8 @@ func (c *Core) trangeOpenInternal(inHigh, inLow, inClose []float64, startIdx int
 // inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.TRANGELookback] bars, and [BadParam] for histories of different
-// lengths.
+// [Core.TRANGELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) TRANGEOpen(inHigh, inLow, inClose []float64) (*TRANGEStream, float64, error) {
 	sp, err := c.trangeOpenInternal(inHigh, inLow, inClose, 0)
 	if err != nil {
@@ -375,7 +384,8 @@ func (c *Core) TRANGEOpen(inHigh, inLow, inClose []float64) (*TRANGEStream, floa
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.TRANGEOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) TRANGEOpenAndFill(inHigh, inLow, inClose, outReal []float64) (*TRANGEStream, OutRange, error) {
 	if len(inHigh) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

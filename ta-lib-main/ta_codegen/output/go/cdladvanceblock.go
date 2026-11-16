@@ -38,11 +38,12 @@ package talib
 import "math"
 
 func (c *Core) cdladvanceblockLookback() int32 {
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	Far_avgPeriod := int32(c.candleSettings[CandleSettingTypeFar].AvgPeriod)
-	Near_avgPeriod := int32(c.candleSettings[CandleSettingTypeNear].AvgPeriod)
-	ShadowLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowLong].AvgPeriod)
-	ShadowShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowShort].AvgPeriod)
+	candles := c.candles()
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	Far_avgPeriod := int32(candles[CandleSettingTypeFar].AvgPeriod)
+	Near_avgPeriod := int32(candles[CandleSettingTypeNear].AvgPeriod)
+	ShadowLong_avgPeriod := int32(candles[CandleSettingTypeShadowLong].AvgPeriod)
+	ShadowShort_avgPeriod := int32(candles[CandleSettingTypeShadowShort].AvgPeriod)
 	return maxI(maxI(maxI(ShadowLong_avgPeriod, ShadowShort_avgPeriod), maxI(Far_avgPeriod, Near_avgPeriod)), BodyLong_avgPeriod) + 2
 }
 
@@ -78,21 +79,22 @@ func (c *Core) cdladvanceblockImpl(startIdx, endIdx int32, inOpen, inHigh, inLow
 	var NearTrailingIdx int32
 	var FarTrailingIdx int32
 	var lookbackTotal int32
-	BodyLong_rangeType := int32(c.candleSettings[CandleSettingTypeBodyLong].RangeType)
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	BodyLong_factor := c.candleSettings[CandleSettingTypeBodyLong].Factor
-	Far_rangeType := int32(c.candleSettings[CandleSettingTypeFar].RangeType)
-	Far_avgPeriod := int32(c.candleSettings[CandleSettingTypeFar].AvgPeriod)
-	Far_factor := c.candleSettings[CandleSettingTypeFar].Factor
-	Near_rangeType := int32(c.candleSettings[CandleSettingTypeNear].RangeType)
-	Near_avgPeriod := int32(c.candleSettings[CandleSettingTypeNear].AvgPeriod)
-	Near_factor := c.candleSettings[CandleSettingTypeNear].Factor
-	ShadowLong_rangeType := int32(c.candleSettings[CandleSettingTypeShadowLong].RangeType)
-	ShadowLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowLong].AvgPeriod)
-	ShadowLong_factor := c.candleSettings[CandleSettingTypeShadowLong].Factor
-	ShadowShort_rangeType := int32(c.candleSettings[CandleSettingTypeShadowShort].RangeType)
-	ShadowShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowShort].AvgPeriod)
-	ShadowShort_factor := c.candleSettings[CandleSettingTypeShadowShort].Factor
+	candles := c.candles()
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	Far_rangeType := int32(candles[CandleSettingTypeFar].RangeType)
+	Far_avgPeriod := int32(candles[CandleSettingTypeFar].AvgPeriod)
+	Far_factor := candles[CandleSettingTypeFar].Factor
+	Near_rangeType := int32(candles[CandleSettingTypeNear].RangeType)
+	Near_avgPeriod := int32(candles[CandleSettingTypeNear].AvgPeriod)
+	Near_factor := candles[CandleSettingTypeNear].Factor
+	ShadowLong_rangeType := int32(candles[CandleSettingTypeShadowLong].RangeType)
+	ShadowLong_avgPeriod := int32(candles[CandleSettingTypeShadowLong].AvgPeriod)
+	ShadowLong_factor := candles[CandleSettingTypeShadowLong].Factor
+	ShadowShort_rangeType := int32(candles[CandleSettingTypeShadowShort].RangeType)
+	ShadowShort_avgPeriod := int32(candles[CandleSettingTypeShadowShort].AvgPeriod)
+	ShadowShort_factor := candles[CandleSettingTypeShadowShort].Factor
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -108,192 +110,553 @@ func (c *Core) cdladvanceblockImpl(startIdx, endIdx int32, inOpen, inHigh, inLow
 		*outNBElement = 0
 		return Success
 	}
-	ShadowShortPeriodTotal[2] = 0.0
-	ShadowShortPeriodTotal[1] = 0.0
-	ShadowShortPeriodTotal[0] = 0.0
-	ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
-	ShadowLongPeriodTotal[1] = 0.0
-	ShadowLongPeriodTotal[0] = 0.0
-	ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
-	NearPeriodTotal[2] = 0.0
-	NearPeriodTotal[1] = 0.0
-	NearPeriodTotal[0] = 0.0
-	NearTrailingIdx = startIdx - Near_avgPeriod
-	FarPeriodTotal[2] = 0.0
-	FarPeriodTotal[1] = 0.0
-	FarPeriodTotal[0] = 0.0
-	FarTrailingIdx = startIdx - Far_avgPeriod
-	BodyLongPeriodTotal = 0.0
-	BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
-	i = ShadowShortTrailingIdx
-	for i < startIdx {
-		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = ShadowLongTrailingIdx
-	for i < startIdx {
-		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = NearTrailingIdx
-	for i < startIdx {
-		NearPeriodTotal[2] = NearPeriodTotal[2] + candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		NearPeriodTotal[1] = NearPeriodTotal[1] + candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		i += 1
-	}
-	i = FarTrailingIdx
-	for i < startIdx {
-		FarPeriodTotal[2] = FarPeriodTotal[2] + candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		FarPeriodTotal[1] = FarPeriodTotal[1] + candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		i += 1
-	}
-	i = BodyLongTrailingIdx
-	for i < startIdx {
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		i += 1
-	}
-	i = startIdx
-	outIdx = 0
-	ShadowShortPeriodTotalRange1 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-	ShadowShortPeriodTotalTrailRange1 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-1], inHigh[ShadowShortTrailingIdx-1], inLow[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1])
-	ShadowShortPeriodTotalRange2 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	ShadowShortPeriodTotalTrailRange2 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-2], inHigh[ShadowShortTrailingIdx-2], inLow[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2])
-	ShadowLongPeriodTotalRange1 = candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-	ShadowLongPeriodTotalTrailRange1 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx-1], inHigh[ShadowLongTrailingIdx-1], inLow[ShadowLongTrailingIdx-1], inClose[ShadowLongTrailingIdx-1])
-	FarPeriodTotalRange2 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	FarPeriodTotalTrailRange2 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-2], inHigh[FarTrailingIdx-2], inLow[FarTrailingIdx-2], inClose[FarTrailingIdx-2])
-	NearPeriodTotalRange2 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	NearPeriodTotalTrailRange2 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-2], inHigh[NearTrailingIdx-2], inLow[NearTrailingIdx-2], inClose[NearTrailingIdx-2])
-	for {
-		var _T0 int32
-		if inClose[i-2] >= inOpen[i-2] {
-			_T0 = 1
-		} else {
-			_T0 = -1
+	if BodyLong_rangeType == 0 && Far_rangeType == 1 && Near_rangeType == 1 && ShadowLong_rangeType == 0 && ShadowShort_rangeType == 2 {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			i += 1
 		}
-		_B2 := _T0 == 1
-		if _B2 {
-			var _T1 int32
-			if inClose[i-1] >= inOpen[i-1] {
-				_T1 = 1
-			} else {
-				_T1 = -1
-			}
-			_B2 = _T1 == 1
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (math.Abs(inClose[i-1] - inOpen[i-1]))
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
 		}
-		_B4 := _B2
-		if _B4 {
-			var _T3 int32
-			if inClose[i] >= inOpen[i] {
-				_T3 = 1
-			} else {
-				_T3 = -1
-			}
-			_B4 = _T3 == 1
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
 		}
-		_B6 := _B4 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2] && inOpen[i-1] <= inClose[i-2]+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && inOpen[i] > inOpen[i-1] && inOpen[i] <= inClose[i-1]+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) && math.Abs(inClose[i-2]-inOpen[i-2]) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, BodyLongPeriodTotal, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		if _B6 {
-			var _T5 float64
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+		ShadowShortPeriodTotalTrailRange1 = ((inHigh[ShadowShortTrailingIdx-1] - selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1])) + (selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1]) - inLow[ShadowShortTrailingIdx-1]))
+		ShadowShortPeriodTotalRange2 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+		ShadowShortPeriodTotalTrailRange2 = ((inHigh[ShadowShortTrailingIdx-2] - selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2])) + (selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2]) - inLow[ShadowShortTrailingIdx-2]))
+		ShadowLongPeriodTotalRange1 = (math.Abs(inClose[i-1] - inOpen[i-1]))
+		ShadowLongPeriodTotalTrailRange1 = (math.Abs(inClose[ShadowLongTrailingIdx-1] - inOpen[ShadowLongTrailingIdx-1]))
+		FarPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		FarPeriodTotalTrailRange2 = (inHigh[FarTrailingIdx-2] - inLow[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		NearPeriodTotalTrailRange2 = (inHigh[NearTrailingIdx-2] - inLow[NearTrailingIdx-2])
+		for {
+			var _T0 int32
 			if inClose[i-2] >= inOpen[i-2] {
-				_T5 = inClose[i-2]
+				_T0 = 1
 			} else {
-				_T5 = inOpen[i-2]
+				_T0 = -1
 			}
-			_B6 = inHigh[i-2]-_T5 < candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		}
-		_B15 := _B6
-		if _B15 {
-			_B11 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, FarPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) || math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, FarPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-			if !_B11 {
-				_B10 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
-				if _B10 {
-					var _T7 float64
-					if inClose[i] >= inOpen[i] {
-						_T7 = inClose[i]
+			_B2 := _T0 == 1
+			if _B2 {
+				var _T1 int32
+				if inClose[i-1] >= inOpen[i-1] {
+					_T1 = 1
+				} else {
+					_T1 = -1
+				}
+				_B2 = _T1 == 1
+			}
+			_B4 := _B2
+			if _B4 {
+				var _T3 int32
+				if inClose[i] >= inOpen[i] {
+					_T3 = 1
+				} else {
+					_T3 = -1
+				}
+				_B4 = _T3 == 1
+			}
+			_B6 := _B4 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+			if _B6 {
+				var _T5 float64
+				if Near_avgPeriod != 0 {
+					_T5 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+				} else {
+					_T5 = (inHigh[i-2] - inLow[i-2])
+				}
+				_B6 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T5)
+			}
+			_B8 := _B6 && inOpen[i] > inOpen[i-1]
+			if _B8 {
+				var _T7 float64
+				if Near_avgPeriod != 0 {
+					_T7 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T7 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B8 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T7)
+			}
+			_B10 := _B8
+			if _B10 {
+				var _T9 float64
+				if BodyLong_avgPeriod != 0 {
+					_T9 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T9 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+				}
+				_B10 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T9)
+			}
+			_B12 := _B10
+			if _B12 {
+				var _T11 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T11 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+				} else {
+					_T11 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+				}
+				_B12 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T11)/2.0
+			}
+			_B26 := _B12
+			if _B26 {
+				var _T13 float64
+				if Far_avgPeriod != 0 {
+					_T13 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+				} else {
+					_T13 = (inHigh[i-2] - inLow[i-2])
+				}
+				_B15 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T13)
+				if _B15 {
+					var _T14 float64
+					if Near_avgPeriod != 0 {
+						_T14 = NearPeriodTotal[1] / float64(Near_avgPeriod)
 					} else {
-						_T7 = inOpen[i]
+						_T14 = (inHigh[i-1] - inLow[i-1])
 					}
-					_B9 := inHigh[i]-_T7 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[0], inOpen[i], inHigh[i], inLow[i], inClose[i])
-					if !_B9 {
-						var _T8 float64
-						if inClose[i-1] >= inOpen[i-1] {
-							_T8 = inClose[i-1]
+					_B15 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T14)
+				}
+				_B17 := _B15
+				if !_B17 {
+					var _T16 float64
+					if Far_avgPeriod != 0 {
+						_T16 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+					} else {
+						_T16 = (inHigh[i-1] - inLow[i-1])
+					}
+					_B17 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T16)
+				}
+				_B22 := _B17
+				if !_B22 {
+					_B21 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+					if _B21 {
+						var _T18 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T18 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
 						} else {
-							_T8 = inOpen[i-1]
+							_T18 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
 						}
-						_B9 = inHigh[i-1]-_T8 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+						_B20 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T18)/2.0
+						if !_B20 {
+							var _T19 float64
+							if ShadowShort_avgPeriod != 0 {
+								_T19 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+							} else {
+								_T19 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+							}
+							_B20 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T19)/2.0
+						}
+						_B21 = _B20
 					}
-					_B10 = _B9
+					_B22 = _B21
 				}
-				_B11 = _B10
+				_B25 := _B22
+				if !_B25 {
+					_B24 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+					if _B24 {
+						var _T23 float64
+						if ShadowLong_avgPeriod != 0 {
+							_T23 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+						} else {
+							_T23 = (math.Abs(inClose[i] - inOpen[i]))
+						}
+						_B24 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T23)
+					}
+					_B25 = _B24
+				}
+				_B26 = _B25
 			}
-			_B14 := _B11
-			if !_B14 {
-				_B13 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
-				if _B13 {
-					var _T12 float64
-					if inClose[i] >= inOpen[i] {
-						_T12 = inClose[i]
+			if _B26 {
+				outInteger[outIdx] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx] = 0
+				outIdx++
+			}
+			ShadowShortPeriodTotalRange0 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			ShadowShortPeriodTotalTrailRange0 = ((inHigh[ShadowShortTrailingIdx] - selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx])) + (selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx]) - inLow[ShadowShortTrailingIdx]))
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = (math.Abs(inClose[i] - inOpen[i]))
+			ShadowLongPeriodTotalTrailRange0 = (math.Abs(inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]))
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			FarPeriodTotalTrailRange1 = (inHigh[FarTrailingIdx-1] - inLow[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			NearPeriodTotalTrailRange1 = (inHigh[NearTrailingIdx-1] - inLow[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx-2] - inOpen[BodyLongTrailingIdx-2]))
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
+		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+		return Success
+	} else {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowShortPeriodTotalTrailRange1 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-1], inHigh[ShadowShortTrailingIdx-1], inLow[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1])
+		ShadowShortPeriodTotalRange2 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		ShadowShortPeriodTotalTrailRange2 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-2], inHigh[ShadowShortTrailingIdx-2], inLow[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2])
+		ShadowLongPeriodTotalRange1 = candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowLongPeriodTotalTrailRange1 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx-1], inHigh[ShadowLongTrailingIdx-1], inLow[ShadowLongTrailingIdx-1], inClose[ShadowLongTrailingIdx-1])
+		FarPeriodTotalRange2 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		FarPeriodTotalTrailRange2 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-2], inHigh[FarTrailingIdx-2], inLow[FarTrailingIdx-2], inClose[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		NearPeriodTotalTrailRange2 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-2], inHigh[NearTrailingIdx-2], inLow[NearTrailingIdx-2], inClose[NearTrailingIdx-2])
+		for {
+			var _T27 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T27 = 1
+			} else {
+				_T27 = -1
+			}
+			_B29 := _T27 == 1
+			if _B29 {
+				var _T28 int32
+				if inClose[i-1] >= inOpen[i-1] {
+					_T28 = 1
+				} else {
+					_T28 = -1
+				}
+				_B29 = _T28 == 1
+			}
+			_B31 := _B29
+			if _B31 {
+				var _T30 int32
+				if inClose[i] >= inOpen[i] {
+					_T30 = 1
+				} else {
+					_T30 = -1
+				}
+				_B31 = _T30 == 1
+			}
+			_B34 := _B31 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+			if _B34 {
+				var _T32 float64
+				if Near_avgPeriod != 0 {
+					_T32 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+				} else {
+					_T32 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T33 float64
+				if Near_rangeType == 2 {
+					_T33 = 2.0
+				} else {
+					_T33 = 1.0
+				}
+				_B34 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T32)/_T33
+			}
+			_B37 := _B34 && inOpen[i] > inOpen[i-1]
+			if _B37 {
+				var _T35 float64
+				if Near_avgPeriod != 0 {
+					_T35 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T35 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T36 float64
+				if Near_rangeType == 2 {
+					_T36 = 2.0
+				} else {
+					_T36 = 1.0
+				}
+				_B37 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T35)/_T36
+			}
+			_B40 := _B37
+			if _B40 {
+				var _T38 float64
+				if BodyLong_avgPeriod != 0 {
+					_T38 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T38 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T39 float64
+				if BodyLong_rangeType == 2 {
+					_T39 = 2.0
+				} else {
+					_T39 = 1.0
+				}
+				_B40 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T38)/_T39
+			}
+			_B43 := _B40
+			if _B43 {
+				var _T41 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T41 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+				} else {
+					_T41 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T42 float64
+				if ShadowShort_rangeType == 2 {
+					_T42 = 2.0
+				} else {
+					_T42 = 1.0
+				}
+				_B43 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T41)/_T42
+			}
+			_B63 := _B43
+			if _B63 {
+				var _T44 float64
+				if Far_avgPeriod != 0 {
+					_T44 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+				} else {
+					_T44 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T45 float64
+				if Far_rangeType == 2 {
+					_T45 = 2.0
+				} else {
+					_T45 = 1.0
+				}
+				_B48 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T44)/_T45
+				if _B48 {
+					var _T46 float64
+					if Near_avgPeriod != 0 {
+						_T46 = NearPeriodTotal[1] / float64(Near_avgPeriod)
 					} else {
-						_T12 = inOpen[i]
+						_T46 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
 					}
-					_B13 = inHigh[i]-_T12 > candleAverage(ShadowLong_rangeType, ShadowLong_avgPeriod, ShadowLong_factor, ShadowLongPeriodTotal[0], inOpen[i], inHigh[i], inLow[i], inClose[i])
+					var _T47 float64
+					if Near_rangeType == 2 {
+						_T47 = 2.0
+					} else {
+						_T47 = 1.0
+					}
+					_B48 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T46)/_T47
 				}
-				_B14 = _B13
+				_B51 := _B48
+				if !_B51 {
+					var _T49 float64
+					if Far_avgPeriod != 0 {
+						_T49 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+					} else {
+						_T49 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+					}
+					var _T50 float64
+					if Far_rangeType == 2 {
+						_T50 = 2.0
+					} else {
+						_T50 = 1.0
+					}
+					_B51 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T49)/_T50
+				}
+				_B58 := _B51
+				if !_B58 {
+					_B57 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+					if _B57 {
+						var _T52 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T52 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+						} else {
+							_T52 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+						}
+						var _T53 float64
+						if ShadowShort_rangeType == 2 {
+							_T53 = 2.0
+						} else {
+							_T53 = 1.0
+						}
+						_B56 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T52)/_T53
+						if !_B56 {
+							var _T54 float64
+							if ShadowShort_avgPeriod != 0 {
+								_T54 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+							} else {
+								_T54 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+							}
+							var _T55 float64
+							if ShadowShort_rangeType == 2 {
+								_T55 = 2.0
+							} else {
+								_T55 = 1.0
+							}
+							_B56 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T54)/_T55
+						}
+						_B57 = _B56
+					}
+					_B58 = _B57
+				}
+				_B62 := _B58
+				if !_B62 {
+					_B61 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+					if _B61 {
+						var _T59 float64
+						if ShadowLong_avgPeriod != 0 {
+							_T59 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+						} else {
+							_T59 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+						}
+						var _T60 float64
+						if ShadowLong_rangeType == 2 {
+							_T60 = 2.0
+						} else {
+							_T60 = 1.0
+						}
+						_B61 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T59)/_T60
+					}
+					_B62 = _B61
+				}
+				_B63 = _B62
 			}
-			_B15 = _B14
+			if _B63 {
+				outInteger[outIdx] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx] = 0
+				outIdx++
+			}
+			ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
 		}
-		if _B15 {
-			outInteger[outIdx] = -100
-			outIdx++
-		} else {
-			outInteger[outIdx] = 0
-			outIdx++
-		}
-		ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
-		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
-		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
-		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
-		ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
-		ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
-		ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
-		ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
-		ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
-		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
-		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
-		ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
-		ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
-		FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
-		FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
-		FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
-		FarPeriodTotalRange2 = FarPeriodTotalRange1
-		FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
-		NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
-		NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
-		NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
-		NearPeriodTotalRange2 = NearPeriodTotalRange1
-		NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
-		i += 1
-		ShadowShortTrailingIdx += 1
-		ShadowLongTrailingIdx += 1
-		NearTrailingIdx += 1
-		FarTrailingIdx += 1
-		BodyLongTrailingIdx += 1
-		if !(i <= endIdx) {
-			break
-		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+		return Success
 	}
-	*outNBElement = outIdx
-	*outBegIdx = startIdx
-	return Success
 }
 
 // CDLADVANCEBLOCKLookback returns how many leading bars [Core.CDLADVANCEBLOCK]
@@ -305,6 +668,21 @@ func (c *Core) CDLADVANCEBLOCKLookback() (int, error) {
 		return 0, BadParam
 	}
 	return int(lookback), nil
+}
+
+// CDLADVANCEBLOCKDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.CDLADVANCEBLOCK]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.CDLADVANCEBLOCK],
+// from 0, and returns [BadParam] for an index that names no output.
+func (c *Core) CDLADVANCEBLOCKDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
 }
 
 // CDLADVANCEBLOCK recognizes the Advance Block pattern over bars startIdx
@@ -465,141 +843,10 @@ func (sp *CDLADVANCEBLOCKStream) Update(inOpen, inHigh, inLow, inClose float64) 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cdladvanceblockStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
-	return sp.cur_outInteger, nil
-}
-
-// Peek returns what Update would return for the bar (inOpen, inHigh, inLow and
-// inClose), changing nothing. It returns [BadParam] for a bar value that is not
-// finite.
-func (sp *CDLADVANCEBLOCKStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
-		return 0, BadParam
-	}
-	var cur_outInteger int32
-	BodyLong_rangeType := sp.cs_BodyLong_rangeType
-	BodyLong_avgPeriod := sp.cs_BodyLong_avgPeriod
-	BodyLong_factor := sp.cs_BodyLong_factor
-	Far_rangeType := sp.cs_Far_rangeType
-	Far_avgPeriod := sp.cs_Far_avgPeriod
-	Far_factor := sp.cs_Far_factor
-	Near_rangeType := sp.cs_Near_rangeType
-	Near_avgPeriod := sp.cs_Near_avgPeriod
-	Near_factor := sp.cs_Near_factor
-	ShadowLong_rangeType := sp.cs_ShadowLong_rangeType
-	ShadowLong_avgPeriod := sp.cs_ShadowLong_avgPeriod
-	ShadowLong_factor := sp.cs_ShadowLong_factor
-	ShadowShort_rangeType := sp.cs_ShadowShort_rangeType
-	ShadowShort_avgPeriod := sp.cs_ShadowShort_avgPeriod
-	ShadowShort_factor := sp.cs_ShadowShort_factor
-	var _T0 int32
-	if sp.lag2_inClose >= sp.lag2_inOpen {
-		_T0 = 1
-	} else {
-		_T0 = -1
-	}
-	_B2 := _T0 == 1
-	if _B2 {
-		var _T1 int32
-		if sp.lag1_inClose >= sp.lag1_inOpen {
-			_T1 = 1
-		} else {
-			_T1 = -1
-		}
-		_B2 = _T1 == 1
-	}
-	_B4 := _B2
-	if _B4 {
-		var _T3 int32
-		if inClose >= inOpen {
-			_T3 = 1
-		} else {
-			_T3 = -1
-		}
-		_B4 = _T3 == 1
-	}
-	_B6 := _B4 && inClose > sp.lag1_inClose && sp.lag1_inClose > sp.lag2_inClose && sp.lag1_inOpen > sp.lag2_inOpen && sp.lag1_inOpen <= sp.lag2_inClose+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && inOpen > sp.lag1_inOpen && inOpen <= sp.lag1_inClose+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) && math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, sp.BodyLongPeriodTotal, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose)
-	if _B6 {
-		var _T5 float64
-		if sp.lag2_inClose >= sp.lag2_inOpen {
-			_T5 = sp.lag2_inClose
-		} else {
-			_T5 = sp.lag2_inOpen
-		}
-		_B6 = sp.lag2_inHigh-_T5 < candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose)
-	}
-	_B15 := _B6
-	if _B15 {
-		_B11 := math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, sp.FarPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) || math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, sp.FarPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
-		if !_B11 {
-			_B10 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)
-			if _B10 {
-				var _T7 float64
-				if inClose >= inOpen {
-					_T7 = inClose
-				} else {
-					_T7 = inOpen
-				}
-				_B9 := inHigh-_T7 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[0], inOpen, inHigh, inLow, inClose)
-				if !_B9 {
-					var _T8 float64
-					if sp.lag1_inClose >= sp.lag1_inOpen {
-						_T8 = sp.lag1_inClose
-					} else {
-						_T8 = sp.lag1_inOpen
-					}
-					_B9 = sp.lag1_inHigh-_T8 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
-				}
-				_B10 = _B9
-			}
-			_B11 = _B10
-		}
-		_B14 := _B11
-		if !_B14 {
-			_B13 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)
-			if _B13 {
-				var _T12 float64
-				if inClose >= inOpen {
-					_T12 = inClose
-				} else {
-					_T12 = inOpen
-				}
-				_B13 = inHigh-_T12 > candleAverage(ShadowLong_rangeType, ShadowLong_avgPeriod, ShadowLong_factor, sp.ShadowLongPeriodTotal[0], inOpen, inHigh, inLow, inClose)
-			}
-			_B14 = _B13
-		}
-		_B15 = _B14
-	}
-	if _B15 {
-		cur_outInteger = -100
-	} else {
-		cur_outInteger = 0
-	}
-	return cur_outInteger, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *CDLADVANCEBLOCKStream) Value() int32 {
-	return sp.cur_outInteger
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *CDLADVANCEBLOCKStream) Clone() *CDLADVANCEBLOCKStream {
-	cl := *sp
-	cl.ring_BodyLongTrailingIdx_derived = append(sp.ring_BodyLongTrailingIdx_derived[:0:0], sp.ring_BodyLongTrailingIdx_derived...)
-	cl.ring_FarTrailingIdx_derived = append(sp.ring_FarTrailingIdx_derived[:0:0], sp.ring_FarTrailingIdx_derived...)
-	cl.ring_NearTrailingIdx_derived = append(sp.ring_NearTrailingIdx_derived[:0:0], sp.ring_NearTrailingIdx_derived...)
-	cl.ring_ShadowLongTrailingIdx_derived = append(sp.ring_ShadowLongTrailingIdx_derived[:0:0], sp.ring_ShadowLongTrailingIdx_derived...)
-	cl.ring_ShadowShortTrailingIdx_derived = append(sp.ring_ShadowShortTrailingIdx_derived[:0:0], sp.ring_ShadowShortTrailingIdx_derived...)
-	return &cl
-}
-
-func cdladvanceblockStepImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, inClose float64) {
 	var ShadowShortPeriodTotalRange0 float64
 	var ShadowShortPeriodTotalTrailRange0 float64
 	var ShadowLongPeriodTotalRange0 float64
@@ -628,99 +875,359 @@ func cdladvanceblockStepImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, i
 	ShadowShort_rangeType := sp.cs_ShadowShort_rangeType
 	ShadowShort_avgPeriod := sp.cs_ShadowShort_avgPeriod
 	ShadowShort_factor := sp.cs_ShadowShort_factor
-	sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = candleRange(BodyLong_rangeType, inOpen, inHigh, inLow, inClose)
-	sp.ring_FarTrailingIdx_derived[sp.ringPos_FarTrailingIdx] = candleRange(Far_rangeType, inOpen, inHigh, inLow, inClose)
-	sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = candleRange(Near_rangeType, inOpen, inHigh, inLow, inClose)
+	var _R47 float64
+	switch BodyLong_rangeType {
+	case 0:
+		_R47 = math.Abs(inClose - inOpen)
+	case 1:
+		_R47 = inHigh - inLow
+	case 2:
+		_R47 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = _R47
+	var _R48 float64
+	switch Far_rangeType {
+	case 0:
+		_R48 = math.Abs(inClose - inOpen)
+	case 1:
+		_R48 = inHigh - inLow
+	case 2:
+		_R48 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_FarTrailingIdx_derived[sp.ringPos_FarTrailingIdx] = _R48
+	var _R49 float64
+	switch Near_rangeType {
+	case 0:
+		_R49 = math.Abs(inClose - inOpen)
+	case 1:
+		_R49 = inHigh - inLow
+	case 2:
+		_R49 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = _R49
 	if sp.ringCap_ShadowLongTrailingIdx == 0 {
-		sp.ring_ShadowLongTrailingIdx_derived[0] = candleRange(ShadowLong_rangeType, inOpen, inHigh, inLow, inClose)
+		var _R50 float64
+		switch ShadowLong_rangeType {
+		case 0:
+			_R50 = math.Abs(inClose - inOpen)
+		case 1:
+			_R50 = inHigh - inLow
+		case 2:
+			_R50 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+		}
+		sp.ring_ShadowLongTrailingIdx_derived[0] = _R50
 	}
 	if sp.ringCap_ShadowShortTrailingIdx == 0 {
-		sp.ring_ShadowShortTrailingIdx_derived[0] = candleRange(ShadowShort_rangeType, inOpen, inHigh, inLow, inClose)
+		var _R51 float64
+		switch ShadowShort_rangeType {
+		case 0:
+			_R51 = math.Abs(inClose - inOpen)
+		case 1:
+			_R51 = inHigh - inLow
+		case 2:
+			_R51 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+		}
+		sp.ring_ShadowShortTrailingIdx_derived[0] = _R51
 	}
-	var _T16 int32
+	var _T52 int32
 	if sp.lag2_inClose >= sp.lag2_inOpen {
-		_T16 = 1
+		_T52 = 1
 	} else {
-		_T16 = -1
+		_T52 = -1
 	}
-	_B18 := _T16 == 1
-	if _B18 {
-		var _T17 int32
+	_B54 := _T52 == 1
+	if _B54 {
+		var _T53 int32
 		if sp.lag1_inClose >= sp.lag1_inOpen {
-			_T17 = 1
+			_T53 = 1
 		} else {
-			_T17 = -1
+			_T53 = -1
 		}
-		_B18 = _T17 == 1
+		_B54 = _T53 == 1
 	}
-	_B20 := _B18
-	if _B20 {
-		var _T19 int32
+	_B56 := _B54
+	if _B56 {
+		var _T55 int32
 		if inClose >= inOpen {
-			_T19 = 1
+			_T55 = 1
 		} else {
-			_T19 = -1
+			_T55 = -1
 		}
-		_B20 = _T19 == 1
+		_B56 = _T55 == 1
 	}
-	_B22 := _B20 && inClose > sp.lag1_inClose && sp.lag1_inClose > sp.lag2_inClose && sp.lag1_inOpen > sp.lag2_inOpen && sp.lag1_inOpen <= sp.lag2_inClose+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && inOpen > sp.lag1_inOpen && inOpen <= sp.lag1_inClose+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) && math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, sp.BodyLongPeriodTotal, sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose)
-	if _B22 {
-		var _T21 float64
-		if sp.lag2_inClose >= sp.lag2_inOpen {
-			_T21 = sp.lag2_inClose
+	_B60 := _B56 && inClose > sp.lag1_inClose && sp.lag1_inClose > sp.lag2_inClose && sp.lag1_inOpen > sp.lag2_inOpen
+	if _B60 {
+		var _T58 float64
+		if Near_avgPeriod != 0 {
+			_T58 = sp.NearPeriodTotal[2] / float64(Near_avgPeriod)
 		} else {
-			_T21 = sp.lag2_inOpen
+			var _R57 float64
+			switch Near_rangeType {
+			case 0:
+				_R57 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R57 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R57 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T58 = _R57
 		}
-		_B22 = sp.lag2_inHigh-_T21 < candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose)
+		var _T59 float64
+		if Near_rangeType == 2 {
+			_T59 = 2.0
+		} else {
+			_T59 = 1.0
+		}
+		_B60 = sp.lag1_inOpen <= sp.lag2_inClose+float64(Near_factor*_T58)/_T59
 	}
-	_B31 := _B22
-	if _B31 {
-		_B27 := math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, sp.FarPeriodTotal[2], sp.lag2_inOpen, sp.lag2_inHigh, sp.lag2_inLow, sp.lag2_inClose) && math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, sp.NearPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose) || math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, sp.FarPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
-		if !_B27 {
-			_B26 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)
-			if _B26 {
-				var _T23 float64
-				if inClose >= inOpen {
-					_T23 = inClose
-				} else {
-					_T23 = inOpen
+	_B64 := _B60 && inOpen > sp.lag1_inOpen
+	if _B64 {
+		var _T62 float64
+		if Near_avgPeriod != 0 {
+			_T62 = sp.NearPeriodTotal[1] / float64(Near_avgPeriod)
+		} else {
+			var _R61 float64
+			switch Near_rangeType {
+			case 0:
+				_R61 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+			case 1:
+				_R61 = sp.lag1_inHigh - sp.lag1_inLow
+			case 2:
+				_R61 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+			}
+			_T62 = _R61
+		}
+		var _T63 float64
+		if Near_rangeType == 2 {
+			_T63 = 2.0
+		} else {
+			_T63 = 1.0
+		}
+		_B64 = inOpen <= sp.lag1_inClose+float64(Near_factor*_T62)/_T63
+	}
+	_B68 := _B64
+	if _B68 {
+		var _T66 float64
+		if BodyLong_avgPeriod != 0 {
+			_T66 = sp.BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+		} else {
+			var _R65 float64
+			switch BodyLong_rangeType {
+			case 0:
+				_R65 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R65 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R65 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T66 = _R65
+		}
+		var _T67 float64
+		if BodyLong_rangeType == 2 {
+			_T67 = 2.0
+		} else {
+			_T67 = 1.0
+		}
+		_B68 = math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > float64(BodyLong_factor*_T66)/_T67
+	}
+	_B72 := _B68
+	if _B72 {
+		var _T70 float64
+		if ShadowShort_avgPeriod != 0 {
+			_T70 = sp.ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+		} else {
+			var _R69 float64
+			switch ShadowShort_rangeType {
+			case 0:
+				_R69 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R69 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R69 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T70 = _R69
+		}
+		var _T71 float64
+		if ShadowShort_rangeType == 2 {
+			_T71 = 2.0
+		} else {
+			_T71 = 1.0
+		}
+		_B72 = sp.lag2_inHigh-selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen) < float64(ShadowShort_factor*_T70)/_T71
+	}
+	_B98 := _B72
+	if _B98 {
+		var _T74 float64
+		if Far_avgPeriod != 0 {
+			_T74 = sp.FarPeriodTotal[2] / float64(Far_avgPeriod)
+		} else {
+			var _R73 float64
+			switch Far_rangeType {
+			case 0:
+				_R73 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R73 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R73 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T74 = _R73
+		}
+		var _T75 float64
+		if Far_rangeType == 2 {
+			_T75 = 2.0
+		} else {
+			_T75 = 1.0
+		}
+		_B79 := math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)-float64(Far_factor*_T74)/_T75
+		if _B79 {
+			var _T77 float64
+			if Near_avgPeriod != 0 {
+				_T77 = sp.NearPeriodTotal[1] / float64(Near_avgPeriod)
+			} else {
+				var _R76 float64
+				switch Near_rangeType {
+				case 0:
+					_R76 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+				case 1:
+					_R76 = sp.lag1_inHigh - sp.lag1_inLow
+				case 2:
+					_R76 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
 				}
-				_B25 := inHigh-_T23 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[0], inOpen, inHigh, inLow, inClose)
-				if !_B25 {
-					var _T24 float64
-					if sp.lag1_inClose >= sp.lag1_inOpen {
-						_T24 = sp.lag1_inClose
-					} else {
-						_T24 = sp.lag1_inOpen
+				_T77 = _R76
+			}
+			var _T78 float64
+			if Near_rangeType == 2 {
+				_T78 = 2.0
+			} else {
+				_T78 = 1.0
+			}
+			_B79 = math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)+float64(Near_factor*_T77)/_T78
+		}
+		_B83 := _B79
+		if !_B83 {
+			var _T81 float64
+			if Far_avgPeriod != 0 {
+				_T81 = sp.FarPeriodTotal[1] / float64(Far_avgPeriod)
+			} else {
+				var _R80 float64
+				switch Far_rangeType {
+				case 0:
+					_R80 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+				case 1:
+					_R80 = sp.lag1_inHigh - sp.lag1_inLow
+				case 2:
+					_R80 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+				}
+				_T81 = _R80
+			}
+			var _T82 float64
+			if Far_rangeType == 2 {
+				_T82 = 2.0
+			} else {
+				_T82 = 1.0
+			}
+			_B83 = math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)-float64(Far_factor*_T81)/_T82
+		}
+		_B92 := _B83
+		if !_B92 {
+			_B91 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)
+			if _B91 {
+				var _T85 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T85 = sp.ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+				} else {
+					var _R84 float64
+					switch ShadowShort_rangeType {
+					case 0:
+						_R84 = math.Abs(inClose - inOpen)
+					case 1:
+						_R84 = inHigh - inLow
+					case 2:
+						_R84 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
 					}
-					_B25 = sp.lag1_inHigh-_T24 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, sp.ShadowShortPeriodTotal[1], sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
+					_T85 = _R84
 				}
-				_B26 = _B25
-			}
-			_B27 = _B26
-		}
-		_B30 := _B27
-		if !_B30 {
-			_B29 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)
-			if _B29 {
-				var _T28 float64
-				if inClose >= inOpen {
-					_T28 = inClose
+				var _T86 float64
+				if ShadowShort_rangeType == 2 {
+					_T86 = 2.0
 				} else {
-					_T28 = inOpen
+					_T86 = 1.0
 				}
-				_B29 = inHigh-_T28 > candleAverage(ShadowLong_rangeType, ShadowLong_avgPeriod, ShadowLong_factor, sp.ShadowLongPeriodTotal[0], inOpen, inHigh, inLow, inClose)
+				_B90 := inHigh-selF(inClose >= inOpen, inClose, inOpen) > float64(ShadowShort_factor*_T85)/_T86
+				if !_B90 {
+					var _T88 float64
+					if ShadowShort_avgPeriod != 0 {
+						_T88 = sp.ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+					} else {
+						var _R87 float64
+						switch ShadowShort_rangeType {
+						case 0:
+							_R87 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+						case 1:
+							_R87 = sp.lag1_inHigh - sp.lag1_inLow
+						case 2:
+							_R87 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+						}
+						_T88 = _R87
+					}
+					var _T89 float64
+					if ShadowShort_rangeType == 2 {
+						_T89 = 2.0
+					} else {
+						_T89 = 1.0
+					}
+					_B90 = sp.lag1_inHigh-selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) > float64(ShadowShort_factor*_T88)/_T89
+				}
+				_B91 = _B90
 			}
-			_B30 = _B29
+			_B92 = _B91
 		}
-		_B31 = _B30
+		_B97 := _B92
+		if !_B97 {
+			_B96 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)
+			if _B96 {
+				var _T94 float64
+				if ShadowLong_avgPeriod != 0 {
+					_T94 = sp.ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+				} else {
+					var _R93 float64
+					switch ShadowLong_rangeType {
+					case 0:
+						_R93 = math.Abs(inClose - inOpen)
+					case 1:
+						_R93 = inHigh - inLow
+					case 2:
+						_R93 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+					}
+					_T94 = _R93
+				}
+				var _T95 float64
+				if ShadowLong_rangeType == 2 {
+					_T95 = 2.0
+				} else {
+					_T95 = 1.0
+				}
+				_B96 = inHigh-selF(inClose >= inOpen, inClose, inOpen) > float64(ShadowLong_factor*_T94)/_T95
+			}
+			_B97 = _B96
+		}
+		_B98 = _B97
 	}
-	if _B31 {
+	if _B98 {
 		sp.cur_outInteger = -100
 	} else {
 		sp.cur_outInteger = 0
 	}
-	ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen, inHigh, inLow, inClose)
+	var _R99 float64
+	switch ShadowShort_rangeType {
+	case 0:
+		_R99 = math.Abs(inClose - inOpen)
+	case 1:
+		_R99 = inHigh - inLow
+	case 2:
+		_R99 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	ShadowShortPeriodTotalRange0 = _R99
 	ShadowShortPeriodTotalTrailRange0 = sp.ring_ShadowShortTrailingIdx_derived[sp.ringPos_ShadowShortTrailingIdx]
 	sp.ShadowShortPeriodTotal[2] = sp.ShadowShortPeriodTotal[2] + (sp.ShadowShortPeriodTotalRange2 - sp.ShadowShortPeriodTotalTrailRange2)
 	sp.ShadowShortPeriodTotal[1] = sp.ShadowShortPeriodTotal[1] + (sp.ShadowShortPeriodTotalRange1 - sp.ShadowShortPeriodTotalTrailRange1)
@@ -729,19 +1236,46 @@ func cdladvanceblockStepImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, i
 	sp.ShadowShortPeriodTotalTrailRange2 = sp.ShadowShortPeriodTotalTrailRange1
 	sp.ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
 	sp.ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
-	ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen, inHigh, inLow, inClose)
+	var _R100 float64
+	switch ShadowLong_rangeType {
+	case 0:
+		_R100 = math.Abs(inClose - inOpen)
+	case 1:
+		_R100 = inHigh - inLow
+	case 2:
+		_R100 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+	}
+	ShadowLongPeriodTotalRange0 = _R100
 	ShadowLongPeriodTotalTrailRange0 = sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx]
 	sp.ShadowLongPeriodTotal[1] = sp.ShadowLongPeriodTotal[1] + (sp.ShadowLongPeriodTotalRange1 - sp.ShadowLongPeriodTotalTrailRange1)
 	sp.ShadowLongPeriodTotal[0] = sp.ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
 	sp.ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
 	sp.ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
-	FarPeriodTotalRange1 = candleRange(Far_rangeType, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
+	var _R101 float64
+	switch Far_rangeType {
+	case 0:
+		_R101 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+	case 1:
+		_R101 = sp.lag1_inHigh - sp.lag1_inLow
+	case 2:
+		_R101 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+	}
+	FarPeriodTotalRange1 = _R101
 	FarPeriodTotalTrailRange1 = sp.ring_FarTrailingIdx_derived[(sp.ringPos_FarTrailingIdx+sp.ringCap_FarTrailingIdx-sp.ringLag_FarTrailingIdx-1)%sp.ringCap_FarTrailingIdx]
 	sp.FarPeriodTotal[2] = sp.FarPeriodTotal[2] + (sp.FarPeriodTotalRange2 - sp.FarPeriodTotalTrailRange2)
 	sp.FarPeriodTotal[1] = sp.FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
 	sp.FarPeriodTotalRange2 = FarPeriodTotalRange1
 	sp.FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
-	NearPeriodTotalRange1 = candleRange(Near_rangeType, sp.lag1_inOpen, sp.lag1_inHigh, sp.lag1_inLow, sp.lag1_inClose)
+	var _R102 float64
+	switch Near_rangeType {
+	case 0:
+		_R102 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+	case 1:
+		_R102 = sp.lag1_inHigh - sp.lag1_inLow
+	case 2:
+		_R102 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+	}
+	NearPeriodTotalRange1 = _R102
 	NearPeriodTotalTrailRange1 = sp.ring_NearTrailingIdx_derived[(sp.ringPos_NearTrailingIdx+sp.ringCap_NearTrailingIdx-sp.ringLag_NearTrailingIdx-1)%sp.ringCap_NearTrailingIdx]
 	sp.NearPeriodTotal[2] = sp.NearPeriodTotal[2] + (sp.NearPeriodTotalRange2 - sp.NearPeriodTotalTrailRange2)
 	sp.NearPeriodTotal[1] = sp.NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
@@ -788,6 +1322,339 @@ func cdladvanceblockStepImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, i
 		ringPosL_ShadowShortTrailingIdx = 0
 	}
 	sp.ringPos_ShadowShortTrailingIdx = ringPosL_ShadowShortTrailingIdx
+	return sp.cur_outInteger, nil
+}
+
+// Peek returns what Update would return for the bar (inOpen, inHigh, inLow and
+// inClose), changing nothing. It returns [BadParam] for a bar value that is not
+// finite.
+func (sp *CDLADVANCEBLOCKStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
+		return 0, BadParam
+	}
+	var cur_outInteger int32
+	BodyLong_rangeType := sp.cs_BodyLong_rangeType
+	BodyLong_avgPeriod := sp.cs_BodyLong_avgPeriod
+	BodyLong_factor := sp.cs_BodyLong_factor
+	Far_rangeType := sp.cs_Far_rangeType
+	Far_avgPeriod := sp.cs_Far_avgPeriod
+	Far_factor := sp.cs_Far_factor
+	Near_rangeType := sp.cs_Near_rangeType
+	Near_avgPeriod := sp.cs_Near_avgPeriod
+	Near_factor := sp.cs_Near_factor
+	ShadowLong_rangeType := sp.cs_ShadowLong_rangeType
+	ShadowLong_avgPeriod := sp.cs_ShadowLong_avgPeriod
+	ShadowLong_factor := sp.cs_ShadowLong_factor
+	ShadowShort_rangeType := sp.cs_ShadowShort_rangeType
+	ShadowShort_avgPeriod := sp.cs_ShadowShort_avgPeriod
+	ShadowShort_factor := sp.cs_ShadowShort_factor
+	var _T0 int32
+	if sp.lag2_inClose >= sp.lag2_inOpen {
+		_T0 = 1
+	} else {
+		_T0 = -1
+	}
+	_B2 := _T0 == 1
+	if _B2 {
+		var _T1 int32
+		if sp.lag1_inClose >= sp.lag1_inOpen {
+			_T1 = 1
+		} else {
+			_T1 = -1
+		}
+		_B2 = _T1 == 1
+	}
+	_B4 := _B2
+	if _B4 {
+		var _T3 int32
+		if inClose >= inOpen {
+			_T3 = 1
+		} else {
+			_T3 = -1
+		}
+		_B4 = _T3 == 1
+	}
+	_B8 := _B4 && inClose > sp.lag1_inClose && sp.lag1_inClose > sp.lag2_inClose && sp.lag1_inOpen > sp.lag2_inOpen
+	if _B8 {
+		var _T6 float64
+		if Near_avgPeriod != 0 {
+			_T6 = sp.NearPeriodTotal[2] / float64(Near_avgPeriod)
+		} else {
+			var _R5 float64
+			switch Near_rangeType {
+			case 0:
+				_R5 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R5 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R5 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T6 = _R5
+		}
+		var _T7 float64
+		if Near_rangeType == 2 {
+			_T7 = 2.0
+		} else {
+			_T7 = 1.0
+		}
+		_B8 = sp.lag1_inOpen <= sp.lag2_inClose+float64(Near_factor*_T6)/_T7
+	}
+	_B12 := _B8 && inOpen > sp.lag1_inOpen
+	if _B12 {
+		var _T10 float64
+		if Near_avgPeriod != 0 {
+			_T10 = sp.NearPeriodTotal[1] / float64(Near_avgPeriod)
+		} else {
+			var _R9 float64
+			switch Near_rangeType {
+			case 0:
+				_R9 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+			case 1:
+				_R9 = sp.lag1_inHigh - sp.lag1_inLow
+			case 2:
+				_R9 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+			}
+			_T10 = _R9
+		}
+		var _T11 float64
+		if Near_rangeType == 2 {
+			_T11 = 2.0
+		} else {
+			_T11 = 1.0
+		}
+		_B12 = inOpen <= sp.lag1_inClose+float64(Near_factor*_T10)/_T11
+	}
+	_B16 := _B12
+	if _B16 {
+		var _T14 float64
+		if BodyLong_avgPeriod != 0 {
+			_T14 = sp.BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+		} else {
+			var _R13 float64
+			switch BodyLong_rangeType {
+			case 0:
+				_R13 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R13 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R13 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T14 = _R13
+		}
+		var _T15 float64
+		if BodyLong_rangeType == 2 {
+			_T15 = 2.0
+		} else {
+			_T15 = 1.0
+		}
+		_B16 = math.Abs(sp.lag2_inClose-sp.lag2_inOpen) > float64(BodyLong_factor*_T14)/_T15
+	}
+	_B20 := _B16
+	if _B20 {
+		var _T18 float64
+		if ShadowShort_avgPeriod != 0 {
+			_T18 = sp.ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+		} else {
+			var _R17 float64
+			switch ShadowShort_rangeType {
+			case 0:
+				_R17 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R17 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R17 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T18 = _R17
+		}
+		var _T19 float64
+		if ShadowShort_rangeType == 2 {
+			_T19 = 2.0
+		} else {
+			_T19 = 1.0
+		}
+		_B20 = sp.lag2_inHigh-selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen) < float64(ShadowShort_factor*_T18)/_T19
+	}
+	_B46 := _B20
+	if _B46 {
+		var _T22 float64
+		if Far_avgPeriod != 0 {
+			_T22 = sp.FarPeriodTotal[2] / float64(Far_avgPeriod)
+		} else {
+			var _R21 float64
+			switch Far_rangeType {
+			case 0:
+				_R21 = math.Abs(sp.lag2_inClose - sp.lag2_inOpen)
+			case 1:
+				_R21 = sp.lag2_inHigh - sp.lag2_inLow
+			case 2:
+				_R21 = (sp.lag2_inHigh - selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inClose, sp.lag2_inOpen)) + (selF(sp.lag2_inClose >= sp.lag2_inOpen, sp.lag2_inOpen, sp.lag2_inClose) - sp.lag2_inLow)
+			}
+			_T22 = _R21
+		}
+		var _T23 float64
+		if Far_rangeType == 2 {
+			_T23 = 2.0
+		} else {
+			_T23 = 1.0
+		}
+		_B27 := math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)-float64(Far_factor*_T22)/_T23
+		if _B27 {
+			var _T25 float64
+			if Near_avgPeriod != 0 {
+				_T25 = sp.NearPeriodTotal[1] / float64(Near_avgPeriod)
+			} else {
+				var _R24 float64
+				switch Near_rangeType {
+				case 0:
+					_R24 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+				case 1:
+					_R24 = sp.lag1_inHigh - sp.lag1_inLow
+				case 2:
+					_R24 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+				}
+				_T25 = _R24
+			}
+			var _T26 float64
+			if Near_rangeType == 2 {
+				_T26 = 2.0
+			} else {
+				_T26 = 1.0
+			}
+			_B27 = math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)+float64(Near_factor*_T25)/_T26
+		}
+		_B31 := _B27
+		if !_B31 {
+			var _T29 float64
+			if Far_avgPeriod != 0 {
+				_T29 = sp.FarPeriodTotal[1] / float64(Far_avgPeriod)
+			} else {
+				var _R28 float64
+				switch Far_rangeType {
+				case 0:
+					_R28 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+				case 1:
+					_R28 = sp.lag1_inHigh - sp.lag1_inLow
+				case 2:
+					_R28 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+				}
+				_T29 = _R28
+			}
+			var _T30 float64
+			if Far_rangeType == 2 {
+				_T30 = 2.0
+			} else {
+				_T30 = 1.0
+			}
+			_B31 = math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)-float64(Far_factor*_T29)/_T30
+		}
+		_B40 := _B31
+		if !_B40 {
+			_B39 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen) && math.Abs(sp.lag1_inClose-sp.lag1_inOpen) < math.Abs(sp.lag2_inClose-sp.lag2_inOpen)
+			if _B39 {
+				var _T33 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T33 = sp.ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+				} else {
+					var _R32 float64
+					switch ShadowShort_rangeType {
+					case 0:
+						_R32 = math.Abs(inClose - inOpen)
+					case 1:
+						_R32 = inHigh - inLow
+					case 2:
+						_R32 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+					}
+					_T33 = _R32
+				}
+				var _T34 float64
+				if ShadowShort_rangeType == 2 {
+					_T34 = 2.0
+				} else {
+					_T34 = 1.0
+				}
+				_B38 := inHigh-selF(inClose >= inOpen, inClose, inOpen) > float64(ShadowShort_factor*_T33)/_T34
+				if !_B38 {
+					var _T36 float64
+					if ShadowShort_avgPeriod != 0 {
+						_T36 = sp.ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+					} else {
+						var _R35 float64
+						switch ShadowShort_rangeType {
+						case 0:
+							_R35 = math.Abs(sp.lag1_inClose - sp.lag1_inOpen)
+						case 1:
+							_R35 = sp.lag1_inHigh - sp.lag1_inLow
+						case 2:
+							_R35 = (sp.lag1_inHigh - selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen)) + (selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inOpen, sp.lag1_inClose) - sp.lag1_inLow)
+						}
+						_T36 = _R35
+					}
+					var _T37 float64
+					if ShadowShort_rangeType == 2 {
+						_T37 = 2.0
+					} else {
+						_T37 = 1.0
+					}
+					_B38 = sp.lag1_inHigh-selF(sp.lag1_inClose >= sp.lag1_inOpen, sp.lag1_inClose, sp.lag1_inOpen) > float64(ShadowShort_factor*_T36)/_T37
+				}
+				_B39 = _B38
+			}
+			_B40 = _B39
+		}
+		_B45 := _B40
+		if !_B45 {
+			_B44 := math.Abs(inClose-inOpen) < math.Abs(sp.lag1_inClose-sp.lag1_inOpen)
+			if _B44 {
+				var _T42 float64
+				if ShadowLong_avgPeriod != 0 {
+					_T42 = sp.ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+				} else {
+					var _R41 float64
+					switch ShadowLong_rangeType {
+					case 0:
+						_R41 = math.Abs(inClose - inOpen)
+					case 1:
+						_R41 = inHigh - inLow
+					case 2:
+						_R41 = (inHigh - selF(inClose >= inOpen, inClose, inOpen)) + (selF(inClose >= inOpen, inOpen, inClose) - inLow)
+					}
+					_T42 = _R41
+				}
+				var _T43 float64
+				if ShadowLong_rangeType == 2 {
+					_T43 = 2.0
+				} else {
+					_T43 = 1.0
+				}
+				_B44 = inHigh-selF(inClose >= inOpen, inClose, inOpen) > float64(ShadowLong_factor*_T42)/_T43
+			}
+			_B45 = _B44
+		}
+		_B46 = _B45
+	}
+	if _B46 {
+		cur_outInteger = -100
+	} else {
+		cur_outInteger = 0
+	}
+	return cur_outInteger, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *CDLADVANCEBLOCKStream) Value() int32 {
+	return sp.cur_outInteger
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *CDLADVANCEBLOCKStream) Clone() *CDLADVANCEBLOCKStream {
+	cl := *sp
+	cl.ring_BodyLongTrailingIdx_derived = append(sp.ring_BodyLongTrailingIdx_derived[:0:0], sp.ring_BodyLongTrailingIdx_derived...)
+	cl.ring_FarTrailingIdx_derived = append(sp.ring_FarTrailingIdx_derived[:0:0], sp.ring_FarTrailingIdx_derived...)
+	cl.ring_NearTrailingIdx_derived = append(sp.ring_NearTrailingIdx_derived[:0:0], sp.ring_NearTrailingIdx_derived...)
+	cl.ring_ShadowLongTrailingIdx_derived = append(sp.ring_ShadowLongTrailingIdx_derived[:0:0], sp.ring_ShadowLongTrailingIdx_derived...)
+	cl.ring_ShadowShortTrailingIdx_derived = append(sp.ring_ShadowShortTrailingIdx_derived[:0:0], sp.ring_ShadowShortTrailingIdx_derived...)
+	return &cl
 }
 
 func (c *Core) cdladvanceblockOpenImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -835,21 +1702,22 @@ func (c *Core) cdladvanceblockOpenImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh
 		*outNBElement = 0
 		return InsufficientHistory
 	}
-	BodyLong_rangeType := int32(c.candleSettings[CandleSettingTypeBodyLong].RangeType)
-	BodyLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeBodyLong].AvgPeriod)
-	BodyLong_factor := c.candleSettings[CandleSettingTypeBodyLong].Factor
-	Far_rangeType := int32(c.candleSettings[CandleSettingTypeFar].RangeType)
-	Far_avgPeriod := int32(c.candleSettings[CandleSettingTypeFar].AvgPeriod)
-	Far_factor := c.candleSettings[CandleSettingTypeFar].Factor
-	Near_rangeType := int32(c.candleSettings[CandleSettingTypeNear].RangeType)
-	Near_avgPeriod := int32(c.candleSettings[CandleSettingTypeNear].AvgPeriod)
-	Near_factor := c.candleSettings[CandleSettingTypeNear].Factor
-	ShadowLong_rangeType := int32(c.candleSettings[CandleSettingTypeShadowLong].RangeType)
-	ShadowLong_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowLong].AvgPeriod)
-	ShadowLong_factor := c.candleSettings[CandleSettingTypeShadowLong].Factor
-	ShadowShort_rangeType := int32(c.candleSettings[CandleSettingTypeShadowShort].RangeType)
-	ShadowShort_avgPeriod := int32(c.candleSettings[CandleSettingTypeShadowShort].AvgPeriod)
-	ShadowShort_factor := c.candleSettings[CandleSettingTypeShadowShort].Factor
+	candles := c.candles()
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	Far_rangeType := int32(candles[CandleSettingTypeFar].RangeType)
+	Far_avgPeriod := int32(candles[CandleSettingTypeFar].AvgPeriod)
+	Far_factor := candles[CandleSettingTypeFar].Factor
+	Near_rangeType := int32(candles[CandleSettingTypeNear].RangeType)
+	Near_avgPeriod := int32(candles[CandleSettingTypeNear].AvgPeriod)
+	Near_factor := candles[CandleSettingTypeNear].Factor
+	ShadowLong_rangeType := int32(candles[CandleSettingTypeShadowLong].RangeType)
+	ShadowLong_avgPeriod := int32(candles[CandleSettingTypeShadowLong].AvgPeriod)
+	ShadowLong_factor := candles[CandleSettingTypeShadowLong].Factor
+	ShadowShort_rangeType := int32(candles[CandleSettingTypeShadowShort].RangeType)
+	ShadowShort_avgPeriod := int32(candles[CandleSettingTypeShadowShort].AvgPeriod)
+	ShadowShort_factor := candles[CandleSettingTypeShadowShort].Factor
 	lookbackTotal = c.cdladvanceblockLookback()
 	if startIdx < lookbackTotal {
 		startIdx = lookbackTotal
@@ -859,191 +1727,551 @@ func (c *Core) cdladvanceblockOpenImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh
 		*outNBElement = 0
 		return InsufficientHistory
 	}
-	ShadowShortPeriodTotal[2] = 0.0
-	ShadowShortPeriodTotal[1] = 0.0
-	ShadowShortPeriodTotal[0] = 0.0
-	ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
-	ShadowLongPeriodTotal[1] = 0.0
-	ShadowLongPeriodTotal[0] = 0.0
-	ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
-	NearPeriodTotal[2] = 0.0
-	NearPeriodTotal[1] = 0.0
-	NearPeriodTotal[0] = 0.0
-	NearTrailingIdx = startIdx - Near_avgPeriod
-	FarPeriodTotal[2] = 0.0
-	FarPeriodTotal[1] = 0.0
-	FarPeriodTotal[0] = 0.0
-	FarTrailingIdx = startIdx - Far_avgPeriod
-	BodyLongPeriodTotal = 0.0
-	BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
-	i = ShadowShortTrailingIdx
-	for i < startIdx {
-		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = ShadowLongTrailingIdx
-	for i < startIdx {
-		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		i += 1
-	}
-	i = NearTrailingIdx
-	for i < startIdx {
-		NearPeriodTotal[2] = NearPeriodTotal[2] + candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		NearPeriodTotal[1] = NearPeriodTotal[1] + candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		i += 1
-	}
-	i = FarTrailingIdx
-	for i < startIdx {
-		FarPeriodTotal[2] = FarPeriodTotal[2] + candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		FarPeriodTotal[1] = FarPeriodTotal[1] + candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		i += 1
-	}
-	i = BodyLongTrailingIdx
-	for i < startIdx {
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		i += 1
-	}
-	i = startIdx
-	outIdx = 0
-	ShadowShortPeriodTotalRange1 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-	ShadowShortPeriodTotalTrailRange1 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-1], inHigh[ShadowShortTrailingIdx-1], inLow[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1])
-	ShadowShortPeriodTotalRange2 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	ShadowShortPeriodTotalTrailRange2 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-2], inHigh[ShadowShortTrailingIdx-2], inLow[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2])
-	ShadowLongPeriodTotalRange1 = candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-	ShadowLongPeriodTotalTrailRange1 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx-1], inHigh[ShadowLongTrailingIdx-1], inLow[ShadowLongTrailingIdx-1], inClose[ShadowLongTrailingIdx-1])
-	FarPeriodTotalRange2 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	FarPeriodTotalTrailRange2 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-2], inHigh[FarTrailingIdx-2], inLow[FarTrailingIdx-2], inClose[FarTrailingIdx-2])
-	NearPeriodTotalRange2 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-	NearPeriodTotalTrailRange2 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-2], inHigh[NearTrailingIdx-2], inLow[NearTrailingIdx-2], inClose[NearTrailingIdx-2])
-	for {
-		var _T32 int32
-		if inClose[i-2] >= inOpen[i-2] {
-			_T32 = 1
-		} else {
-			_T32 = -1
+	if BodyLong_rangeType == 0 && Far_rangeType == 1 && Near_rangeType == 1 && ShadowLong_rangeType == 0 && ShadowShort_rangeType == 2 {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			i += 1
 		}
-		_B34 := _T32 == 1
-		if _B34 {
-			var _T33 int32
-			if inClose[i-1] >= inOpen[i-1] {
-				_T33 = 1
-			} else {
-				_T33 = -1
-			}
-			_B34 = _T33 == 1
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (math.Abs(inClose[i-1] - inOpen[i-1]))
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
 		}
-		_B36 := _B34
-		if _B36 {
-			var _T35 int32
-			if inClose[i] >= inOpen[i] {
-				_T35 = 1
-			} else {
-				_T35 = -1
-			}
-			_B36 = _T35 == 1
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
 		}
-		_B38 := _B36 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2] && inOpen[i-1] <= inClose[i-2]+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && inOpen[i] > inOpen[i-1] && inOpen[i] <= inClose[i-1]+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) && math.Abs(inClose[i-2]-inOpen[i-2]) > candleAverage(BodyLong_rangeType, BodyLong_avgPeriod, BodyLong_factor, BodyLongPeriodTotal, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		if _B38 {
-			var _T37 float64
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+		ShadowShortPeriodTotalTrailRange1 = ((inHigh[ShadowShortTrailingIdx-1] - selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1])) + (selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1]) - inLow[ShadowShortTrailingIdx-1]))
+		ShadowShortPeriodTotalRange2 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+		ShadowShortPeriodTotalTrailRange2 = ((inHigh[ShadowShortTrailingIdx-2] - selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2])) + (selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2]) - inLow[ShadowShortTrailingIdx-2]))
+		ShadowLongPeriodTotalRange1 = (math.Abs(inClose[i-1] - inOpen[i-1]))
+		ShadowLongPeriodTotalTrailRange1 = (math.Abs(inClose[ShadowLongTrailingIdx-1] - inOpen[ShadowLongTrailingIdx-1]))
+		FarPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		FarPeriodTotalTrailRange2 = (inHigh[FarTrailingIdx-2] - inLow[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		NearPeriodTotalTrailRange2 = (inHigh[NearTrailingIdx-2] - inLow[NearTrailingIdx-2])
+		for {
+			var _T103 int32
 			if inClose[i-2] >= inOpen[i-2] {
-				_T37 = inClose[i-2]
+				_T103 = 1
 			} else {
-				_T37 = inOpen[i-2]
+				_T103 = -1
 			}
-			_B38 = inHigh[i-2]-_T37 < candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
-		}
-		_B47 := _B38
-		if _B47 {
-			_B43 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, FarPeriodTotal[2], inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) && math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+candleAverage(Near_rangeType, Near_avgPeriod, Near_factor, NearPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1]) || math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-candleAverage(Far_rangeType, Far_avgPeriod, Far_factor, FarPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-			if !_B43 {
-				_B42 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
-				if _B42 {
-					var _T39 float64
-					if inClose[i] >= inOpen[i] {
-						_T39 = inClose[i]
+			_B105 := _T103 == 1
+			if _B105 {
+				var _T104 int32
+				if inClose[i-1] >= inOpen[i-1] {
+					_T104 = 1
+				} else {
+					_T104 = -1
+				}
+				_B105 = _T104 == 1
+			}
+			_B107 := _B105
+			if _B107 {
+				var _T106 int32
+				if inClose[i] >= inOpen[i] {
+					_T106 = 1
+				} else {
+					_T106 = -1
+				}
+				_B107 = _T106 == 1
+			}
+			_B109 := _B107 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+			if _B109 {
+				var _T108 float64
+				if Near_avgPeriod != 0 {
+					_T108 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+				} else {
+					_T108 = (inHigh[i-2] - inLow[i-2])
+				}
+				_B109 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T108)
+			}
+			_B111 := _B109 && inOpen[i] > inOpen[i-1]
+			if _B111 {
+				var _T110 float64
+				if Near_avgPeriod != 0 {
+					_T110 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T110 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B111 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T110)
+			}
+			_B113 := _B111
+			if _B113 {
+				var _T112 float64
+				if BodyLong_avgPeriod != 0 {
+					_T112 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T112 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+				}
+				_B113 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T112)
+			}
+			_B115 := _B113
+			if _B115 {
+				var _T114 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T114 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+				} else {
+					_T114 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+				}
+				_B115 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T114)/2.0
+			}
+			_B129 := _B115
+			if _B129 {
+				var _T116 float64
+				if Far_avgPeriod != 0 {
+					_T116 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+				} else {
+					_T116 = (inHigh[i-2] - inLow[i-2])
+				}
+				_B118 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T116)
+				if _B118 {
+					var _T117 float64
+					if Near_avgPeriod != 0 {
+						_T117 = NearPeriodTotal[1] / float64(Near_avgPeriod)
 					} else {
-						_T39 = inOpen[i]
+						_T117 = (inHigh[i-1] - inLow[i-1])
 					}
-					_B41 := inHigh[i]-_T39 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[0], inOpen[i], inHigh[i], inLow[i], inClose[i])
-					if !_B41 {
-						var _T40 float64
-						if inClose[i-1] >= inOpen[i-1] {
-							_T40 = inClose[i-1]
+					_B118 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T117)
+				}
+				_B120 := _B118
+				if !_B120 {
+					var _T119 float64
+					if Far_avgPeriod != 0 {
+						_T119 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+					} else {
+						_T119 = (inHigh[i-1] - inLow[i-1])
+					}
+					_B120 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T119)
+				}
+				_B125 := _B120
+				if !_B125 {
+					_B124 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+					if _B124 {
+						var _T121 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T121 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
 						} else {
-							_T40 = inOpen[i-1]
+							_T121 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
 						}
-						_B41 = inHigh[i-1]-_T40 > candleAverage(ShadowShort_rangeType, ShadowShort_avgPeriod, ShadowShort_factor, ShadowShortPeriodTotal[1], inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+						_B123 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T121)/2.0
+						if !_B123 {
+							var _T122 float64
+							if ShadowShort_avgPeriod != 0 {
+								_T122 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+							} else {
+								_T122 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+							}
+							_B123 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T122)/2.0
+						}
+						_B124 = _B123
 					}
-					_B42 = _B41
+					_B125 = _B124
 				}
-				_B43 = _B42
+				_B128 := _B125
+				if !_B128 {
+					_B127 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+					if _B127 {
+						var _T126 float64
+						if ShadowLong_avgPeriod != 0 {
+							_T126 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+						} else {
+							_T126 = (math.Abs(inClose[i] - inOpen[i]))
+						}
+						_B127 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T126)
+					}
+					_B128 = _B127
+				}
+				_B129 = _B128
 			}
-			_B46 := _B43
-			if !_B46 {
-				_B45 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
-				if _B45 {
-					var _T44 float64
-					if inClose[i] >= inOpen[i] {
-						_T44 = inClose[i]
+			if _B129 {
+				outInteger[outIdx*outStride] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx*outStride] = 0
+				outIdx++
+			}
+			ShadowShortPeriodTotalRange0 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			ShadowShortPeriodTotalTrailRange0 = ((inHigh[ShadowShortTrailingIdx] - selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx])) + (selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx]) - inLow[ShadowShortTrailingIdx]))
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = (math.Abs(inClose[i] - inOpen[i]))
+			ShadowLongPeriodTotalTrailRange0 = (math.Abs(inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]))
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			FarPeriodTotalTrailRange1 = (inHigh[FarTrailingIdx-1] - inLow[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			NearPeriodTotalTrailRange1 = (inHigh[NearTrailingIdx-1] - inLow[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx-2] - inOpen[BodyLongTrailingIdx-2]))
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
+		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	} else {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowShortPeriodTotalTrailRange1 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-1], inHigh[ShadowShortTrailingIdx-1], inLow[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1])
+		ShadowShortPeriodTotalRange2 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		ShadowShortPeriodTotalTrailRange2 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-2], inHigh[ShadowShortTrailingIdx-2], inLow[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2])
+		ShadowLongPeriodTotalRange1 = candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowLongPeriodTotalTrailRange1 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx-1], inHigh[ShadowLongTrailingIdx-1], inLow[ShadowLongTrailingIdx-1], inClose[ShadowLongTrailingIdx-1])
+		FarPeriodTotalRange2 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		FarPeriodTotalTrailRange2 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-2], inHigh[FarTrailingIdx-2], inLow[FarTrailingIdx-2], inClose[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		NearPeriodTotalTrailRange2 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-2], inHigh[NearTrailingIdx-2], inLow[NearTrailingIdx-2], inClose[NearTrailingIdx-2])
+		for {
+			var _T130 int32
+			if inClose[i-2] >= inOpen[i-2] {
+				_T130 = 1
+			} else {
+				_T130 = -1
+			}
+			_B132 := _T130 == 1
+			if _B132 {
+				var _T131 int32
+				if inClose[i-1] >= inOpen[i-1] {
+					_T131 = 1
+				} else {
+					_T131 = -1
+				}
+				_B132 = _T131 == 1
+			}
+			_B134 := _B132
+			if _B134 {
+				var _T133 int32
+				if inClose[i] >= inOpen[i] {
+					_T133 = 1
+				} else {
+					_T133 = -1
+				}
+				_B134 = _T133 == 1
+			}
+			_B137 := _B134 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+			if _B137 {
+				var _T135 float64
+				if Near_avgPeriod != 0 {
+					_T135 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+				} else {
+					_T135 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T136 float64
+				if Near_rangeType == 2 {
+					_T136 = 2.0
+				} else {
+					_T136 = 1.0
+				}
+				_B137 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T135)/_T136
+			}
+			_B140 := _B137 && inOpen[i] > inOpen[i-1]
+			if _B140 {
+				var _T138 float64
+				if Near_avgPeriod != 0 {
+					_T138 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T138 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T139 float64
+				if Near_rangeType == 2 {
+					_T139 = 2.0
+				} else {
+					_T139 = 1.0
+				}
+				_B140 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T138)/_T139
+			}
+			_B143 := _B140
+			if _B143 {
+				var _T141 float64
+				if BodyLong_avgPeriod != 0 {
+					_T141 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+				} else {
+					_T141 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T142 float64
+				if BodyLong_rangeType == 2 {
+					_T142 = 2.0
+				} else {
+					_T142 = 1.0
+				}
+				_B143 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T141)/_T142
+			}
+			_B146 := _B143
+			if _B146 {
+				var _T144 float64
+				if ShadowShort_avgPeriod != 0 {
+					_T144 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+				} else {
+					_T144 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T145 float64
+				if ShadowShort_rangeType == 2 {
+					_T145 = 2.0
+				} else {
+					_T145 = 1.0
+				}
+				_B146 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T144)/_T145
+			}
+			_B166 := _B146
+			if _B166 {
+				var _T147 float64
+				if Far_avgPeriod != 0 {
+					_T147 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+				} else {
+					_T147 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+				}
+				var _T148 float64
+				if Far_rangeType == 2 {
+					_T148 = 2.0
+				} else {
+					_T148 = 1.0
+				}
+				_B151 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T147)/_T148
+				if _B151 {
+					var _T149 float64
+					if Near_avgPeriod != 0 {
+						_T149 = NearPeriodTotal[1] / float64(Near_avgPeriod)
 					} else {
-						_T44 = inOpen[i]
+						_T149 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
 					}
-					_B45 = inHigh[i]-_T44 > candleAverage(ShadowLong_rangeType, ShadowLong_avgPeriod, ShadowLong_factor, ShadowLongPeriodTotal[0], inOpen[i], inHigh[i], inLow[i], inClose[i])
+					var _T150 float64
+					if Near_rangeType == 2 {
+						_T150 = 2.0
+					} else {
+						_T150 = 1.0
+					}
+					_B151 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T149)/_T150
 				}
-				_B46 = _B45
+				_B154 := _B151
+				if !_B154 {
+					var _T152 float64
+					if Far_avgPeriod != 0 {
+						_T152 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+					} else {
+						_T152 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+					}
+					var _T153 float64
+					if Far_rangeType == 2 {
+						_T153 = 2.0
+					} else {
+						_T153 = 1.0
+					}
+					_B154 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T152)/_T153
+				}
+				_B161 := _B154
+				if !_B161 {
+					_B160 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+					if _B160 {
+						var _T155 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T155 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+						} else {
+							_T155 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+						}
+						var _T156 float64
+						if ShadowShort_rangeType == 2 {
+							_T156 = 2.0
+						} else {
+							_T156 = 1.0
+						}
+						_B159 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T155)/_T156
+						if !_B159 {
+							var _T157 float64
+							if ShadowShort_avgPeriod != 0 {
+								_T157 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+							} else {
+								_T157 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+							}
+							var _T158 float64
+							if ShadowShort_rangeType == 2 {
+								_T158 = 2.0
+							} else {
+								_T158 = 1.0
+							}
+							_B159 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T157)/_T158
+						}
+						_B160 = _B159
+					}
+					_B161 = _B160
+				}
+				_B165 := _B161
+				if !_B165 {
+					_B164 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+					if _B164 {
+						var _T162 float64
+						if ShadowLong_avgPeriod != 0 {
+							_T162 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+						} else {
+							_T162 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+						}
+						var _T163 float64
+						if ShadowLong_rangeType == 2 {
+							_T163 = 2.0
+						} else {
+							_T163 = 1.0
+						}
+						_B164 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T162)/_T163
+					}
+					_B165 = _B164
+				}
+				_B166 = _B165
 			}
-			_B47 = _B46
+			if _B166 {
+				outInteger[outIdx*outStride] = -100
+				outIdx++
+			} else {
+				outInteger[outIdx*outStride] = 0
+				outIdx++
+			}
+			ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+			if !(i <= endIdx) {
+				break
+			}
 		}
-		if _B47 {
-			outInteger[outIdx*outStride] = -100
-			outIdx++
-		} else {
-			outInteger[outIdx*outStride] = 0
-			outIdx++
-		}
-		ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
-		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
-		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
-		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
-		ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
-		ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
-		ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
-		ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
-		ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
-		ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
-		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
-		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
-		ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
-		ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
-		FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
-		FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
-		FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
-		FarPeriodTotalRange2 = FarPeriodTotalRange1
-		FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
-		NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
-		NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
-		NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
-		NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
-		NearPeriodTotalRange2 = NearPeriodTotalRange1
-		NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
-		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
-		i += 1
-		ShadowShortTrailingIdx += 1
-		ShadowLongTrailingIdx += 1
-		NearTrailingIdx += 1
-		FarTrailingIdx += 1
-		BodyLongTrailingIdx += 1
-		if !(i <= endIdx) {
-			break
-		}
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
 	}
-	*outNBElement = outIdx
-	*outBegIdx = startIdx
 	capLag_BodyLongTrailingIdx := i - BodyLongTrailingIdx
 	cap_BodyLongTrailingIdx := capLag_BodyLongTrailingIdx + 3
 	if capLag_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen {
@@ -1147,6 +2375,788 @@ func (c *Core) cdladvanceblockOpenImpl(sp *CDLADVANCEBLOCKStream, inOpen, inHigh
 	return Success
 }
 
+func (c *Core) cdladvanceblockOpenSinkFrame(sp *CDLADVANCEBLOCKStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) RetCode {
+	var ShadowShortPeriodTotal [3]float64
+	var ShadowLongPeriodTotal [2]float64
+	var NearPeriodTotal [3]float64
+	var FarPeriodTotal [3]float64
+	var ShadowShortPeriodTotalRange0 float64
+	var ShadowShortPeriodTotalTrailRange0 float64
+	var ShadowShortPeriodTotalRange1 float64
+	var ShadowShortPeriodTotalTrailRange1 float64
+	var ShadowShortPeriodTotalRange2 float64
+	var ShadowShortPeriodTotalTrailRange2 float64
+	var ShadowLongPeriodTotalRange0 float64
+	var ShadowLongPeriodTotalTrailRange0 float64
+	var ShadowLongPeriodTotalRange1 float64
+	var ShadowLongPeriodTotalTrailRange1 float64
+	var FarPeriodTotalRange1 float64
+	var FarPeriodTotalTrailRange1 float64
+	var FarPeriodTotalRange2 float64
+	var FarPeriodTotalTrailRange2 float64
+	var NearPeriodTotalRange1 float64
+	var NearPeriodTotalTrailRange1 float64
+	var NearPeriodTotalRange2 float64
+	var NearPeriodTotalTrailRange2 float64
+	var BodyLongPeriodTotal float64
+	var i int32
+	var outIdx int32
+	var BodyLongTrailingIdx int32
+	var ShadowShortTrailingIdx int32
+	var ShadowLongTrailingIdx int32
+	var NearTrailingIdx int32
+	var FarTrailingIdx int32
+	var lookbackTotal int32
+	if len(inOpen) > IndexMax+1 {
+		return OutOfRangeEndIndex
+	}
+	historyLen := int32(len(inOpen))
+	endIdx := historyLen - 1
+	if len(inHigh) != len(inOpen) || len(inLow) != len(inOpen) || len(inClose) != len(inOpen) {
+		return BadParam
+	}
+	if startIdx >= historyLen {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	candles := c.candles()
+	BodyLong_rangeType := int32(candles[CandleSettingTypeBodyLong].RangeType)
+	BodyLong_avgPeriod := int32(candles[CandleSettingTypeBodyLong].AvgPeriod)
+	BodyLong_factor := candles[CandleSettingTypeBodyLong].Factor
+	Far_rangeType := int32(candles[CandleSettingTypeFar].RangeType)
+	Far_avgPeriod := int32(candles[CandleSettingTypeFar].AvgPeriod)
+	Far_factor := candles[CandleSettingTypeFar].Factor
+	Near_rangeType := int32(candles[CandleSettingTypeNear].RangeType)
+	Near_avgPeriod := int32(candles[CandleSettingTypeNear].AvgPeriod)
+	Near_factor := candles[CandleSettingTypeNear].Factor
+	ShadowLong_rangeType := int32(candles[CandleSettingTypeShadowLong].RangeType)
+	ShadowLong_avgPeriod := int32(candles[CandleSettingTypeShadowLong].AvgPeriod)
+	ShadowLong_factor := candles[CandleSettingTypeShadowLong].Factor
+	ShadowShort_rangeType := int32(candles[CandleSettingTypeShadowShort].RangeType)
+	ShadowShort_avgPeriod := int32(candles[CandleSettingTypeShadowShort].AvgPeriod)
+	ShadowShort_factor := candles[CandleSettingTypeShadowShort].Factor
+	lookbackTotal = c.cdladvanceblockLookback()
+	if startIdx < lookbackTotal {
+		startIdx = lookbackTotal
+	}
+	if startIdx > endIdx {
+		*outBegIdx = 0
+		*outNBElement = 0
+		return InsufficientHistory
+	}
+	if BodyLong_rangeType == 0 && Far_rangeType == 1 && Near_rangeType == 1 && ShadowLong_rangeType == 0 && ShadowShort_rangeType == 2 {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			i += 1
+		}
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (math.Abs(inClose[i-1] - inOpen[i-1]))
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (math.Abs(inClose[i] - inOpen[i]))
+			i += 1
+		}
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
+		}
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (inHigh[i-2] - inLow[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (inHigh[i-1] - inLow[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2]))
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+		ShadowShortPeriodTotalTrailRange1 = ((inHigh[ShadowShortTrailingIdx-1] - selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1])) + (selF(inClose[ShadowShortTrailingIdx-1] >= inOpen[ShadowShortTrailingIdx-1], inOpen[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1]) - inLow[ShadowShortTrailingIdx-1]))
+		ShadowShortPeriodTotalRange2 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+		ShadowShortPeriodTotalTrailRange2 = ((inHigh[ShadowShortTrailingIdx-2] - selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2])) + (selF(inClose[ShadowShortTrailingIdx-2] >= inOpen[ShadowShortTrailingIdx-2], inOpen[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2]) - inLow[ShadowShortTrailingIdx-2]))
+		ShadowLongPeriodTotalRange1 = (math.Abs(inClose[i-1] - inOpen[i-1]))
+		ShadowLongPeriodTotalTrailRange1 = (math.Abs(inClose[ShadowLongTrailingIdx-1] - inOpen[ShadowLongTrailingIdx-1]))
+		FarPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		FarPeriodTotalTrailRange2 = (inHigh[FarTrailingIdx-2] - inLow[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = (inHigh[i-2] - inLow[i-2])
+		NearPeriodTotalTrailRange2 = (inHigh[NearTrailingIdx-2] - inLow[NearTrailingIdx-2])
+		for i < endIdx {
+			outIdx += 1
+			ShadowShortPeriodTotalRange0 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+			ShadowShortPeriodTotalTrailRange0 = ((inHigh[ShadowShortTrailingIdx] - selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx])) + (selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx]) - inLow[ShadowShortTrailingIdx]))
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = (math.Abs(inClose[i] - inOpen[i]))
+			ShadowLongPeriodTotalTrailRange0 = (math.Abs(inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]))
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			FarPeriodTotalTrailRange1 = (inHigh[FarTrailingIdx-1] - inLow[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+			NearPeriodTotalTrailRange1 = (inHigh[NearTrailingIdx-1] - inLow[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx-2] - inOpen[BodyLongTrailingIdx-2]))
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+		}
+		var _T167 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T167 = 1
+		} else {
+			_T167 = -1
+		}
+		_B169 := _T167 == 1
+		if _B169 {
+			var _T168 int32
+			if inClose[i-1] >= inOpen[i-1] {
+				_T168 = 1
+			} else {
+				_T168 = -1
+			}
+			_B169 = _T168 == 1
+		}
+		_B171 := _B169
+		if _B171 {
+			var _T170 int32
+			if inClose[i] >= inOpen[i] {
+				_T170 = 1
+			} else {
+				_T170 = -1
+			}
+			_B171 = _T170 == 1
+		}
+		_B173 := _B171 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+		if _B173 {
+			var _T172 float64
+			if Near_avgPeriod != 0 {
+				_T172 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+			} else {
+				_T172 = (inHigh[i-2] - inLow[i-2])
+			}
+			_B173 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T172)
+		}
+		_B175 := _B173 && inOpen[i] > inOpen[i-1]
+		if _B175 {
+			var _T174 float64
+			if Near_avgPeriod != 0 {
+				_T174 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+			} else {
+				_T174 = (inHigh[i-1] - inLow[i-1])
+			}
+			_B175 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T174)
+		}
+		_B177 := _B175
+		if _B177 {
+			var _T176 float64
+			if BodyLong_avgPeriod != 0 {
+				_T176 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+			} else {
+				_T176 = (math.Abs(inClose[i-2] - inOpen[i-2]))
+			}
+			_B177 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T176)
+		}
+		_B179 := _B177
+		if _B179 {
+			var _T178 float64
+			if ShadowShort_avgPeriod != 0 {
+				_T178 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+			} else {
+				_T178 = ((inHigh[i-2] - selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2])) + (selF(inClose[i-2] >= inOpen[i-2], inOpen[i-2], inClose[i-2]) - inLow[i-2]))
+			}
+			_B179 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T178)/2.0
+		}
+		_B193 := _B179
+		if _B193 {
+			var _T180 float64
+			if Far_avgPeriod != 0 {
+				_T180 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+			} else {
+				_T180 = (inHigh[i-2] - inLow[i-2])
+			}
+			_B182 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T180)
+			if _B182 {
+				var _T181 float64
+				if Near_avgPeriod != 0 {
+					_T181 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T181 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B182 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T181)
+			}
+			_B184 := _B182
+			if !_B184 {
+				var _T183 float64
+				if Far_avgPeriod != 0 {
+					_T183 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+				} else {
+					_T183 = (inHigh[i-1] - inLow[i-1])
+				}
+				_B184 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T183)
+			}
+			_B189 := _B184
+			if !_B189 {
+				_B188 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+				if _B188 {
+					var _T185 float64
+					if ShadowShort_avgPeriod != 0 {
+						_T185 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+					} else {
+						_T185 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+					}
+					_B187 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T185)/2.0
+					if !_B187 {
+						var _T186 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T186 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+						} else {
+							_T186 = ((inHigh[i-1] - selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1])) + (selF(inClose[i-1] >= inOpen[i-1], inOpen[i-1], inClose[i-1]) - inLow[i-1]))
+						}
+						_B187 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T186)/2.0
+					}
+					_B188 = _B187
+				}
+				_B189 = _B188
+			}
+			_B192 := _B189
+			if !_B192 {
+				_B191 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+				if _B191 {
+					var _T190 float64
+					if ShadowLong_avgPeriod != 0 {
+						_T190 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+					} else {
+						_T190 = (math.Abs(inClose[i] - inOpen[i]))
+					}
+					_B191 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T190)
+				}
+				_B192 = _B191
+			}
+			_B193 = _B192
+		}
+		if _B193 {
+			outInteger[0] = -100
+			outIdx += 1
+		} else {
+			outInteger[0] = 0
+			outIdx += 1
+		}
+		ShadowShortPeriodTotalRange0 = ((inHigh[i] - selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i])) + (selF(inClose[i] >= inOpen[i], inOpen[i], inClose[i]) - inLow[i]))
+		ShadowShortPeriodTotalTrailRange0 = ((inHigh[ShadowShortTrailingIdx] - selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx])) + (selF(inClose[ShadowShortTrailingIdx] >= inOpen[ShadowShortTrailingIdx], inOpen[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx]) - inLow[ShadowShortTrailingIdx]))
+		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+		ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+		ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+		ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+		ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+		ShadowLongPeriodTotalRange0 = (math.Abs(inClose[i] - inOpen[i]))
+		ShadowLongPeriodTotalTrailRange0 = (math.Abs(inClose[ShadowLongTrailingIdx] - inOpen[ShadowLongTrailingIdx]))
+		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+		ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+		ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+		FarPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+		FarPeriodTotalTrailRange1 = (inHigh[FarTrailingIdx-1] - inLow[FarTrailingIdx-1])
+		FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+		FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+		FarPeriodTotalRange2 = FarPeriodTotalRange1
+		FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+		NearPeriodTotalRange1 = (inHigh[i-1] - inLow[i-1])
+		NearPeriodTotalTrailRange1 = (inHigh[NearTrailingIdx-1] - inLow[NearTrailingIdx-1])
+		NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+		NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+		NearPeriodTotalRange2 = NearPeriodTotalRange1
+		NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+		BodyLongPeriodTotal += (math.Abs(inClose[i-2] - inOpen[i-2])) - (math.Abs(inClose[BodyLongTrailingIdx-2] - inOpen[BodyLongTrailingIdx-2]))
+		i += 1
+		ShadowShortTrailingIdx += 1
+		ShadowLongTrailingIdx += 1
+		NearTrailingIdx += 1
+		FarTrailingIdx += 1
+		BodyLongTrailingIdx += 1
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	} else {
+		ShadowShortPeriodTotal[2] = 0.0
+		ShadowShortPeriodTotal[1] = 0.0
+		ShadowShortPeriodTotal[0] = 0.0
+		ShadowShortTrailingIdx = startIdx - ShadowShort_avgPeriod
+		ShadowLongPeriodTotal[1] = 0.0
+		ShadowLongPeriodTotal[0] = 0.0
+		ShadowLongTrailingIdx = startIdx - ShadowLong_avgPeriod
+		NearPeriodTotal[2] = 0.0
+		NearPeriodTotal[1] = 0.0
+		NearPeriodTotal[0] = 0.0
+		NearTrailingIdx = startIdx - Near_avgPeriod
+		FarPeriodTotal[2] = 0.0
+		FarPeriodTotal[1] = 0.0
+		FarPeriodTotal[0] = 0.0
+		FarTrailingIdx = startIdx - Far_avgPeriod
+		BodyLongPeriodTotal = 0.0
+		BodyLongTrailingIdx = startIdx - BodyLong_avgPeriod
+		i = ShadowShortTrailingIdx
+		for i < startIdx {
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = ShadowLongTrailingIdx
+		for i < startIdx {
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			i += 1
+		}
+		i = NearTrailingIdx
+		for i < startIdx {
+			NearPeriodTotal[2] = NearPeriodTotal[2] + candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			NearPeriodTotal[1] = NearPeriodTotal[1] + candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = FarTrailingIdx
+		for i < startIdx {
+			FarPeriodTotal[2] = FarPeriodTotal[2] + candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			FarPeriodTotal[1] = FarPeriodTotal[1] + candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			i += 1
+		}
+		i = BodyLongTrailingIdx
+		for i < startIdx {
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			i += 1
+		}
+		i = startIdx
+		outIdx = 0
+		ShadowShortPeriodTotalRange1 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowShortPeriodTotalTrailRange1 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-1], inHigh[ShadowShortTrailingIdx-1], inLow[ShadowShortTrailingIdx-1], inClose[ShadowShortTrailingIdx-1])
+		ShadowShortPeriodTotalRange2 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		ShadowShortPeriodTotalTrailRange2 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx-2], inHigh[ShadowShortTrailingIdx-2], inLow[ShadowShortTrailingIdx-2], inClose[ShadowShortTrailingIdx-2])
+		ShadowLongPeriodTotalRange1 = candleRange(ShadowLong_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		ShadowLongPeriodTotalTrailRange1 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx-1], inHigh[ShadowLongTrailingIdx-1], inLow[ShadowLongTrailingIdx-1], inClose[ShadowLongTrailingIdx-1])
+		FarPeriodTotalRange2 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		FarPeriodTotalTrailRange2 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-2], inHigh[FarTrailingIdx-2], inLow[FarTrailingIdx-2], inClose[FarTrailingIdx-2])
+		NearPeriodTotalRange2 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+		NearPeriodTotalTrailRange2 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-2], inHigh[NearTrailingIdx-2], inLow[NearTrailingIdx-2], inClose[NearTrailingIdx-2])
+		for i < endIdx {
+			outIdx += 1
+			ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
+			ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+			ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+			ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+			ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+			ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+			ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+			ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+			ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+			ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
+			ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+			ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+			ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+			ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+			FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
+			FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+			FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+			FarPeriodTotalRange2 = FarPeriodTotalRange1
+			FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+			NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
+			NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+			NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+			NearPeriodTotalRange2 = NearPeriodTotalRange1
+			NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+			BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
+			i += 1
+			ShadowShortTrailingIdx += 1
+			ShadowLongTrailingIdx += 1
+			NearTrailingIdx += 1
+			FarTrailingIdx += 1
+			BodyLongTrailingIdx += 1
+		}
+		var _T194 int32
+		if inClose[i-2] >= inOpen[i-2] {
+			_T194 = 1
+		} else {
+			_T194 = -1
+		}
+		_B196 := _T194 == 1
+		if _B196 {
+			var _T195 int32
+			if inClose[i-1] >= inOpen[i-1] {
+				_T195 = 1
+			} else {
+				_T195 = -1
+			}
+			_B196 = _T195 == 1
+		}
+		_B198 := _B196
+		if _B198 {
+			var _T197 int32
+			if inClose[i] >= inOpen[i] {
+				_T197 = 1
+			} else {
+				_T197 = -1
+			}
+			_B198 = _T197 == 1
+		}
+		_B201 := _B198 && inClose[i] > inClose[i-1] && inClose[i-1] > inClose[i-2] && inOpen[i-1] > inOpen[i-2]
+		if _B201 {
+			var _T199 float64
+			if Near_avgPeriod != 0 {
+				_T199 = NearPeriodTotal[2] / float64(Near_avgPeriod)
+			} else {
+				_T199 = candleRange(Near_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			}
+			var _T200 float64
+			if Near_rangeType == 2 {
+				_T200 = 2.0
+			} else {
+				_T200 = 1.0
+			}
+			_B201 = inOpen[i-1] <= inClose[i-2]+float64(Near_factor*_T199)/_T200
+		}
+		_B204 := _B201 && inOpen[i] > inOpen[i-1]
+		if _B204 {
+			var _T202 float64
+			if Near_avgPeriod != 0 {
+				_T202 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+			} else {
+				_T202 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+			}
+			var _T203 float64
+			if Near_rangeType == 2 {
+				_T203 = 2.0
+			} else {
+				_T203 = 1.0
+			}
+			_B204 = inOpen[i] <= inClose[i-1]+float64(Near_factor*_T202)/_T203
+		}
+		_B207 := _B204
+		if _B207 {
+			var _T205 float64
+			if BodyLong_avgPeriod != 0 {
+				_T205 = BodyLongPeriodTotal / float64(BodyLong_avgPeriod)
+			} else {
+				_T205 = candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			}
+			var _T206 float64
+			if BodyLong_rangeType == 2 {
+				_T206 = 2.0
+			} else {
+				_T206 = 1.0
+			}
+			_B207 = math.Abs(inClose[i-2]-inOpen[i-2]) > float64(BodyLong_factor*_T205)/_T206
+		}
+		_B210 := _B207
+		if _B210 {
+			var _T208 float64
+			if ShadowShort_avgPeriod != 0 {
+				_T208 = ShadowShortPeriodTotal[2] / float64(ShadowShort_avgPeriod)
+			} else {
+				_T208 = candleRange(ShadowShort_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			}
+			var _T209 float64
+			if ShadowShort_rangeType == 2 {
+				_T209 = 2.0
+			} else {
+				_T209 = 1.0
+			}
+			_B210 = inHigh[i-2]-selF(inClose[i-2] >= inOpen[i-2], inClose[i-2], inOpen[i-2]) < float64(ShadowShort_factor*_T208)/_T209
+		}
+		_B230 := _B210
+		if _B230 {
+			var _T211 float64
+			if Far_avgPeriod != 0 {
+				_T211 = FarPeriodTotal[2] / float64(Far_avgPeriod)
+			} else {
+				_T211 = candleRange(Far_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2])
+			}
+			var _T212 float64
+			if Far_rangeType == 2 {
+				_T212 = 2.0
+			} else {
+				_T212 = 1.0
+			}
+			_B215 := math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])-float64(Far_factor*_T211)/_T212
+			if _B215 {
+				var _T213 float64
+				if Near_avgPeriod != 0 {
+					_T213 = NearPeriodTotal[1] / float64(Near_avgPeriod)
+				} else {
+					_T213 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T214 float64
+				if Near_rangeType == 2 {
+					_T214 = 2.0
+				} else {
+					_T214 = 1.0
+				}
+				_B215 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])+float64(Near_factor*_T213)/_T214
+			}
+			_B218 := _B215
+			if !_B218 {
+				var _T216 float64
+				if Far_avgPeriod != 0 {
+					_T216 = FarPeriodTotal[1] / float64(Far_avgPeriod)
+				} else {
+					_T216 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+				}
+				var _T217 float64
+				if Far_rangeType == 2 {
+					_T217 = 2.0
+				} else {
+					_T217 = 1.0
+				}
+				_B218 = math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])-float64(Far_factor*_T216)/_T217
+			}
+			_B225 := _B218
+			if !_B225 {
+				_B224 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1]) && math.Abs(inClose[i-1]-inOpen[i-1]) < math.Abs(inClose[i-2]-inOpen[i-2])
+				if _B224 {
+					var _T219 float64
+					if ShadowShort_avgPeriod != 0 {
+						_T219 = ShadowShortPeriodTotal[0] / float64(ShadowShort_avgPeriod)
+					} else {
+						_T219 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+					}
+					var _T220 float64
+					if ShadowShort_rangeType == 2 {
+						_T220 = 2.0
+					} else {
+						_T220 = 1.0
+					}
+					_B223 := inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowShort_factor*_T219)/_T220
+					if !_B223 {
+						var _T221 float64
+						if ShadowShort_avgPeriod != 0 {
+							_T221 = ShadowShortPeriodTotal[1] / float64(ShadowShort_avgPeriod)
+						} else {
+							_T221 = candleRange(ShadowShort_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+						}
+						var _T222 float64
+						if ShadowShort_rangeType == 2 {
+							_T222 = 2.0
+						} else {
+							_T222 = 1.0
+						}
+						_B223 = inHigh[i-1]-selF(inClose[i-1] >= inOpen[i-1], inClose[i-1], inOpen[i-1]) > float64(ShadowShort_factor*_T221)/_T222
+					}
+					_B224 = _B223
+				}
+				_B225 = _B224
+			}
+			_B229 := _B225
+			if !_B229 {
+				_B228 := math.Abs(inClose[i]-inOpen[i]) < math.Abs(inClose[i-1]-inOpen[i-1])
+				if _B228 {
+					var _T226 float64
+					if ShadowLong_avgPeriod != 0 {
+						_T226 = ShadowLongPeriodTotal[0] / float64(ShadowLong_avgPeriod)
+					} else {
+						_T226 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+					}
+					var _T227 float64
+					if ShadowLong_rangeType == 2 {
+						_T227 = 2.0
+					} else {
+						_T227 = 1.0
+					}
+					_B228 = inHigh[i]-selF(inClose[i] >= inOpen[i], inClose[i], inOpen[i]) > float64(ShadowLong_factor*_T226)/_T227
+				}
+				_B229 = _B228
+			}
+			_B230 = _B229
+		}
+		if _B230 {
+			outInteger[0] = -100
+			outIdx += 1
+		} else {
+			outInteger[0] = 0
+			outIdx += 1
+		}
+		ShadowShortPeriodTotalRange0 = candleRange(ShadowShort_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+		ShadowShortPeriodTotalTrailRange0 = candleRange(ShadowShort_rangeType, inOpen[ShadowShortTrailingIdx], inHigh[ShadowShortTrailingIdx], inLow[ShadowShortTrailingIdx], inClose[ShadowShortTrailingIdx])
+		ShadowShortPeriodTotal[2] = ShadowShortPeriodTotal[2] + (ShadowShortPeriodTotalRange2 - ShadowShortPeriodTotalTrailRange2)
+		ShadowShortPeriodTotal[1] = ShadowShortPeriodTotal[1] + (ShadowShortPeriodTotalRange1 - ShadowShortPeriodTotalTrailRange1)
+		ShadowShortPeriodTotal[0] = ShadowShortPeriodTotal[0] + (ShadowShortPeriodTotalRange0 - ShadowShortPeriodTotalTrailRange0)
+		ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange1
+		ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange1
+		ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange0
+		ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange0
+		ShadowLongPeriodTotalRange0 = candleRange(ShadowLong_rangeType, inOpen[i], inHigh[i], inLow[i], inClose[i])
+		ShadowLongPeriodTotalTrailRange0 = candleRange(ShadowLong_rangeType, inOpen[ShadowLongTrailingIdx], inHigh[ShadowLongTrailingIdx], inLow[ShadowLongTrailingIdx], inClose[ShadowLongTrailingIdx])
+		ShadowLongPeriodTotal[1] = ShadowLongPeriodTotal[1] + (ShadowLongPeriodTotalRange1 - ShadowLongPeriodTotalTrailRange1)
+		ShadowLongPeriodTotal[0] = ShadowLongPeriodTotal[0] + (ShadowLongPeriodTotalRange0 - ShadowLongPeriodTotalTrailRange0)
+		ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange0
+		ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange0
+		FarPeriodTotalRange1 = candleRange(Far_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		FarPeriodTotalTrailRange1 = candleRange(Far_rangeType, inOpen[FarTrailingIdx-1], inHigh[FarTrailingIdx-1], inLow[FarTrailingIdx-1], inClose[FarTrailingIdx-1])
+		FarPeriodTotal[2] = FarPeriodTotal[2] + (FarPeriodTotalRange2 - FarPeriodTotalTrailRange2)
+		FarPeriodTotal[1] = FarPeriodTotal[1] + (FarPeriodTotalRange1 - FarPeriodTotalTrailRange1)
+		FarPeriodTotalRange2 = FarPeriodTotalRange1
+		FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange1
+		NearPeriodTotalRange1 = candleRange(Near_rangeType, inOpen[i-1], inHigh[i-1], inLow[i-1], inClose[i-1])
+		NearPeriodTotalTrailRange1 = candleRange(Near_rangeType, inOpen[NearTrailingIdx-1], inHigh[NearTrailingIdx-1], inLow[NearTrailingIdx-1], inClose[NearTrailingIdx-1])
+		NearPeriodTotal[2] = NearPeriodTotal[2] + (NearPeriodTotalRange2 - NearPeriodTotalTrailRange2)
+		NearPeriodTotal[1] = NearPeriodTotal[1] + (NearPeriodTotalRange1 - NearPeriodTotalTrailRange1)
+		NearPeriodTotalRange2 = NearPeriodTotalRange1
+		NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange1
+		BodyLongPeriodTotal += candleRange(BodyLong_rangeType, inOpen[i-2], inHigh[i-2], inLow[i-2], inClose[i-2]) - candleRange(BodyLong_rangeType, inOpen[BodyLongTrailingIdx-2], inHigh[BodyLongTrailingIdx-2], inLow[BodyLongTrailingIdx-2], inClose[BodyLongTrailingIdx-2])
+		i += 1
+		ShadowShortTrailingIdx += 1
+		ShadowLongTrailingIdx += 1
+		NearTrailingIdx += 1
+		FarTrailingIdx += 1
+		BodyLongTrailingIdx += 1
+		*outNBElement = outIdx
+		*outBegIdx = startIdx
+	}
+	capLag_BodyLongTrailingIdx := i - BodyLongTrailingIdx
+	cap_BodyLongTrailingIdx := capLag_BodyLongTrailingIdx + 3
+	if capLag_BodyLongTrailingIdx < 0 || cap_BodyLongTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_BodyLongTrailingIdx_derived := make([]float64, max(cap_BodyLongTrailingIdx, 1))
+	for fillJ := historyLen - cap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_BodyLongTrailingIdx_derived[fillJ%cap_BodyLongTrailingIdx] = candleRange(BodyLong_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	capLag_FarTrailingIdx := i - FarTrailingIdx
+	cap_FarTrailingIdx := capLag_FarTrailingIdx + 2
+	if capLag_FarTrailingIdx < 0 || cap_FarTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_FarTrailingIdx_derived := make([]float64, max(cap_FarTrailingIdx, 1))
+	for fillJ := historyLen - cap_FarTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_FarTrailingIdx_derived[fillJ%cap_FarTrailingIdx] = candleRange(Far_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	capLag_NearTrailingIdx := i - NearTrailingIdx
+	cap_NearTrailingIdx := capLag_NearTrailingIdx + 2
+	if capLag_NearTrailingIdx < 0 || cap_NearTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_NearTrailingIdx_derived := make([]float64, max(cap_NearTrailingIdx, 1))
+	for fillJ := historyLen - cap_NearTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_NearTrailingIdx_derived[fillJ%cap_NearTrailingIdx] = candleRange(Near_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	cap_ShadowLongTrailingIdx := i - ShadowLongTrailingIdx
+	if cap_ShadowLongTrailingIdx < 0 || cap_ShadowLongTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_ShadowLongTrailingIdx_derived := make([]float64, max(cap_ShadowLongTrailingIdx, 1))
+	for fillJ := historyLen - cap_ShadowLongTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_ShadowLongTrailingIdx_derived[fillJ-(historyLen-cap_ShadowLongTrailingIdx)] = candleRange(ShadowLong_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	cap_ShadowShortTrailingIdx := i - ShadowShortTrailingIdx
+	if cap_ShadowShortTrailingIdx < 0 || cap_ShadowShortTrailingIdx > historyLen {
+		return InternalError
+	}
+	capRing_ShadowShortTrailingIdx_derived := make([]float64, max(cap_ShadowShortTrailingIdx, 1))
+	for fillJ := historyLen - cap_ShadowShortTrailingIdx; fillJ < historyLen; fillJ++ {
+		capRing_ShadowShortTrailingIdx_derived[fillJ-(historyLen-cap_ShadowShortTrailingIdx)] = candleRange(ShadowShort_rangeType, inOpen[fillJ], inHigh[fillJ], inLow[fillJ], inClose[fillJ])
+	}
+	sp.ShadowShortPeriodTotal = ShadowShortPeriodTotal
+	sp.ShadowLongPeriodTotal = ShadowLongPeriodTotal
+	sp.NearPeriodTotal = NearPeriodTotal
+	sp.FarPeriodTotal = FarPeriodTotal
+	sp.ShadowShortPeriodTotalRange1 = ShadowShortPeriodTotalRange1
+	sp.ShadowShortPeriodTotalTrailRange1 = ShadowShortPeriodTotalTrailRange1
+	sp.ShadowShortPeriodTotalRange2 = ShadowShortPeriodTotalRange2
+	sp.ShadowShortPeriodTotalTrailRange2 = ShadowShortPeriodTotalTrailRange2
+	sp.ShadowLongPeriodTotalRange1 = ShadowLongPeriodTotalRange1
+	sp.ShadowLongPeriodTotalTrailRange1 = ShadowLongPeriodTotalTrailRange1
+	sp.FarPeriodTotalRange2 = FarPeriodTotalRange2
+	sp.FarPeriodTotalTrailRange2 = FarPeriodTotalTrailRange2
+	sp.NearPeriodTotalRange2 = NearPeriodTotalRange2
+	sp.NearPeriodTotalTrailRange2 = NearPeriodTotalTrailRange2
+	sp.BodyLongPeriodTotal = BodyLongPeriodTotal
+	sp.lag1_inOpen = inOpen[historyLen-1]
+	sp.lag2_inOpen = inOpen[historyLen-2]
+	sp.lag1_inHigh = inHigh[historyLen-1]
+	sp.lag2_inHigh = inHigh[historyLen-2]
+	sp.lag1_inLow = inLow[historyLen-1]
+	sp.lag2_inLow = inLow[historyLen-2]
+	sp.lag1_inClose = inClose[historyLen-1]
+	sp.lag2_inClose = inClose[historyLen-2]
+	sp.ringPos_BodyLongTrailingIdx = historyLen % cap_BodyLongTrailingIdx
+	sp.ringCap_BodyLongTrailingIdx = cap_BodyLongTrailingIdx
+	sp.ringLag_BodyLongTrailingIdx = capLag_BodyLongTrailingIdx
+	sp.ring_BodyLongTrailingIdx_derived = capRing_BodyLongTrailingIdx_derived
+	sp.ringPos_FarTrailingIdx = historyLen % cap_FarTrailingIdx
+	sp.ringCap_FarTrailingIdx = cap_FarTrailingIdx
+	sp.ringLag_FarTrailingIdx = capLag_FarTrailingIdx
+	sp.ring_FarTrailingIdx_derived = capRing_FarTrailingIdx_derived
+	sp.ringPos_NearTrailingIdx = historyLen % cap_NearTrailingIdx
+	sp.ringCap_NearTrailingIdx = cap_NearTrailingIdx
+	sp.ringLag_NearTrailingIdx = capLag_NearTrailingIdx
+	sp.ring_NearTrailingIdx_derived = capRing_NearTrailingIdx_derived
+	sp.ringPos_ShadowLongTrailingIdx = 0
+	sp.ringCap_ShadowLongTrailingIdx = cap_ShadowLongTrailingIdx
+	sp.ring_ShadowLongTrailingIdx_derived = capRing_ShadowLongTrailingIdx_derived
+	sp.ringPos_ShadowShortTrailingIdx = 0
+	sp.ringCap_ShadowShortTrailingIdx = cap_ShadowShortTrailingIdx
+	sp.ring_ShadowShortTrailingIdx_derived = capRing_ShadowShortTrailingIdx_derived
+	sp.cs_BodyLong_rangeType = BodyLong_rangeType
+	sp.cs_BodyLong_avgPeriod = BodyLong_avgPeriod
+	sp.cs_BodyLong_factor = BodyLong_factor
+	sp.cs_Far_rangeType = Far_rangeType
+	sp.cs_Far_avgPeriod = Far_avgPeriod
+	sp.cs_Far_factor = Far_factor
+	sp.cs_Near_rangeType = Near_rangeType
+	sp.cs_Near_avgPeriod = Near_avgPeriod
+	sp.cs_Near_factor = Near_factor
+	sp.cs_ShadowLong_rangeType = ShadowLong_rangeType
+	sp.cs_ShadowLong_avgPeriod = ShadowLong_avgPeriod
+	sp.cs_ShadowLong_factor = ShadowLong_factor
+	sp.cs_ShadowShort_rangeType = ShadowShort_rangeType
+	sp.cs_ShadowShort_avgPeriod = ShadowShort_avgPeriod
+	sp.cs_ShadowShort_factor = ShadowShort_factor
+	sp.cur_outInteger = outInteger[0]
+	return Success
+}
+
 func (c *Core) cdladvanceblockOpenAndFillInternal(inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32) (*CDLADVANCEBLOCKStream, error) {
 	sp := &CDLADVANCEBLOCKStream{core: c}
 	if retCode := c.cdladvanceblockOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1); retCode != Success {
@@ -1161,7 +3171,7 @@ func (c *Core) cdladvanceblockOpenInternal(inOpen, inHigh, inLow, inClose []floa
 	sp := &CDLADVANCEBLOCKStream{core: c}
 	var outBegIdx, outNBElement int32
 	var sink_outInteger [1]int32
-	if retCode := c.cdladvanceblockOpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:], 0); retCode != Success {
+	if retCode := c.cdladvanceblockOpenSinkFrame(sp, inOpen, inHigh, inLow, inClose, startIdx, &outBegIdx, &outNBElement, sink_outInteger[:]); retCode != Success {
 		return nil, retCode
 	}
 	sp.outRangeBegIdx = int(outBegIdx)
@@ -1176,8 +3186,8 @@ func (c *Core) cdladvanceblockOpenInternal(inOpen, inHigh, inLow, inClose []floa
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CDLADVANCEBLOCKLookback] bars, and [BadParam] for histories of
-// different lengths.
+// [Core.CDLADVANCEBLOCKLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) CDLADVANCEBLOCKOpen(inOpen, inHigh, inLow, inClose []float64) (*CDLADVANCEBLOCKStream, int32, error) {
 	sp, err := c.cdladvanceblockOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {

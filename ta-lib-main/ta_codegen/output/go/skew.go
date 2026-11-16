@@ -118,9 +118,7 @@ func (c *Core) skewImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		total1 += dev
 		total2 += dev2
 		total3 += float64(dev2 * dev)
-		if total2 > peak2 {
-			peak2 = total2
-		}
+		peak2 = selF(total2 > peak2, total2, peak2)
 		residue = float64(total1 * invPeriod)
 		residueSq = float64(residue * residue)
 		moment2 = total2 - float64(dPeriod*residueSq)
@@ -207,6 +205,25 @@ func (c *Core) SKEWLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// SKEWDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.SKEW].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SKEW] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SKEWLookback] rejects or an index that names no output.
+func (c *Core) SKEWDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.SKEWLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SKEW computes the Rolling Skewness over bars startIdx through endIdx.
 //
 // An estimate, from the trailing window, of the skewness of the distribution
@@ -239,7 +256,8 @@ func (c *Core) SKEWLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SKEW(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -325,18 +343,131 @@ func (sp *SKEWStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	skewStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tempReal float64
+	var dev float64
+	var dev2 float64
+	var residue float64
+	var residueSq float64
+	var moment2 float64
+	var moment3 float64
+	var skewness float64
+	var denominator float64
+	var windowStart int32
+	var i int32
+	var j int32
+	var xMask int32
+	var x_inReal []float64
+	var shift float64
+	var total1 float64
+	var total2 float64
+	var total3 float64
+	sp.x_inReal[sp.i&sp.xMask] = inReal
+	dev = sp.x_inReal[sp.i&sp.xMask] - sp.shift
+	dev2 = float64(dev * dev)
+	sp.total1 += dev
+	sp.total2 += dev2
+	sp.total3 += float64(dev2 * dev)
+	sp.peak2 = selF(sp.total2 > sp.peak2, sp.total2, sp.peak2)
+	residue = float64(sp.total1 * sp.invPeriod)
+	residueSq = float64(residue * residue)
+	moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
+	moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
+	sp.barsSinceReseed -= 1
+	if moment2 < float64(0.01*sp.peak2) || sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = sp.reseedPeriod
+		windowStart = sp.i - sp.nbInitialElementNeeded
+		tempReal = 0.0
+		i = sp.i
+		j = sp.j
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			tempReal += x_inReal[j&xMask]
+		}
+		sp.j = j
+		sp.shift = float64(tempReal * sp.invPeriod)
+		sp.total1 = 0.0
+		sp.total2 = 0.0
+		sp.total3 = 0.0
+		i = sp.i
+		j = sp.j
+		shift = sp.shift
+		total1 = sp.total1
+		total2 = sp.total2
+		total3 = sp.total3
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			dev = x_inReal[j&xMask] - shift
+			dev2 = float64(dev * dev)
+			total1 += dev
+			total2 += dev2
+			total3 += float64(dev2 * dev)
+		}
+		sp.j = j
+		sp.total1 = total1
+		sp.total2 = total2
+		sp.total3 = total3
+		residue = float64(sp.total1 * sp.invPeriod)
+		residueSq = float64(residue * residue)
+		moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
+		moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
+		if moment2 < float64(0.01*sp.total2) {
+			sp.shift += residue
+			sp.total1 = 0.0
+			sp.total2 = 0.0
+			sp.total3 = 0.0
+			i = sp.i
+			j = sp.j
+			shift = sp.shift
+			total1 = sp.total1
+			total2 = sp.total2
+			total3 = sp.total3
+			xMask = sp.xMask
+			x_inReal = sp.x_inReal
+			for j = windowStart; j <= i; j += 1 {
+				dev = x_inReal[j&xMask] - shift
+				dev2 = float64(dev * dev)
+				total1 += dev
+				total2 += dev2
+				total3 += float64(dev2 * dev)
+			}
+			sp.j = j
+			sp.total1 = total1
+			sp.total2 = total2
+			sp.total3 = total3
+			residue = float64(sp.total1 * sp.invPeriod)
+			residueSq = float64(residue * residue)
+			moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
+			moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
+		}
+		sp.peak2 = sp.total2
+	}
+	denominator = float64(moment2 * math.Sqrt(moment2))
+	if denominator < 2.2250738585072014e-308 {
+		skewness = 0.0
+	} else {
+		skewness = float64(sp.coef*moment3) / denominator
+	}
+	dev = sp.x_inReal[sp.trailingIdx&sp.xMask] - sp.shift
+	dev2 = float64(dev * dev)
+	sp.total1 -= dev
+	sp.total2 -= dev2
+	sp.total3 -= float64(dev2 * dev)
+	sp.trailingIdx += 1
+	sp.cur_outReal = skewness
+	sp.i += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -349,6 +480,9 @@ func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
 	var skewness float64
 	var denominator float64
 	var windowStart int32
+	var i int32
+	var xMask int32
+	var x_inReal []float64
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
 	j := sp.j
@@ -373,9 +507,7 @@ func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
 	total1 += dev
 	total2 += dev2
 	total3 += float64(dev2 * dev)
-	if total2 > peak2 {
-		peak2 = total2
-	}
+	peak2 = selF(total2 > peak2, total2, peak2)
 	residue = float64(total1 * sp.invPeriod)
 	residueSq = float64(residue * residue)
 	moment2 = total2 - float64(sp.dPeriod*residueSq)
@@ -385,10 +517,13 @@ func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
 		barsSinceReseed = sp.reseedPeriod
 		windowStart = sp.i - sp.nbInitialElementNeeded
 		tempReal = 0.0
-		for j = windowStart; j <= sp.i; j += 1 {
+		i = sp.i
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
 			var _T1 float64
-			if j&sp.xMask != pkSlot0 {
-				_T1 = sp.x_inReal[j&sp.xMask]
+			if j&xMask != pkSlot0 {
+				_T1 = x_inReal[j&xMask]
 			} else {
 				_T1 = pkVal0
 			}
@@ -398,10 +533,13 @@ func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
 		total1 = 0.0
 		total2 = 0.0
 		total3 = 0.0
-		for j = windowStart; j <= sp.i; j += 1 {
+		i = sp.i
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
 			var _T2 float64
-			if j&sp.xMask != pkSlot0 {
-				_T2 = sp.x_inReal[j&sp.xMask]
+			if j&xMask != pkSlot0 {
+				_T2 = x_inReal[j&xMask]
 			} else {
 				_T2 = pkVal0
 			}
@@ -420,10 +558,13 @@ func (sp *SKEWStream) Peek(inReal float64) (float64, error) {
 			total1 = 0.0
 			total2 = 0.0
 			total3 = 0.0
-			for j = windowStart; j <= sp.i; j += 1 {
+			i = sp.i
+			xMask = sp.xMask
+			x_inReal = sp.x_inReal
+			for j = windowStart; j <= i; j += 1 {
 				var _T3 float64
-				if j&sp.xMask != pkSlot0 {
-					_T3 = sp.x_inReal[j&sp.xMask]
+				if j&xMask != pkSlot0 {
+					_T3 = x_inReal[j&xMask]
 				} else {
 					_T3 = pkVal0
 				}
@@ -473,88 +614,6 @@ func (sp *SKEWStream) Clone() *SKEWStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func skewStepImpl(sp *SKEWStream, inReal float64) {
-	var tempReal float64
-	var dev float64
-	var dev2 float64
-	var residue float64
-	var residueSq float64
-	var moment2 float64
-	var moment3 float64
-	var skewness float64
-	var denominator float64
-	var windowStart int32
-	sp.x_inReal[sp.i&sp.xMask] = inReal
-	dev = sp.x_inReal[sp.i&sp.xMask] - sp.shift
-	dev2 = float64(dev * dev)
-	sp.total1 += dev
-	sp.total2 += dev2
-	sp.total3 += float64(dev2 * dev)
-	if sp.total2 > sp.peak2 {
-		sp.peak2 = sp.total2
-	}
-	residue = float64(sp.total1 * sp.invPeriod)
-	residueSq = float64(residue * residue)
-	moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
-	moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
-	sp.barsSinceReseed -= 1
-	if moment2 < float64(0.01*sp.peak2) || sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = sp.reseedPeriod
-		windowStart = sp.i - sp.nbInitialElementNeeded
-		tempReal = 0.0
-		for sp.j = windowStart; sp.j <= sp.i; sp.j += 1 {
-			tempReal += sp.x_inReal[sp.j&sp.xMask]
-		}
-		sp.shift = float64(tempReal * sp.invPeriod)
-		sp.total1 = 0.0
-		sp.total2 = 0.0
-		sp.total3 = 0.0
-		for sp.j = windowStart; sp.j <= sp.i; sp.j += 1 {
-			dev = sp.x_inReal[sp.j&sp.xMask] - sp.shift
-			dev2 = float64(dev * dev)
-			sp.total1 += dev
-			sp.total2 += dev2
-			sp.total3 += float64(dev2 * dev)
-		}
-		residue = float64(sp.total1 * sp.invPeriod)
-		residueSq = float64(residue * residue)
-		moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
-		moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
-		if moment2 < float64(0.01*sp.total2) {
-			sp.shift += residue
-			sp.total1 = 0.0
-			sp.total2 = 0.0
-			sp.total3 = 0.0
-			for sp.j = windowStart; sp.j <= sp.i; sp.j += 1 {
-				dev = sp.x_inReal[sp.j&sp.xMask] - sp.shift
-				dev2 = float64(dev * dev)
-				sp.total1 += dev
-				sp.total2 += dev2
-				sp.total3 += float64(dev2 * dev)
-			}
-			residue = float64(sp.total1 * sp.invPeriod)
-			residueSq = float64(residue * residue)
-			moment2 = sp.total2 - float64(sp.dPeriod*residueSq)
-			moment3 = math.FMA(float64(float64(2.0*sp.dPeriod)*residueSq), residue, sp.total3-float64(float64(3.0*residue)*sp.total2))
-		}
-		sp.peak2 = sp.total2
-	}
-	denominator = float64(moment2 * math.Sqrt(moment2))
-	if denominator < 2.2250738585072014e-308 {
-		skewness = 0.0
-	} else {
-		skewness = float64(sp.coef*moment3) / denominator
-	}
-	dev = sp.x_inReal[sp.trailingIdx&sp.xMask] - sp.shift
-	dev2 = float64(dev * dev)
-	sp.total1 -= dev
-	sp.total2 -= dev2
-	sp.total3 -= float64(dev2 * dev)
-	sp.trailingIdx += 1
-	sp.cur_outReal = skewness
-	sp.i += 1
 }
 
 func (c *Core) skewOpenImpl(sp *SKEWStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -633,9 +692,7 @@ func (c *Core) skewOpenImpl(sp *SKEWStream, inReal []float64, startIdx, optInTim
 		total1 += dev
 		total2 += dev2
 		total3 += float64(dev2 * dev)
-		if total2 > peak2 {
-			peak2 = total2
-		}
+		peak2 = selF(total2 > peak2, total2, peak2)
 		residue = float64(total1 * invPeriod)
 		residueSq = float64(residue * residue)
 		moment2 = total2 - float64(dPeriod*residueSq)
@@ -765,7 +822,8 @@ func (c *Core) skewOpenInternal(inReal []float64, startIdx, optInTimePeriod int3
 // inReal is the history; the parameters are those of [Core.SKEW].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SKEWLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SKEWLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SKEWOpen(inReal []float64, optInTimePeriod int) (*SKEWStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -785,7 +843,8 @@ func (c *Core) SKEWOpen(inReal []float64, optInTimePeriod int) (*SKEWStream, flo
 // no memory with an input or another output.
 //
 // The errors are those of [Core.SKEWOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SKEWOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*SKEWStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

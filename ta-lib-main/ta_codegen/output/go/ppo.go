@@ -340,6 +340,25 @@ func (c *Core) PPOLookback(optInFastPeriod, optInSlowPeriod int, optInMAType MAT
 	return int(lookback), nil
 }
 
+// PPODisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.PPO]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.PPO] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.PPOLookback] rejects or an index that names no output.
+func (c *Core) PPODisplayShift(optInFastPeriod, optInSlowPeriod int, optInMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.PPOLookback(optInFastPeriod, optInSlowPeriod, optInMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // PPO computes the Percentage Price Oscillator over bars startIdx through
 // endIdx.
 //
@@ -375,7 +394,8 @@ func (c *Core) PPOLookback(optInFastPeriod, optInSlowPeriod int, optInMAType MAT
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) PPO(startIdx, endIdx int, inReal []float64, optInFastPeriod, optInSlowPeriod int, optInMAType MAType, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -454,12 +474,51 @@ func (sp *PPOStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	if err := ppoStepImpl(sp, inReal); err != nil {
-		return 0, err
+	var tempReal float64
+	var cur_tempBuffer float64
+	var cur_outReal float64
+	var subErr error
+	cur_tempBuffer, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, subErr
 	}
+	cur_outReal, subErr = sp.sub1.Update(inReal)
+	if subErr != nil {
+		return 0, subErr
+	}
+	slowLookback := sp.slowLookback
+	windowed := sp.windowed
+	zeroRun := sp.zeroRun
+	if windowed != 0 {
+		var _T1 int32
+		if math.Abs(inReal) <= 0.0 {
+			_T1 = zeroRun + 1
+		} else {
+			_T1 = 0
+		}
+		zeroRun = _T1
+		tempReal = cur_outReal
+		if zeroRun > slowLookback {
+			zeroRun = slowLookback
+			cur_outReal = 0.0
+		} else if !isZero(tempReal) {
+			cur_outReal = float64((cur_tempBuffer - tempReal) / tempReal * 100.0)
+		} else {
+			cur_outReal = 0.0
+		}
+	} else {
+		tempReal = cur_outReal
+		if !isZero(tempReal) {
+			cur_outReal = float64((cur_tempBuffer - tempReal) / tempReal * 100.0)
+		} else {
+			cur_outReal = 0.0
+		}
+	}
+	sp.zeroRun = zeroRun
+	sp.cur_outReal = cur_outReal
 	sp.outRangeCount++
 	return sp.cur_outReal, nil
 }
@@ -467,7 +526,7 @@ func (sp *PPOStream) Update(inReal float64) (float64, error) {
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *PPOStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -525,52 +584,6 @@ func (sp *PPOStream) Clone() *PPOStream {
 	cl.sub0 = sp.sub0.Clone()
 	cl.sub1 = sp.sub1.Clone()
 	return &cl
-}
-
-func ppoStepImpl(sp *PPOStream, inReal float64) error {
-	var tempReal float64
-	var cur_tempBuffer float64
-	var cur_outReal float64
-	var subErr error
-	cur_tempBuffer, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outReal, subErr = sp.sub1.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	slowLookback := sp.slowLookback
-	windowed := sp.windowed
-	zeroRun := sp.zeroRun
-	if windowed != 0 {
-		var _T1 int32
-		if math.Abs(inReal) <= 0.0 {
-			_T1 = zeroRun + 1
-		} else {
-			_T1 = 0
-		}
-		zeroRun = _T1
-		tempReal = cur_outReal
-		if zeroRun > slowLookback {
-			zeroRun = slowLookback
-			cur_outReal = 0.0
-		} else if !isZero(tempReal) {
-			cur_outReal = float64((cur_tempBuffer - tempReal) / tempReal * 100.0)
-		} else {
-			cur_outReal = 0.0
-		}
-	} else {
-		tempReal = cur_outReal
-		if !isZero(tempReal) {
-			cur_outReal = float64((cur_tempBuffer - tempReal) / tempReal * 100.0)
-		} else {
-			cur_outReal = 0.0
-		}
-	}
-	sp.zeroRun = zeroRun
-	sp.cur_outReal = cur_outReal
-	return nil
 }
 
 func (c *Core) ppoOpenImpl(sp *PPOStream, inReal []float64, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -723,7 +736,8 @@ func (c *Core) ppoOpenInternal(inReal []float64, startIdx, optInFastPeriod, optI
 // inReal is the history; the parameters are those of [Core.PPO].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.PPOLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.PPOLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) PPOOpen(inReal []float64, optInFastPeriod, optInSlowPeriod int, optInMAType MAType) (*PPOStream, float64, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, 0, BadParam
@@ -746,7 +760,8 @@ func (c *Core) PPOOpen(inReal []float64, optInFastPeriod, optInSlowPeriod int, o
 // no memory with an input or another output.
 //
 // The errors are those of [Core.PPOOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) PPOOpenAndFill(inReal []float64, optInFastPeriod, optInSlowPeriod int, optInMAType MAType, outReal []float64) (*PPOStream, OutRange, error) {
 	if !fitsInt32(optInFastPeriod) {
 		return nil, OutRange{}, BadParam

@@ -150,6 +150,25 @@ func (c *Core) EFILookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// EFIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.EFI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.EFI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.EFILookback] rejects or an index that names no output.
+func (c *Core) EFIDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.EFILookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // EFI computes the Elder's Force Index over bars startIdx through endIdx.
 //
 // Alexander Elder's Force Index (Trading for a Living, 1993): volume-weighted
@@ -182,7 +201,8 @@ func (c *Core) EFILookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) EFI(startIdx, endIdx int, inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -259,18 +279,29 @@ func (sp *EFIStream) Update(inClose, inVolume float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inClose) || !isFinite(inVolume) {
+	if (inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
-	efiStepImpl(sp, inClose, inVolume)
 	sp.outRangeCount++
+	if sp.optInTimePeriod == 1 {
+		var force float64
+		force = float64((inClose - sp.prevClose) * inVolume)
+		sp.prevClose = inClose
+		sp.cur_outReal = force
+	} else {
+		var force float64
+		force = float64((inClose - sp.prevClose) * inVolume)
+		sp.prevClose = inClose
+		sp.prevMA = math.FMA(sp.emaBeta, sp.prevMA, float64(sp.optInK_1*force))
+		sp.cur_outReal = sp.prevMA
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inClose and inVolume),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *EFIStream) Peek(inClose, inVolume float64) (float64, error) {
-	if !isFinite(inClose) || !isFinite(inVolume) {
+	if (inClose-inClose)+(inVolume-inVolume) != 0 {
 		return 0, BadParam
 	}
 	var cur_outReal float64
@@ -302,21 +333,6 @@ func (sp *EFIStream) Value() float64 {
 func (sp *EFIStream) Clone() *EFIStream {
 	cl := *sp
 	return &cl
-}
-
-func efiStepImpl(sp *EFIStream, inClose, inVolume float64) {
-	if sp.optInTimePeriod == 1 {
-		var force float64
-		force = float64((inClose - sp.prevClose) * inVolume)
-		sp.prevClose = inClose
-		sp.cur_outReal = force
-	} else {
-		var force float64
-		force = float64((inClose - sp.prevClose) * inVolume)
-		sp.prevClose = inClose
-		sp.prevMA = math.FMA(sp.emaBeta, sp.prevMA, float64(sp.optInK_1*force))
-		sp.cur_outReal = sp.prevMA
-	}
 }
 
 func (c *Core) efiOpenImpl(sp *EFIStream, inClose, inVolume []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -474,8 +490,9 @@ func (c *Core) efiOpenInternal(inClose, inVolume []float64, startIdx, optInTimeP
 // those of [Core.EFI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.EFILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.EFILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) EFIOpen(inClose, inVolume []float64, optInTimePeriod int) (*EFIStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -495,7 +512,8 @@ func (c *Core) EFIOpen(inClose, inVolume []float64, optInTimePeriod int) (*EFISt
 // no memory with an input or another output.
 //
 // The errors are those of [Core.EFIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) EFIOpenAndFill(inClose, inVolume []float64, optInTimePeriod int, outReal []float64) (*EFIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

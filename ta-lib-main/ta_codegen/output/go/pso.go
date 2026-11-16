@@ -53,9 +53,13 @@ func (c *Core) psoLookback(optInFastK_Period, optInEMAPeriod int32) int32 {
 
 func (c *Core) psoImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64, optInFastK_Period, optInEMAPeriod int32, outBegIdx, outNBElement *int32, outReal []float64) RetCode {
 	var sufHighest []float64
+	var local_sufHighest [30]float64
 	var preHighest []float64
+	var local_preHighest [30]float64
 	var sufLowest []float64
+	var local_sufLowest [30]float64
 	var preLowest []float64
+	var local_preLowest [30]float64
 	var emaK float64
 	var emaBeta float64
 	var highest float64
@@ -124,19 +128,35 @@ func (c *Core) psoImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 	if optInFastK_Period < 1 {
 		return InternalError
 	}
-	sufHighest = make([]float64, optInFastK_Period)
+	if optInFastK_Period <= 30 {
+		sufHighest = local_sufHighest[:optInFastK_Period]
+	} else {
+		sufHighest = make([]float64, optInFastK_Period)
+	}
 	if optInFastK_Period < 1 {
 		return InternalError
 	}
-	preHighest = make([]float64, optInFastK_Period)
+	if optInFastK_Period <= 30 {
+		preHighest = local_preHighest[:optInFastK_Period]
+	} else {
+		preHighest = make([]float64, optInFastK_Period)
+	}
 	if optInFastK_Period < 1 {
 		return InternalError
 	}
-	sufLowest = make([]float64, optInFastK_Period)
+	if optInFastK_Period <= 30 {
+		sufLowest = local_sufLowest[:optInFastK_Period]
+	} else {
+		sufLowest = make([]float64, optInFastK_Period)
+	}
 	if optInFastK_Period < 1 {
 		return InternalError
 	}
-	preLowest = make([]float64, optInFastK_Period)
+	if optInFastK_Period <= 30 {
+		preLowest = local_preLowest[:optInFastK_Period]
+	} else {
+		preLowest = make([]float64, optInFastK_Period)
+	}
 	for today <= endIdx {
 		i = today
 		highest = inHigh[i]
@@ -267,6 +287,25 @@ func (c *Core) PSOLookback(optInFastK_Period, optInEMAPeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// PSODisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.PSO]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.PSO] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.PSOLookback] rejects or an index that names no output.
+func (c *Core) PSODisplayShift(optInFastK_Period, optInEMAPeriod, outputIdx int) (int, error) {
+	if _, err := c.PSOLookback(optInFastK_Period, optInEMAPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // PSO computes the Premier Stochastic Oscillator over bars startIdx through
 // endIdx.
 //
@@ -306,7 +345,8 @@ func (c *Core) PSOLookback(optInFastK_Period, optInEMAPeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) PSO(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInFastK_Period, optInEMAPeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -403,11 +443,94 @@ func (sp *PSOStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	psoStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tmp float64
+	var fastK float64
+	var nsk float64
+	var i int32
+	var lowest float64
+	var lowestIdx int32
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var highest float64
+	var highestIdx int32
+	var x_inHigh []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	sp.x_inClose[sp.today&sp.xMask] = inClose
+	tmp = sp.x_inLow[sp.today&sp.xMask]
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inLow[i&xMask]
+			if tmp < lowest {
+				lowestIdx = i
+				lowest = tmp
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmp <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmp
+	}
+	tmp = sp.x_inHigh[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inHigh[i&xMask]
+			if tmp > highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	if !isZeroScaled(sp.highest-sp.lowest, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
+		fastK = float64((sp.x_inClose[sp.today&sp.xMask] - sp.lowest) / (sp.highest - sp.lowest) * 100.0)
+	} else {
+		fastK = 50.0
+	}
+	nsk = float64(0.1 * (fastK - 50.0))
+	sp.ema1 = math.FMA(sp.emaBeta, sp.ema1, float64(sp.emaK*nsk))
+	sp.ema2 = math.FMA(sp.emaBeta, sp.ema2, float64(sp.emaK*sp.ema1))
+	sp.cur_outReal = math.Tanh(float64(0.5 * sp.ema2))
+	sp.trailingIdx = sp.trailingIdx + 1
+	sp.today = sp.today + 1
 	return sp.cur_outReal, nil
 }
 
@@ -415,12 +538,16 @@ func (sp *PSOStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tmp float64
 	var fastK float64
 	var nsk float64
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var x_inHigh []float64
 	var cur_outReal float64
 	ema1 := sp.ema1
 	ema2 := sp.ema2
@@ -458,14 +585,17 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		}
 		lowest = _T1
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot1 {
-				_T2 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T2 = x_inLow[i&xMask]
 			} else {
 				_T2 = pkVal1
 			}
@@ -496,14 +626,17 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		}
 		highest = _T4
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot0 {
-				_T5 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T5 = x_inHigh[i&xMask]
 			} else {
 				_T5 = pkVal0
 			}
@@ -548,66 +681,6 @@ func (sp *PSOStream) Clone() *PSOStream {
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	cl.x_inClose = append(sp.x_inClose[:0:0], sp.x_inClose...)
 	return &cl
-}
-
-func psoStepImpl(sp *PSOStream, inHigh, inLow, inClose float64) {
-	var tmp float64
-	var fastK float64
-	var nsk float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	sp.x_inClose[sp.today&sp.xMask] = inClose
-	tmp = sp.x_inLow[sp.today&sp.xMask]
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inLow[sp.i&sp.xMask]
-			if tmp < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmp
-			}
-		}
-	} else if tmp <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmp
-	}
-	tmp = sp.x_inHigh[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inHigh[sp.i&sp.xMask]
-			if tmp > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	if !isZeroScaled(sp.highest-sp.lowest, math.Abs(sp.highest)+math.Abs(sp.lowest)) {
-		fastK = float64((sp.x_inClose[sp.today&sp.xMask] - sp.lowest) / (sp.highest - sp.lowest) * 100.0)
-	} else {
-		fastK = 50.0
-	}
-	nsk = float64(0.1 * (fastK - 50.0))
-	sp.ema1 = math.FMA(sp.emaBeta, sp.ema1, float64(sp.emaK*nsk))
-	sp.ema2 = math.FMA(sp.emaBeta, sp.ema2, float64(sp.emaK*sp.ema1))
-	sp.cur_outReal = math.Tanh(float64(0.5 * sp.ema2))
-	sp.trailingIdx = sp.trailingIdx + 1
-	sp.today = sp.today + 1
 }
 
 func (c *Core) psoOpenImpl(sp *PSOStream, inHigh, inLow, inClose []float64, startIdx, optInFastK_Period, optInEMAPeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -876,8 +949,9 @@ func (c *Core) psoOpenInternal(inHigh, inLow, inClose []float64, startIdx, optIn
 // are those of [Core.PSO].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.PSOLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.PSOLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) PSOOpen(inHigh, inLow, inClose []float64, optInFastK_Period, optInEMAPeriod int) (*PSOStream, float64, error) {
 	if !fitsInt32(optInFastK_Period) {
 		return nil, 0, BadParam
@@ -900,7 +974,8 @@ func (c *Core) PSOOpen(inHigh, inLow, inClose []float64, optInFastK_Period, optI
 // no memory with an input or another output.
 //
 // The errors are those of [Core.PSOOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) PSOOpenAndFill(inHigh, inLow, inClose []float64, optInFastK_Period, optInEMAPeriod int, outReal []float64) (*PSOStream, OutRange, error) {
 	if !fitsInt32(optInFastK_Period) {
 		return nil, OutRange{}, BadParam

@@ -67,7 +67,7 @@ impl Core {
     /// first output value can be produced.
     #[doc(alias = "TA_SUB_Lookback")]
     pub fn sub_lookback(&self) -> Result<usize, RetCode> {
-        return Ok((0) as usize);
+        return Ok(0 as usize);
     }
     /// Display shift of one output of [`Core::sub`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -113,7 +113,6 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx < inReal0.len());
         assert!(_assertStart > endIdx || endIdx < inReal1.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let inReal0 = &inReal0[..=endIdx];
@@ -127,13 +126,12 @@ impl Core {
             let _w1 = &inReal1[i..][.._wn];
             let _w2 = &mut outReal[outIdx..][.._wn];
             for _wk in 0.._wn {
-                _w2[_wk] = ((_w0[_wk] - _w1[_wk]) as f64);
-                i += 1;
+                _w2[_wk] = (_w0[_wk] - _w1[_wk]) as f64;
                 outIdx += 1;
             }
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
         return RetCode::Success;
     }
     /// Element-wise subtraction of two input series.
@@ -172,15 +170,17 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let series0 = vec![0.0; 252]; // your data, oldest first
-    /// # let series0: Vec<f64> = (0..252).map(|i| 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let series0: Vec<f64> = (0..252)
+    /// #     .map(|i| (10 * (i % 40 - 20) * (i % 40 - 20) - 2000) as f64 / 201.0)
+    /// #     .collect();
     /// let series1 = vec![0.0; 252]; // your data, oldest first
     /// # let series1: Vec<f64> = (0..252).map(|i| -5.0 + 10.0 * i as f64 / 251.0).collect();
     /// let mut out = vec![0.0; 252];
     ///
     /// let core = Core::new();
     /// let range = core.sub(0, series0.len() - 1, &series0, &series1, &mut out)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last out = {}", range.count, range.beg_idx, out[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}: [{:.4}, ..., {:.4}]", range.count, range.beg_idx, out[0], out[range.count - 1]);
     /// # assert!(out[..range.count].iter().all(|v| v.is_finite()));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
@@ -264,8 +264,8 @@ struct SubStreamState {
 #[allow(unused_parens)]
 impl Core {
     fn sub_step_impl(sp: &mut SubStreamState, inReal0: f64, inReal1: f64, outReal: &mut f64) {
-        (*outReal) = inReal0 - inReal1;
-        sp.cur_outReal = (*outReal);
+        *outReal = inReal0 - inReal1;
+        sp.cur_outReal = *outReal;
     }
 
     /// The single whole-history transcription behind [`Core::sub_open_internal`]
@@ -281,14 +281,11 @@ impl Core {
         }
         let historyLen: usize = inReal0.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
-        let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         // Default return values
@@ -296,12 +293,12 @@ impl Core {
         i = startIdx;
         outIdx = 0;
         while i <= endIdx {
-            outReal[(outIdx * outStride) as usize] = ((inReal0[i] - inReal1[i]) as f64);
+            outReal[outIdx * outStride] = (inReal0[i] - inReal1[i]) as f64;
             i += 1;
             outIdx += 1;
         }
-        (*outNBElement) = outIdx;
-        (*outBegIdx) = startIdx;
+        *outNBElement = outIdx;
+        *outBegIdx = startIdx;
 
         // Capture the live batch state into the handle.
         let state = SubStreamState {
@@ -336,7 +333,9 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series0: Vec<f64> = (0..252).map(|i| 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series0: Vec<f64> = (0..252)
+    ///     .map(|i| (10 * (i % 40 - 20) * (i % 40 - 20) - 2000) as f64 / 201.0)
+    ///     .collect();
     /// let series1: Vec<f64> = (0..252).map(|i| -5.0 + 10.0 * i as f64 / 251.0).collect();
     ///
     /// let core = Core::new();
@@ -368,7 +367,9 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let series0: Vec<f64> = (0..252).map(|i| 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let series0: Vec<f64> = (0..252)
+    ///     .map(|i| (10 * (i % 40 - 20) * (i % 40 - 20) - 2000) as f64 / 201.0)
+    ///     .collect();
     /// let series1: Vec<f64> = (0..252).map(|i| -5.0 + 10.0 * i as f64 / 251.0).collect();
     ///
     /// let core = Core::new();
@@ -474,7 +475,7 @@ impl SubStream {
         let mut outReal: f64 = 0.0_f64;
         {
             let outReal = &mut outReal;
-            (*outReal) = inReal0 - inReal1;
+            *outReal = inReal0 - inReal1;
         }
         Ok(outReal)
     }

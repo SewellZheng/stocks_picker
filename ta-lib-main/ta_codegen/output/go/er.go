@@ -162,6 +162,25 @@ func (c *Core) ERLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// ERDisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.ER]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ER] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.ERLookback]
+// rejects or an index that names no output.
+func (c *Core) ERDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.ERLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ER computes the Kaufman Efficiency Ratio over bars startIdx through endIdx.
 //
 // Kaufman Efficiency Ratio (also searched as "KER"): Perry Kaufman's noise
@@ -193,7 +212,8 @@ func (c *Core) ERLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ER(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -269,18 +289,53 @@ func (sp *ERStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	erStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var live int32
+	var periodROC float64
+	var tempReal float64
+	var tempReal2 float64
+	var ringPosL_trailingIdx int32
+	var ringCapL_trailingIdx int32
+	tempReal = inReal
+	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+	periodROC = tempReal - tempReal2
+	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
+	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
+	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	sp.nullRun = (sp.nullRun + 1) & (live - 1)
+	if sp.nullRun >= sp.optInTimePeriod {
+		sp.nullRun = sp.optInTimePeriod
+		sp.sumROC1 = 0.0
+		sp.cur_outReal = 1.0
+	} else if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
+		sp.cur_outReal = 1.0
+	} else {
+		tempReal = math.Abs(periodROC / sp.sumROC1)
+		if tempReal > 1.0 {
+			tempReal = 1.0
+		}
+		sp.cur_outReal = tempReal
+	}
+	sp.trailingValue = tempReal2
+	sp.lag1_inReal = inReal
+	ringCapL_trailingIdx = sp.ringCap_trailingIdx
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *ERStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var live int32
@@ -324,45 +379,6 @@ func (sp *ERStream) Clone() *ERStream {
 	cl := *sp
 	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
 	return &cl
-}
-
-func erStepImpl(sp *ERStream, inReal float64) {
-	var live int32
-	var periodROC float64
-	var tempReal float64
-	var tempReal2 float64
-	var ringPosL_trailingIdx int32
-	var ringCapL_trailingIdx int32
-	tempReal = inReal
-	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-	periodROC = tempReal - tempReal2
-	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
-	sp.nullRun = (sp.nullRun + 1) & (live - 1)
-	if sp.nullRun >= sp.optInTimePeriod {
-		sp.nullRun = sp.optInTimePeriod
-		sp.sumROC1 = 0.0
-		sp.cur_outReal = 1.0
-	} else if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
-		sp.cur_outReal = 1.0
-	} else {
-		tempReal = math.Abs(periodROC / sp.sumROC1)
-		if tempReal > 1.0 {
-			tempReal = 1.0
-		}
-		sp.cur_outReal = tempReal
-	}
-	sp.trailingValue = tempReal2
-	sp.lag1_inReal = inReal
-	ringCapL_trailingIdx = sp.ringCap_trailingIdx
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_inReal[ringPosL_trailingIdx] = inReal
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= ringCapL_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) erOpenImpl(sp *ERStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -513,7 +529,8 @@ func (c *Core) erOpenInternal(inReal []float64, startIdx, optInTimePeriod int32)
 // inReal is the history; the parameters are those of [Core.ER].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.ERLookback]
-// bars, and [BadParam] for a parameter out of range.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range.
 func (c *Core) EROpen(inReal []float64, optInTimePeriod int) (*ERStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -533,7 +550,8 @@ func (c *Core) EROpen(inReal []float64, optInTimePeriod int) (*ERStream, float64
 // memory with an input or another output.
 //
 // The errors are those of [Core.EROpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) EROpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*ERStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

@@ -115,6 +115,25 @@ func (c *Core) IMILookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// IMIDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.IMI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.IMI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.IMILookback] rejects or an index that names no output.
+func (c *Core) IMIDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.IMILookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // IMI computes the Intraday Momentum Index over bars startIdx through endIdx.
 //
 // Intraday Momentum Index: an RSI-like 0-100 oscillator built from the
@@ -145,7 +164,8 @@ func (c *Core) IMILookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) IMI(startIdx, endIdx int, inOpen, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -222,18 +242,65 @@ func (sp *IMIStream) Update(inOpen, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	imiStepImpl(sp, inOpen, inClose)
 	sp.outRangeCount++
+	var upsum float64
+	var downsum float64
+	var i int32
+	var diff float64
+	var up float64
+	var optInTimePeriod int32
+	var winCap_i int32
+	var winPos_i int32
+	var win_i_inClose []float64
+	var win_i_inOpen []float64
+	sp.win_i_inOpen[sp.winPos_i] = inOpen
+	sp.win_i_inClose[sp.winPos_i] = inClose
+	upsum = 0.0
+	downsum = 0.0
+	optInTimePeriod = sp.optInTimePeriod
+	winCap_i = sp.winCap_i
+	winPos_i = sp.winPos_i
+	win_i_inClose = sp.win_i_inClose
+	win_i_inOpen = sp.win_i_inOpen
+	for i = optInTimePeriod - 1; i >= 0; i -= 1 {
+		var _T7 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T7 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T7 = winPos_i + winCap_i - i
+		}
+		var _T8 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T8 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T8 = winPos_i + winCap_i - i
+		}
+		diff = win_i_inClose[_T7] - win_i_inOpen[_T8]
+		up = float64((diff + math.Abs(diff)) * 0.5)
+		upsum += up
+		downsum += up - diff
+	}
+	var _T9 float64
+	if upsum+downsum == 0.0 {
+		_T9 = 50.0
+	} else {
+		_T9 = float64(100.0 * (upsum / (upsum + downsum)))
+	}
+	sp.cur_outReal = _T9
+	sp.winPos_i = sp.winPos_i + 1
+	if sp.winPos_i >= sp.winCap_i {
+		sp.winPos_i = 0
+	}
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inOpen and inClose),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *IMIStream) Peek(inOpen, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var upsum float64
@@ -241,6 +308,11 @@ func (sp *IMIStream) Peek(inOpen, inClose float64) (float64, error) {
 	var i int32
 	var diff float64
 	var up float64
+	var optInTimePeriod int32
+	var winCap_i int32
+	var winPos_i int32
+	var win_i_inClose []float64
+	var win_i_inOpen []float64
 	var cur_outReal float64
 	pkSlot0 := int32(-1)
 	var pkVal0 float64
@@ -252,40 +324,45 @@ func (sp *IMIStream) Peek(inOpen, inClose float64) (float64, error) {
 	pkVal1 = inClose
 	upsum = 0.0
 	downsum = 0.0
-	for i = sp.optInTimePeriod - 1; i >= 0; i -= 1 {
+	optInTimePeriod = sp.optInTimePeriod
+	winCap_i = sp.winCap_i
+	winPos_i = sp.winPos_i
+	win_i_inClose = sp.win_i_inClose
+	win_i_inOpen = sp.win_i_inOpen
+	for i = optInTimePeriod - 1; i >= 0; i -= 1 {
 		var _T0 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T0 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T0 = winPos_i + winCap_i - i - winCap_i
 		} else {
-			_T0 = sp.winPos_i + sp.winCap_i - i
+			_T0 = winPos_i + winCap_i - i
 		}
 		var _T2 float64
 		if _T0 != pkSlot1 {
 			var _T1 int32
-			if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-				_T1 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+			if winPos_i+winCap_i-i >= winCap_i {
+				_T1 = winPos_i + winCap_i - i - winCap_i
 			} else {
-				_T1 = sp.winPos_i + sp.winCap_i - i
+				_T1 = winPos_i + winCap_i - i
 			}
-			_T2 = sp.win_i_inClose[_T1]
+			_T2 = win_i_inClose[_T1]
 		} else {
 			_T2 = pkVal1
 		}
 		var _T3 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T3 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T3 = winPos_i + winCap_i - i - winCap_i
 		} else {
-			_T3 = sp.winPos_i + sp.winCap_i - i
+			_T3 = winPos_i + winCap_i - i
 		}
 		var _T5 float64
 		if _T3 != pkSlot0 {
 			var _T4 int32
-			if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-				_T4 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
+			if winPos_i+winCap_i-i >= winCap_i {
+				_T4 = winPos_i + winCap_i - i - winCap_i
 			} else {
-				_T4 = sp.winPos_i + sp.winCap_i - i
+				_T4 = winPos_i + winCap_i - i
 			}
-			_T5 = sp.win_i_inOpen[_T4]
+			_T5 = win_i_inOpen[_T4]
 		} else {
 			_T5 = pkVal0
 		}
@@ -316,47 +393,6 @@ func (sp *IMIStream) Clone() *IMIStream {
 	cl.win_i_inOpen = append(sp.win_i_inOpen[:0:0], sp.win_i_inOpen...)
 	cl.win_i_inClose = append(sp.win_i_inClose[:0:0], sp.win_i_inClose...)
 	return &cl
-}
-
-func imiStepImpl(sp *IMIStream, inOpen, inClose float64) {
-	var upsum float64
-	var downsum float64
-	var i int32
-	var diff float64
-	var up float64
-	sp.win_i_inOpen[sp.winPos_i] = inOpen
-	sp.win_i_inClose[sp.winPos_i] = inClose
-	upsum = 0.0
-	downsum = 0.0
-	for i = sp.optInTimePeriod - 1; i >= 0; i -= 1 {
-		var _T7 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T7 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
-		} else {
-			_T7 = sp.winPos_i + sp.winCap_i - i
-		}
-		var _T8 int32
-		if sp.winPos_i+sp.winCap_i-i >= sp.winCap_i {
-			_T8 = sp.winPos_i + sp.winCap_i - i - sp.winCap_i
-		} else {
-			_T8 = sp.winPos_i + sp.winCap_i - i
-		}
-		diff = sp.win_i_inClose[_T7] - sp.win_i_inOpen[_T8]
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upsum += up
-		downsum += up - diff
-	}
-	var _T9 float64
-	if upsum+downsum == 0.0 {
-		_T9 = 50.0
-	} else {
-		_T9 = float64(100.0 * (upsum / (upsum + downsum)))
-	}
-	sp.cur_outReal = _T9
-	sp.winPos_i = sp.winPos_i + 1
-	if sp.winPos_i >= sp.winCap_i {
-		sp.winPos_i = 0
-	}
 }
 
 func (c *Core) imiOpenImpl(sp *IMIStream, inOpen, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -463,8 +499,9 @@ func (c *Core) imiOpenInternal(inOpen, inClose []float64, startIdx, optInTimePer
 // of [Core.IMI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.IMILookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.IMILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) IMIOpen(inOpen, inClose []float64, optInTimePeriod int) (*IMIStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -484,7 +521,8 @@ func (c *Core) IMIOpen(inOpen, inClose []float64, optInTimePeriod int) (*IMIStre
 // no memory with an input or another output.
 //
 // The errors are those of [Core.IMIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) IMIOpenAndFill(inOpen, inClose []float64, optInTimePeriod int, outReal []float64) (*IMIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

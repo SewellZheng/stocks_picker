@@ -105,6 +105,25 @@ func (c *Core) ADXRLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// ADXRDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.ADXR].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ADXR] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ADXRLookback] rejects or an index that names no output.
+func (c *Core) ADXRDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.ADXRLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ADXR computes the Average Directional Movement Index Rating over bars
 // startIdx through endIdx.
 //
@@ -139,7 +158,8 @@ func (c *Core) ADXRLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ADXR(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -220,12 +240,32 @@ func (sp *ADXRStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	if err := adxrStepImpl(sp, inHigh, inLow, inClose); err != nil {
-		return 0, err
+	var cur_adx float64
+	var cur_outReal float64
+	var lagIn0 float64
+	var lagTap0_0 float64
+	var lagCapL0 int32
+	var lagPosL0 int32
+	var subErr error
+	cur_adx, subErr = sp.sub0.Update(inHigh, inLow, inClose)
+	if subErr != nil {
+		return 0, subErr
 	}
+	lagIn0 = cur_adx
+	lagTap0_0 = sp.lagBuf0[sp.lagPos0]
+	cur_outReal = (cur_adx + lagTap0_0) / 2.0
+	lagCapL0 = sp.lagCap0
+	lagPosL0 = sp.lagPos0
+	sp.lagBuf0[lagPosL0] = lagIn0
+	lagPosL0 = lagPosL0 + 1
+	if lagPosL0 >= lagCapL0 {
+		lagPosL0 = 0
+	}
+	sp.lagPos0 = lagPosL0
+	sp.cur_outReal = cur_outReal
 	sp.outRangeCount++
 	return sp.cur_outReal, nil
 }
@@ -234,7 +274,7 @@ func (sp *ADXRStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *ADXRStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var cur_adx float64
@@ -262,33 +302,6 @@ func (sp *ADXRStream) Clone() *ADXRStream {
 	cl.lagBuf0 = append(sp.lagBuf0[:0:0], sp.lagBuf0...)
 	cl.sub0 = sp.sub0.Clone()
 	return &cl
-}
-
-func adxrStepImpl(sp *ADXRStream, inHigh, inLow, inClose float64) error {
-	var cur_adx float64
-	var cur_outReal float64
-	var lagIn0 float64
-	var lagTap0_0 float64
-	var lagCapL0 int32
-	var lagPosL0 int32
-	var subErr error
-	cur_adx, subErr = sp.sub0.Update(inHigh, inLow, inClose)
-	if subErr != nil {
-		return subErr
-	}
-	lagIn0 = cur_adx
-	lagTap0_0 = sp.lagBuf0[sp.lagPos0]
-	cur_outReal = (cur_adx + lagTap0_0) / 2.0
-	lagCapL0 = sp.lagCap0
-	lagPosL0 = sp.lagPos0
-	sp.lagBuf0[lagPosL0] = lagIn0
-	lagPosL0 = lagPosL0 + 1
-	if lagPosL0 >= lagCapL0 {
-		lagPosL0 = 0
-	}
-	sp.lagPos0 = lagPosL0
-	sp.cur_outReal = cur_outReal
-	return nil
 }
 
 func (c *Core) adxrOpenImpl(sp *ADXRStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -402,8 +415,9 @@ func (c *Core) adxrOpenInternal(inHigh, inLow, inClose []float64, startIdx, optI
 // are those of [Core.ADXR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ADXRLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ADXRLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ADXROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (*ADXRStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -423,7 +437,8 @@ func (c *Core) ADXROpen(inHigh, inLow, inClose []float64, optInTimePeriod int) (
 // no memory with an input or another output.
 //
 // The errors are those of [Core.ADXROpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ADXROpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, outReal []float64) (*ADXRStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

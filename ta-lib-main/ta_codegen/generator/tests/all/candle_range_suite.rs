@@ -193,15 +193,11 @@ fn no_candlestick_carries_the_divergent_shadows_spelling() {
     // Corpus sweep. The inline arms are reached wherever the helper call sits in
     // a condition, which is every candlestick, at whatever bar index that
     // pattern happens to read -- `i - 3` and `sp.lag2_inClose` included.
+    if common::sweep_filtered() {
+        return;
+    }
     let mut checked = 0usize;
-    for entry in std::fs::read_dir(input_dir()).expect("input dir") {
-        let dir = entry.expect("dir entry").path();
-        let Some(name) = dir.file_name().map(|n| n.to_string_lossy().to_string()) else {
-            continue;
-        };
-        if !name.starts_with("cdl") || !dir.join(format!("{name}.yaml")).exists() {
-            continue;
-        }
+    for name in common::discover_indicators().into_iter().filter(|n| n.starts_with("cdl")) {
         let s = rust_source(&name);
         for block in range_type_matches(&s) {
             let (shadows, default) = shadows_and_default(&block);
@@ -218,7 +214,7 @@ fn no_candlestick_carries_the_divergent_shadows_spelling() {
 fn rust_candleaverage_halves_by_multiplying() {
     let s = rust_source("cdldoji");
     assert!(
-        s.contains("* (if (BodyDoji_rangeType) == 2 { 0.5 } else { 1.0 })"),
+        s.contains("* (if BodyDoji_rangeType == 2 { 0.5 } else { 1.0 })"),
         "the Shadows average should halve by a multiply: {s}"
     );
     assert!(!s.contains("{ 2.0 } else { 1.0 }"), "no divide by a selected 2.0/1.0 may remain: {s}");
@@ -309,14 +305,12 @@ fn colour_helper_calls(s: &str) -> usize {
 /// and the stream step keeps the `if` form.
 #[test]
 fn no_rust_batch_or_open_candle_body_branches_on_the_colour() {
+    if common::sweep_filtered() {
+        return;
+    }
     let (mut bodies, mut calls, mut steps, mut step_ifs) = (0usize, 0usize, 0usize, 0usize);
     let mut scalars = 0usize;
-    for entry in std::fs::read_dir(input_dir()).expect("input dir") {
-        let dir = entry.expect("dir entry").path();
-        let name = dir.file_name().expect("name").to_string_lossy().to_string();
-        if !name.starts_with("cdl") || !dir.join(format!("{name}.yaml")).exists() {
-            continue;
-        }
+    for name in common::discover_indicators().into_iter().filter(|n| n.starts_with("cdl")) {
         let s = rust_source(&name);
         let framed = s.contains(&format!("fn {name}_open_sink_frame("));
         let mut tiers = vec![format!("{name}_impl")];
@@ -372,4 +366,30 @@ fn rust_colour_macros_select_on_x86_64_only() {
         assert!(src.contains(&format!("pub(crate) use {name};")), "{name} is not exported to the bodies");
         assert_eq!(src.matches(&format!("macro_rules! {name} ")).count(), 2, "{name}: one arm per cfg");
     }
+}
+
+/// Inlined into its batch or stream frame, a candlestick's lookback makes
+/// RyuJIT allocate that frame's registers differently, and the open runs slower
+/// with no instruction saved; nothing but timing would notice the attribute go.
+#[test]
+fn a_csharp_lookback_that_reads_candle_settings_stays_out_of_line() {
+    if common::sweep_filtered() {
+        return;
+    }
+    let attr = "   [MethodImpl(MethodImplOptions.NoInlining)]";
+    let registry = common::make_registry();
+    let mut pinned = 0usize;
+    for name in common::discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        let s = backends::csharp::generate(&func, &enums, registry, common::make_helpers());
+        let lines: Vec<&str> = s.lines().collect();
+        let Some(at) = lines.iter().position(|l| l.starts_with("   public int ") && l.contains("Lookback(")) else {
+            continue;
+        };
+        let end = lines[at..].iter().position(|l| *l == "   }").map_or(lines.len(), |k| at + k);
+        let reads = lines[at..end].iter().any(|l| l.contains("_candleSettings["));
+        assert_eq!(lines[at - 1] == attr, reads, "{name}: NoInlining must sit on exactly the lookbacks that read candle settings");
+        pinned += usize::from(reads);
+    }
+    assert!(pinned >= 55, "expected the candlestick lookbacks, saw {pinned}");
 }

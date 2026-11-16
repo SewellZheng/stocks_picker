@@ -126,6 +126,25 @@ func (c *Core) MAXINDEXLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// MAXINDEXDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.MAXINDEX]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MAXINDEX] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.MAXINDEXLookback] rejects or an index that names no output.
+func (c *Core) MAXINDEXDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.MAXINDEXLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MAXINDEX computes the Index of highest value over a specified period over
 // bars startIdx through endIdx.
 //
@@ -228,21 +247,63 @@ func (sp *MAXINDEXStream) Update(inReal float64) (int32, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	maxindexStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var tmp float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inReal []float64
+	sp.x_inReal[sp.today&sp.xMask] = inReal
+	tmp = sp.x_inReal[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inReal[i&xMask]
+			if tmp >= highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	sp.cur_outInteger = sp.highestIdx
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outInteger, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MAXINDEXStream) Peek(inReal float64) (int32, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var tmp float64
+	var today int32
+	var xMask int32
+	var x_inReal []float64
 	var cur_outInteger int32
 	highest := sp.highest
 	highestIdx := sp.highestIdx
@@ -268,14 +329,17 @@ func (sp *MAXINDEXStream) Peek(inReal float64) (int32, error) {
 		}
 		highest = _T1
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot0 {
-				_T2 = sp.x_inReal[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T2 = x_inReal[i&xMask]
 			} else {
 				_T2 = pkVal0
 			}
@@ -304,34 +368,6 @@ func (sp *MAXINDEXStream) Clone() *MAXINDEXStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func maxindexStepImpl(sp *MAXINDEXStream, inReal float64) {
-	var tmp float64
-	sp.x_inReal[sp.today&sp.xMask] = inReal
-	tmp = sp.x_inReal[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inReal[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inReal[sp.i&sp.xMask]
-			if tmp >= sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	sp.cur_outInteger = sp.highestIdx
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) maxindexOpenImpl(sp *MAXINDEXStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -453,7 +489,8 @@ func (c *Core) maxindexOpenInternal(inReal []float64, startIdx, optInTimePeriod 
 // inReal is the history; the parameters are those of [Core.MAXINDEX].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.MAXINDEXLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.MAXINDEXLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) MAXINDEXOpen(inReal []float64, optInTimePeriod int) (*MAXINDEXStream, int32, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam

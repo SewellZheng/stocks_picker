@@ -153,6 +153,25 @@ func (c *Core) AROONLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// AROONDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.AROON].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.AROON] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.AROONLookback] rejects or an index that names no output.
+func (c *Core) AROONDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.AROONLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // AROON computes the Aroon over bars startIdx through endIdx.
 //
 // Aroon reports how recently the highest high and lowest low occurred within a
@@ -188,7 +207,8 @@ func (c *Core) AROONLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) AROON(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outAroonDown, outAroonUp []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -277,21 +297,98 @@ func (sp *AROONStream) Update(inHigh, inLow float64) (float64, float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
-	aroonStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var tmp float64
+	var i int32
+	var lowest float64
+	var lowestIdx int32
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var highest float64
+	var highestIdx int32
+	var x_inHigh []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	tmp = sp.x_inLow[sp.today&sp.xMask]
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inLow[i&xMask]
+			if tmp <= lowest {
+				lowestIdx = i
+				lowest = tmp
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmp <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmp
+	}
+	tmp = sp.x_inHigh[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmp = x_inHigh[i&xMask]
+			if tmp >= highest {
+				highestIdx = i
+				highest = tmp
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmp >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmp
+	}
+	sp.cur_outAroonUp = float64(sp.factor * float64(sp.optInTimePeriod-(sp.today-sp.highestIdx)))
+	sp.cur_outAroonDown = float64(sp.factor * float64(sp.optInTimePeriod-(sp.today-sp.lowestIdx)))
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outAroonDown, sp.cur_outAroonUp, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *AROONStream) Peek(inHigh, inLow float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, BadParam
 	}
 	var tmp float64
+	var today int32
+	var xMask int32
+	var x_inLow []float64
+	var x_inHigh []float64
 	var cur_outAroonDown float64
 	var cur_outAroonUp float64
 	highest := sp.highest
@@ -324,14 +421,17 @@ func (sp *AROONStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		}
 		lowest = _T1
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T2 float64
-			if i&sp.xMask != pkSlot1 {
-				_T2 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T2 = x_inLow[i&xMask]
 			} else {
 				_T2 = pkVal1
 			}
@@ -362,14 +462,17 @@ func (sp *AROONStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		}
 		highest = _T4
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot0 {
-				_T5 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T5 = x_inHigh[i&xMask]
 			} else {
 				_T5 = pkVal0
 			}
@@ -401,56 +504,6 @@ func (sp *AROONStream) Clone() *AROONStream {
 	cl.x_inHigh = append(sp.x_inHigh[:0:0], sp.x_inHigh...)
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	return &cl
-}
-
-func aroonStepImpl(sp *AROONStream, inHigh, inLow float64) {
-	var tmp float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	tmp = sp.x_inLow[sp.today&sp.xMask]
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inLow[sp.i&sp.xMask]
-			if tmp <= sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmp
-			}
-		}
-	} else if tmp <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmp
-	}
-	tmp = sp.x_inHigh[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmp = sp.x_inHigh[sp.i&sp.xMask]
-			if tmp >= sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmp
-			}
-		}
-	} else if tmp >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmp
-	}
-	sp.cur_outAroonUp = float64(sp.factor * float64(sp.optInTimePeriod-(sp.today-sp.highestIdx)))
-	sp.cur_outAroonDown = float64(sp.factor * float64(sp.optInTimePeriod-(sp.today-sp.lowestIdx)))
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) aroonOpenImpl(sp *AROONStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outAroonDown, outAroonUp []float64, outStride int32) RetCode {
@@ -609,8 +662,9 @@ func (c *Core) aroonOpenInternal(inHigh, inLow []float64, startIdx, optInTimePer
 // of [Core.AROON].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.AROONLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.AROONLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) AROONOpen(inHigh, inLow []float64, optInTimePeriod int) (*AROONStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -630,7 +684,8 @@ func (c *Core) AROONOpen(inHigh, inLow []float64, optInTimePeriod int) (*AROONSt
 // no memory with an input or another output.
 //
 // The errors are those of [Core.AROONOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) AROONOpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outAroonDown, outAroonUp []float64) (*AROONStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

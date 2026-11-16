@@ -147,13 +147,7 @@ func (c *Core) sharpeImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 		dev = ret - shift
 		periodTotal1 += dev
 		periodTotal2 += float64(dev * dev)
-		var _T0 float64
-		if periodTotal2 > peakTotal2 {
-			_T0 = periodTotal2
-		} else {
-			_T0 = peakTotal2
-		}
-		peakTotal2 = _T0
+		peakTotal2 = selF(periodTotal2 > peakTotal2, periodTotal2, peakTotal2)
 		meanDev = float64(periodTotal1 * invPeriod)
 		moment2 = periodTotal2 - float64(meanDev*periodTotal1)
 		trailingPrevPrice = inReal[trailingIdx]
@@ -257,6 +251,25 @@ func (c *Core) SHARPELookback(optInTimePeriod int, optInRiskFreeRate, optInAnnua
 	return int(lookback), nil
 }
 
+// SHARPEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SHARPE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SHARPE] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SHARPELookback] rejects or an index that names no output.
+func (c *Core) SHARPEDisplayShift(optInTimePeriod int, optInRiskFreeRate, optInAnnualization float64, outputIdx int) (int, error) {
+	if _, err := c.SHARPELookback(optInTimePeriod, optInRiskFreeRate, optInAnnualization); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SHARPE computes the Rolling Sharpe Ratio over bars startIdx through endIdx.
 //
 // The rolling Sharpe ratio: the mean return in excess of a risk-free rate,
@@ -293,7 +306,8 @@ func (c *Core) SHARPELookback(optInTimePeriod int, optInRiskFreeRate, optInAnnua
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SHARPE(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInRiskFreeRate, optInAnnualization float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -381,18 +395,150 @@ func (sp *SHARPEStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	sharpeStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var price float64
+	var trailingPrevPrice float64
+	var windowPrevPrice float64
+	var ret float64
+	var dev float64
+	var meanDev float64
+	var moment2 float64
+	var excess float64
+	var ratio float64
+	var i int32
+	var j int32
+	var windowStart int32
+	var xMask int32
+	var x_inReal []float64
+	var periodTotal1 float64
+	var periodTotal2 float64
+	var shift float64
+	sp.x_inReal[sp.i&sp.xMask] = inReal
+	price = sp.x_inReal[sp.i&sp.xMask]
+	ret = 0.0
+	if sp.prevPrice != 0.0 {
+		ret = (price - sp.prevPrice) / sp.prevPrice
+	}
+	sp.prevPrice = price
+	dev = ret - sp.shift
+	sp.periodTotal1 += dev
+	sp.periodTotal2 += float64(dev * dev)
+	sp.peakTotal2 = selF(sp.periodTotal2 > sp.peakTotal2, sp.periodTotal2, sp.peakTotal2)
+	meanDev = float64(sp.periodTotal1 * sp.invPeriod)
+	moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
+	trailingPrevPrice = sp.x_inReal[sp.trailingIdx&sp.xMask]
+	sp.trailingIdx += 1
+	price = sp.x_inReal[sp.trailingIdx&sp.xMask]
+	ret = 0.0
+	if trailingPrevPrice != 0.0 {
+		ret = (price - trailingPrevPrice) / trailingPrevPrice
+	}
+	dev = ret - sp.shift
+	sp.periodTotal1 -= dev
+	sp.periodTotal2 -= float64(dev * dev)
+	sp.barsSinceReseed -= 1
+	if moment2 < float64(0.01*sp.peakTotal2) || sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = 32 * sp.optInTimePeriod
+		sp.windowStart = sp.i - sp.optInTimePeriod + 1
+		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+		dev = 0.0
+		i = sp.i
+		j = sp.j
+		windowStart = sp.windowStart
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			price = x_inReal[j&xMask]
+			ret = 0.0
+			if windowPrevPrice != 0.0 {
+				ret = (price - windowPrevPrice) / windowPrevPrice
+			}
+			windowPrevPrice = price
+			dev += ret
+		}
+		sp.j = j
+		sp.shift = float64(dev * sp.invPeriod)
+		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+		sp.periodTotal1 = 0.0
+		sp.periodTotal2 = 0.0
+		i = sp.i
+		j = sp.j
+		periodTotal1 = sp.periodTotal1
+		periodTotal2 = sp.periodTotal2
+		shift = sp.shift
+		windowStart = sp.windowStart
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			price = x_inReal[j&xMask]
+			ret = 0.0
+			if windowPrevPrice != 0.0 {
+				ret = (price - windowPrevPrice) / windowPrevPrice
+			}
+			windowPrevPrice = price
+			dev = ret - shift
+			periodTotal1 += dev
+			periodTotal2 += float64(dev * dev)
+		}
+		sp.j = j
+		sp.periodTotal1 = periodTotal1
+		sp.periodTotal2 = periodTotal2
+		meanDev = float64(sp.periodTotal1 * sp.invPeriod)
+		moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
+		if moment2 < float64(1e-6*sp.periodTotal2) {
+			sp.shift = ret
+			windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+			sp.periodTotal1 = 0.0
+			sp.periodTotal2 = 0.0
+			i = sp.i
+			j = sp.j
+			periodTotal1 = sp.periodTotal1
+			periodTotal2 = sp.periodTotal2
+			shift = sp.shift
+			windowStart = sp.windowStart
+			xMask = sp.xMask
+			x_inReal = sp.x_inReal
+			for j = windowStart; j <= i; j += 1 {
+				price = x_inReal[j&xMask]
+				ret = 0.0
+				if windowPrevPrice != 0.0 {
+					ret = (price - windowPrevPrice) / windowPrevPrice
+				}
+				windowPrevPrice = price
+				dev = ret - shift
+				periodTotal1 += dev
+				periodTotal2 += float64(dev * dev)
+			}
+			sp.j = j
+			sp.periodTotal1 = periodTotal1
+			sp.periodTotal2 = periodTotal2
+			meanDev = float64(sp.periodTotal1 * sp.invPeriod)
+			moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
+		}
+		sp.peakTotal2 = sp.periodTotal2
+		price = sp.x_inReal[sp.windowStart&sp.xMask]
+		ret = 0.0
+		if sp.x_inReal[(sp.windowStart-1)&sp.xMask] != 0.0 {
+			ret = (price - sp.x_inReal[(sp.windowStart-1)&sp.xMask]) / sp.x_inReal[(sp.windowStart-1)&sp.xMask]
+		}
+		dev = ret - sp.shift
+		sp.periodTotal1 -= dev
+		sp.periodTotal2 -= float64(dev * dev)
+	}
+	excess = sp.shift + meanDev - sp.optInRiskFreeRate
+	ratio = excess / math.Sqrt(moment2/(sp.dPeriod-1.0))
+	sp.cur_outReal = float64(sp.sqrtAnnual * ratio)
+	sp.i += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var price float64
@@ -404,6 +550,9 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 	var moment2 float64
 	var excess float64
 	var ratio float64
+	var i int32
+	var xMask int32
+	var x_inReal []float64
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
 	j := sp.j
@@ -433,30 +582,24 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 	dev = ret - shift
 	periodTotal1 += dev
 	periodTotal2 += float64(dev * dev)
-	var _T1 float64
-	if periodTotal2 > peakTotal2 {
-		_T1 = periodTotal2
-	} else {
-		_T1 = peakTotal2
-	}
-	peakTotal2 = _T1
+	peakTotal2 = selF(periodTotal2 > peakTotal2, periodTotal2, peakTotal2)
 	meanDev = float64(periodTotal1 * sp.invPeriod)
 	moment2 = periodTotal2 - float64(meanDev*periodTotal1)
+	var _T1 float64
+	if trailingIdx&sp.xMask != pkSlot0 {
+		_T1 = sp.x_inReal[trailingIdx&sp.xMask]
+	} else {
+		_T1 = pkVal0
+	}
+	trailingPrevPrice = _T1
+	trailingIdx += 1
 	var _T2 float64
 	if trailingIdx&sp.xMask != pkSlot0 {
 		_T2 = sp.x_inReal[trailingIdx&sp.xMask]
 	} else {
 		_T2 = pkVal0
 	}
-	trailingPrevPrice = _T2
-	trailingIdx += 1
-	var _T3 float64
-	if trailingIdx&sp.xMask != pkSlot0 {
-		_T3 = sp.x_inReal[trailingIdx&sp.xMask]
-	} else {
-		_T3 = pkVal0
-	}
-	price = _T3
+	price = _T2
 	ret = 0.0
 	if trailingPrevPrice != 0.0 {
 		ret = (price - trailingPrevPrice) / trailingPrevPrice
@@ -468,22 +611,25 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 	if moment2 < float64(0.01*peakTotal2) || barsSinceReseed <= 0 {
 		barsSinceReseed = 32 * sp.optInTimePeriod
 		windowStart = sp.i - sp.optInTimePeriod + 1
-		var _T4 float64
+		var _T3 float64
 		if (windowStart-1)&sp.xMask != pkSlot0 {
-			_T4 = sp.x_inReal[(windowStart-1)&sp.xMask]
+			_T3 = sp.x_inReal[(windowStart-1)&sp.xMask]
 		} else {
-			_T4 = pkVal0
+			_T3 = pkVal0
 		}
-		windowPrevPrice = _T4
+		windowPrevPrice = _T3
 		dev = 0.0
-		for j = windowStart; j <= sp.i; j += 1 {
-			var _T5 float64
-			if j&sp.xMask != pkSlot0 {
-				_T5 = sp.x_inReal[j&sp.xMask]
+		i = sp.i
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			var _T4 float64
+			if j&xMask != pkSlot0 {
+				_T4 = x_inReal[j&xMask]
 			} else {
-				_T5 = pkVal0
+				_T4 = pkVal0
 			}
-			price = _T5
+			price = _T4
 			ret = 0.0
 			if windowPrevPrice != 0.0 {
 				ret = (price - windowPrevPrice) / windowPrevPrice
@@ -492,23 +638,26 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 			dev += ret
 		}
 		shift = float64(dev * sp.invPeriod)
-		var _T6 float64
+		var _T5 float64
 		if (windowStart-1)&sp.xMask != pkSlot0 {
-			_T6 = sp.x_inReal[(windowStart-1)&sp.xMask]
+			_T5 = sp.x_inReal[(windowStart-1)&sp.xMask]
 		} else {
-			_T6 = pkVal0
+			_T5 = pkVal0
 		}
-		windowPrevPrice = _T6
+		windowPrevPrice = _T5
 		periodTotal1 = 0.0
 		periodTotal2 = 0.0
-		for j = windowStart; j <= sp.i; j += 1 {
-			var _T7 float64
-			if j&sp.xMask != pkSlot0 {
-				_T7 = sp.x_inReal[j&sp.xMask]
+		i = sp.i
+		xMask = sp.xMask
+		x_inReal = sp.x_inReal
+		for j = windowStart; j <= i; j += 1 {
+			var _T6 float64
+			if j&xMask != pkSlot0 {
+				_T6 = x_inReal[j&xMask]
 			} else {
-				_T7 = pkVal0
+				_T6 = pkVal0
 			}
-			price = _T7
+			price = _T6
 			ret = 0.0
 			if windowPrevPrice != 0.0 {
 				ret = (price - windowPrevPrice) / windowPrevPrice
@@ -522,23 +671,26 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 		moment2 = periodTotal2 - float64(meanDev*periodTotal1)
 		if moment2 < float64(1e-6*periodTotal2) {
 			shift = ret
-			var _T8 float64
+			var _T7 float64
 			if (windowStart-1)&sp.xMask != pkSlot0 {
-				_T8 = sp.x_inReal[(windowStart-1)&sp.xMask]
+				_T7 = sp.x_inReal[(windowStart-1)&sp.xMask]
 			} else {
-				_T8 = pkVal0
+				_T7 = pkVal0
 			}
-			windowPrevPrice = _T8
+			windowPrevPrice = _T7
 			periodTotal1 = 0.0
 			periodTotal2 = 0.0
-			for j = windowStart; j <= sp.i; j += 1 {
-				var _T9 float64
-				if j&sp.xMask != pkSlot0 {
-					_T9 = sp.x_inReal[j&sp.xMask]
+			i = sp.i
+			xMask = sp.xMask
+			x_inReal = sp.x_inReal
+			for j = windowStart; j <= i; j += 1 {
+				var _T8 float64
+				if j&xMask != pkSlot0 {
+					_T8 = x_inReal[j&xMask]
 				} else {
-					_T9 = pkVal0
+					_T8 = pkVal0
 				}
-				price = _T9
+				price = _T8
 				ret = 0.0
 				if windowPrevPrice != 0.0 {
 					ret = (price - windowPrevPrice) / windowPrevPrice
@@ -552,34 +704,34 @@ func (sp *SHARPEStream) Peek(inReal float64) (float64, error) {
 			moment2 = periodTotal2 - float64(meanDev*periodTotal1)
 		}
 		peakTotal2 = periodTotal2
-		var _T10 float64
+		var _T9 float64
 		if windowStart&sp.xMask != pkSlot0 {
-			_T10 = sp.x_inReal[windowStart&sp.xMask]
+			_T9 = sp.x_inReal[windowStart&sp.xMask]
+		} else {
+			_T9 = pkVal0
+		}
+		price = _T9
+		ret = 0.0
+		var _T10 float64
+		if (windowStart-1)&sp.xMask != pkSlot0 {
+			_T10 = sp.x_inReal[(windowStart-1)&sp.xMask]
 		} else {
 			_T10 = pkVal0
 		}
-		price = _T10
-		ret = 0.0
-		var _T11 float64
-		if (windowStart-1)&sp.xMask != pkSlot0 {
-			_T11 = sp.x_inReal[(windowStart-1)&sp.xMask]
-		} else {
-			_T11 = pkVal0
-		}
-		if _T11 != 0.0 {
+		if _T10 != 0.0 {
+			var _T11 float64
+			if (windowStart-1)&sp.xMask != pkSlot0 {
+				_T11 = sp.x_inReal[(windowStart-1)&sp.xMask]
+			} else {
+				_T11 = pkVal0
+			}
 			var _T12 float64
 			if (windowStart-1)&sp.xMask != pkSlot0 {
 				_T12 = sp.x_inReal[(windowStart-1)&sp.xMask]
 			} else {
 				_T12 = pkVal0
 			}
-			var _T13 float64
-			if (windowStart-1)&sp.xMask != pkSlot0 {
-				_T13 = sp.x_inReal[(windowStart-1)&sp.xMask]
-			} else {
-				_T13 = pkVal0
-			}
-			ret = (price - _T12) / _T13
+			ret = (price - _T11) / _T12
 		}
 		dev = ret - shift
 		periodTotal1 -= dev
@@ -602,112 +754,6 @@ func (sp *SHARPEStream) Clone() *SHARPEStream {
 	cl := *sp
 	cl.x_inReal = append(sp.x_inReal[:0:0], sp.x_inReal...)
 	return &cl
-}
-
-func sharpeStepImpl(sp *SHARPEStream, inReal float64) {
-	var price float64
-	var trailingPrevPrice float64
-	var windowPrevPrice float64
-	var ret float64
-	var dev float64
-	var meanDev float64
-	var moment2 float64
-	var excess float64
-	var ratio float64
-	sp.x_inReal[sp.i&sp.xMask] = inReal
-	price = sp.x_inReal[sp.i&sp.xMask]
-	ret = 0.0
-	if sp.prevPrice != 0.0 {
-		ret = (price - sp.prevPrice) / sp.prevPrice
-	}
-	sp.prevPrice = price
-	dev = ret - sp.shift
-	sp.periodTotal1 += dev
-	sp.periodTotal2 += float64(dev * dev)
-	var _T14 float64
-	if sp.periodTotal2 > sp.peakTotal2 {
-		_T14 = sp.periodTotal2
-	} else {
-		_T14 = sp.peakTotal2
-	}
-	sp.peakTotal2 = _T14
-	meanDev = float64(sp.periodTotal1 * sp.invPeriod)
-	moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
-	trailingPrevPrice = sp.x_inReal[sp.trailingIdx&sp.xMask]
-	sp.trailingIdx += 1
-	price = sp.x_inReal[sp.trailingIdx&sp.xMask]
-	ret = 0.0
-	if trailingPrevPrice != 0.0 {
-		ret = (price - trailingPrevPrice) / trailingPrevPrice
-	}
-	dev = ret - sp.shift
-	sp.periodTotal1 -= dev
-	sp.periodTotal2 -= float64(dev * dev)
-	sp.barsSinceReseed -= 1
-	if moment2 < float64(0.01*sp.peakTotal2) || sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = 32 * sp.optInTimePeriod
-		sp.windowStart = sp.i - sp.optInTimePeriod + 1
-		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-		dev = 0.0
-		for sp.j = sp.windowStart; sp.j <= sp.i; sp.j += 1 {
-			price = sp.x_inReal[sp.j&sp.xMask]
-			ret = 0.0
-			if windowPrevPrice != 0.0 {
-				ret = (price - windowPrevPrice) / windowPrevPrice
-			}
-			windowPrevPrice = price
-			dev += ret
-		}
-		sp.shift = float64(dev * sp.invPeriod)
-		windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-		sp.periodTotal1 = 0.0
-		sp.periodTotal2 = 0.0
-		for sp.j = sp.windowStart; sp.j <= sp.i; sp.j += 1 {
-			price = sp.x_inReal[sp.j&sp.xMask]
-			ret = 0.0
-			if windowPrevPrice != 0.0 {
-				ret = (price - windowPrevPrice) / windowPrevPrice
-			}
-			windowPrevPrice = price
-			dev = ret - sp.shift
-			sp.periodTotal1 += dev
-			sp.periodTotal2 += float64(dev * dev)
-		}
-		meanDev = float64(sp.periodTotal1 * sp.invPeriod)
-		moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
-		if moment2 < float64(1e-6*sp.periodTotal2) {
-			sp.shift = ret
-			windowPrevPrice = sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-			sp.periodTotal1 = 0.0
-			sp.periodTotal2 = 0.0
-			for sp.j = sp.windowStart; sp.j <= sp.i; sp.j += 1 {
-				price = sp.x_inReal[sp.j&sp.xMask]
-				ret = 0.0
-				if windowPrevPrice != 0.0 {
-					ret = (price - windowPrevPrice) / windowPrevPrice
-				}
-				windowPrevPrice = price
-				dev = ret - sp.shift
-				sp.periodTotal1 += dev
-				sp.periodTotal2 += float64(dev * dev)
-			}
-			meanDev = float64(sp.periodTotal1 * sp.invPeriod)
-			moment2 = sp.periodTotal2 - float64(meanDev*sp.periodTotal1)
-		}
-		sp.peakTotal2 = sp.periodTotal2
-		price = sp.x_inReal[sp.windowStart&sp.xMask]
-		ret = 0.0
-		if sp.x_inReal[(sp.windowStart-1)&sp.xMask] != 0.0 {
-			ret = (price - sp.x_inReal[(sp.windowStart-1)&sp.xMask]) / sp.x_inReal[(sp.windowStart-1)&sp.xMask]
-		}
-		dev = ret - sp.shift
-		sp.periodTotal1 -= dev
-		sp.periodTotal2 -= float64(dev * dev)
-	}
-	excess = sp.shift + meanDev - sp.optInRiskFreeRate
-	ratio = excess / math.Sqrt(moment2/(sp.dPeriod-1.0))
-	sp.cur_outReal = float64(sp.sqrtAnnual * ratio)
-	sp.i += 1
 }
 
 func (c *Core) sharpeOpenImpl(sp *SHARPEStream, inReal []float64, startIdx, optInTimePeriod int32, optInRiskFreeRate, optInAnnualization float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -805,13 +851,7 @@ func (c *Core) sharpeOpenImpl(sp *SHARPEStream, inReal []float64, startIdx, optI
 		dev = ret - shift
 		periodTotal1 += dev
 		periodTotal2 += float64(dev * dev)
-		var _T15 float64
-		if periodTotal2 > peakTotal2 {
-			_T15 = periodTotal2
-		} else {
-			_T15 = peakTotal2
-		}
-		peakTotal2 = _T15
+		peakTotal2 = selF(periodTotal2 > peakTotal2, periodTotal2, peakTotal2)
 		meanDev = float64(periodTotal1 * invPeriod)
 		moment2 = periodTotal2 - float64(meanDev*periodTotal1)
 		trailingPrevPrice = inReal[trailingIdx]
@@ -959,7 +999,8 @@ func (c *Core) sharpeOpenInternal(inReal []float64, startIdx, optInTimePeriod in
 // inReal is the history; the parameters are those of [Core.SHARPE].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SHARPELookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SHARPELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SHARPEOpen(inReal []float64, optInTimePeriod int, optInRiskFreeRate, optInAnnualization float64) (*SHARPEStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -979,7 +1020,8 @@ func (c *Core) SHARPEOpen(inReal []float64, optInTimePeriod int, optInRiskFreeRa
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SHARPEOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SHARPEOpenAndFill(inReal []float64, optInTimePeriod int, optInRiskFreeRate, optInAnnualization float64, outReal []float64) (*SHARPEStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

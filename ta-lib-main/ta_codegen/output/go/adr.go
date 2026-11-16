@@ -111,6 +111,25 @@ func (c *Core) ADRLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// ADRDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.ADR]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ADR] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ADRLookback] rejects or an index that names no output.
+func (c *Core) ADRDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.ADRLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ADR computes the Average Day Range over bars startIdx through endIdx.
 //
 // Average Day Range: the arithmetic mean of the last optInTimePeriod bar
@@ -147,7 +166,8 @@ func (c *Core) ADRLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ADR(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -224,18 +244,33 @@ func (sp *ADRStream) Update(inHigh, inLow float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
-	adrStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var tempReal float64
+	var ringPosL_trailingIdx int32
+	if sp.ringCap_trailingIdx == 0 {
+		sp.ring_trailingIdx_derived[0] = inHigh - inLow
+	}
+	sp.periodTotal += inHigh - inLow
+	tempReal = sp.periodTotal
+	sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx]
+	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
+	ringPosL_trailingIdx = sp.ringPos_trailingIdx
+	sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = inHigh - inLow
+	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
+	if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
+		ringPosL_trailingIdx = 0
+	}
+	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *ADRStream) Peek(inHigh, inLow float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, BadParam
 	}
 	var tempReal float64
@@ -271,25 +306,6 @@ func (sp *ADRStream) Clone() *ADRStream {
 	cl := *sp
 	cl.ring_trailingIdx_derived = append(sp.ring_trailingIdx_derived[:0:0], sp.ring_trailingIdx_derived...)
 	return &cl
-}
-
-func adrStepImpl(sp *ADRStream, inHigh, inLow float64) {
-	var tempReal float64
-	var ringPosL_trailingIdx int32
-	if sp.ringCap_trailingIdx == 0 {
-		sp.ring_trailingIdx_derived[0] = inHigh - inLow
-	}
-	sp.periodTotal += inHigh - inLow
-	tempReal = sp.periodTotal
-	sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx]
-	sp.cur_outReal = tempReal / float64(sp.optInTimePeriod)
-	ringPosL_trailingIdx = sp.ringPos_trailingIdx
-	sp.ring_trailingIdx_derived[ringPosL_trailingIdx] = inHigh - inLow
-	ringPosL_trailingIdx = ringPosL_trailingIdx + 1
-	if ringPosL_trailingIdx >= sp.ringCap_trailingIdx {
-		ringPosL_trailingIdx = 0
-	}
-	sp.ringPos_trailingIdx = ringPosL_trailingIdx
 }
 
 func (c *Core) adrOpenImpl(sp *ADRStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -394,8 +410,9 @@ func (c *Core) adrOpenInternal(inHigh, inLow []float64, startIdx, optInTimePerio
 // of [Core.ADR].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ADRLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ADRLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ADROpen(inHigh, inLow []float64, optInTimePeriod int) (*ADRStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -415,7 +432,8 @@ func (c *Core) ADROpen(inHigh, inLow []float64, optInTimePeriod int) (*ADRStream
 // no memory with an input or another output.
 //
 // The errors are those of [Core.ADROpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ADROpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outReal []float64) (*ADRStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

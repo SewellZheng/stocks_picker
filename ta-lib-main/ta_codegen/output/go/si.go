@@ -131,6 +131,25 @@ func (c *Core) SILookback(optInLimitMove float64) (int, error) {
 	return int(lookback), nil
 }
 
+// SIDisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.SI]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SI] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.SILookback]
+// rejects or an index that names no output.
+func (c *Core) SIDisplayShift(optInLimitMove float64, outputIdx int) (int, error) {
+	if _, err := c.SILookback(optInLimitMove); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SI computes the Wilder Swing Index over bars startIdx through endIdx.
 //
 // Wilder's Swing Index: one number rating each bar against the bar before it,
@@ -169,7 +188,8 @@ func (c *Core) SILookback(optInLimitMove float64) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SI(startIdx, endIdx int, inOpen, inHigh, inLow, inClose []float64, optInLimitMove float64, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -247,11 +267,45 @@ func (sp *SIStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, err
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	siStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var tempOpen float64
+	var tempHigh float64
+	var tempLow float64
+	var tempClose float64
+	var body float64
+	var n float64
+	var up float64
+	var dn float64
+	var rg float64
+	var k float64
+	var r float64
+	var swing float64
+	tempOpen = inOpen
+	tempHigh = inHigh
+	tempLow = inLow
+	tempClose = inClose
+	body = tempClose - tempOpen
+	n = tempClose - sp.prevClose
+	n += float64(0.5 * body)
+	n += float64(0.25 * sp.prevBody)
+	up = math.Abs(tempHigh - sp.prevClose)
+	dn = math.Abs(tempLow - sp.prevClose)
+	rg = math.Abs(tempHigh - tempLow)
+	k = selF(up > dn, up, dn)
+	r = selF(up-float64(0.5*dn) > dn-float64(0.5*up), up-float64(0.5*dn), dn-float64(0.5*up))
+	r = selF(r > rg, r, rg)
+	r += float64(0.25 * math.Abs(sp.prevBody))
+	if r == 0.0 {
+		swing = 0.0
+	} else {
+		swing = float64(float64(50.0*(n/r)) * (k / sp.optInLimitMove))
+	}
+	sp.cur_outReal = swing
+	sp.prevClose = tempClose
+	sp.prevBody = body
 	return sp.cur_outReal, nil
 }
 
@@ -259,7 +313,7 @@ func (sp *SIStream) Update(inOpen, inHigh, inLow, inClose float64) (float64, err
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *SIStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var tempOpen float64
@@ -286,9 +340,9 @@ func (sp *SIStream) Peek(inOpen, inHigh, inLow, inClose float64) (float64, error
 	up = math.Abs(tempHigh - sp.prevClose)
 	dn = math.Abs(tempLow - sp.prevClose)
 	rg = math.Abs(tempHigh - tempLow)
-	k = maxF(up, dn)
-	r = maxF(up-float64(0.5*dn), dn-float64(0.5*up))
-	r = maxF(r, rg)
+	k = selF(up > dn, up, dn)
+	r = selF(up-float64(0.5*dn) > dn-float64(0.5*up), up-float64(0.5*dn), dn-float64(0.5*up))
+	r = selF(r > rg, r, rg)
 	r += float64(0.25 * math.Abs(sp.prevBody))
 	if r == 0.0 {
 		swing = 0.0
@@ -309,44 +363,6 @@ func (sp *SIStream) Value() float64 {
 func (sp *SIStream) Clone() *SIStream {
 	cl := *sp
 	return &cl
-}
-
-func siStepImpl(sp *SIStream, inOpen, inHigh, inLow, inClose float64) {
-	var tempOpen float64
-	var tempHigh float64
-	var tempLow float64
-	var tempClose float64
-	var body float64
-	var n float64
-	var up float64
-	var dn float64
-	var rg float64
-	var k float64
-	var r float64
-	var swing float64
-	tempOpen = inOpen
-	tempHigh = inHigh
-	tempLow = inLow
-	tempClose = inClose
-	body = tempClose - tempOpen
-	n = tempClose - sp.prevClose
-	n += float64(0.5 * body)
-	n += float64(0.25 * sp.prevBody)
-	up = math.Abs(tempHigh - sp.prevClose)
-	dn = math.Abs(tempLow - sp.prevClose)
-	rg = math.Abs(tempHigh - tempLow)
-	k = maxF(up, dn)
-	r = maxF(up-float64(0.5*dn), dn-float64(0.5*up))
-	r = maxF(r, rg)
-	r += float64(0.25 * math.Abs(sp.prevBody))
-	if r == 0.0 {
-		swing = 0.0
-	} else {
-		swing = float64(float64(50.0*(n/r)) * (k / sp.optInLimitMove))
-	}
-	sp.cur_outReal = swing
-	sp.prevClose = tempClose
-	sp.prevBody = body
 }
 
 func (c *Core) siOpenImpl(sp *SIStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, optInLimitMove float64, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -462,8 +478,8 @@ func (c *Core) siOpenInternal(inOpen, inHigh, inLow, inClose []float64, startIdx
 // parameters are those of [Core.SI].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.SILookback]
-// bars, and [BadParam] for a parameter out of range or histories of different
-// lengths.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range or histories of different lengths.
 func (c *Core) SIOpen(inOpen, inHigh, inLow, inClose []float64, optInLimitMove float64) (*SIStream, float64, error) {
 	sp, err := c.siOpenInternal(inOpen, inHigh, inLow, inClose, 0, optInLimitMove)
 	if err != nil {
@@ -480,7 +496,8 @@ func (c *Core) SIOpen(inOpen, inHigh, inLow, inClose []float64, optInLimitMove f
 // memory with an input or another output.
 //
 // The errors are those of [Core.SIOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SIOpenAndFill(inOpen, inHigh, inLow, inClose []float64, optInLimitMove float64, outReal []float64) (*SIStream, OutRange, error) {
 	if len(inOpen) > IndexMax+1 {
 		return nil, OutRange{}, OutOfRangeEndIndex

@@ -144,6 +144,25 @@ func (c *Core) SWAK_2PHPLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// SWAK_2PHPDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SWAK_2PHP]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SWAK_2PHP] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SWAK_2PHPLookback] rejects or an index that names no output.
+func (c *Core) SWAK_2PHPDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.SWAK_2PHPLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SWAK_2PHP computes the Swiss Army Knife - Two-Pole High-Pass Filter over bars
 // startIdx through endIdx.
 //
@@ -180,7 +199,8 @@ func (c *Core) SWAK_2PHPLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SWAK_2PHP(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -258,18 +278,26 @@ func (sp *SWAK_2PHPStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	swak2phpStepImpl(sp, inReal)
 	sp.outRangeCount++
+	var x0 float64
+	var y float64
+	x0 = inReal
+	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(x0-float64(2.0*sp.x1)+sp.x2))))
+	sp.x2 = sp.x1
+	sp.x1 = x0
+	sp.y2 = sp.y1
+	sp.y1 = y
+	sp.cur_outReal = y
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *SWAK_2PHPStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var x0 float64
@@ -299,18 +327,6 @@ func (sp *SWAK_2PHPStream) Value() float64 {
 func (sp *SWAK_2PHPStream) Clone() *SWAK_2PHPStream {
 	cl := *sp
 	return &cl
-}
-
-func swak2phpStepImpl(sp *SWAK_2PHPStream, inReal float64) {
-	var x0 float64
-	var y float64
-	x0 = inReal
-	y = math.FMA(sp.a1, sp.y1, math.FMA(sp.a2, sp.y2, float64(sp.c0*(x0-float64(2.0*sp.x1)+sp.x2))))
-	sp.x2 = sp.x1
-	sp.x1 = x0
-	sp.y2 = sp.y1
-	sp.y1 = y
-	sp.cur_outReal = y
 }
 
 func (c *Core) swak2phpOpenImpl(sp *SWAK_2PHPStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -433,7 +449,8 @@ func (c *Core) swak2phpOpenInternal(inReal []float64, startIdx, optInTimePeriod 
 // inReal is the history; the parameters are those of [Core.SWAK_2PHP].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SWAK_2PHPLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.SWAK_2PHPLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) SWAK_2PHPOpen(inReal []float64, optInTimePeriod int) (*SWAK_2PHPStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -453,7 +470,9 @@ func (c *Core) SWAK_2PHPOpen(inReal []float64, optInTimePeriod int) (*SWAK_2PHPS
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SWAK_2PHPOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) SWAK_2PHPOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*SWAK_2PHPStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

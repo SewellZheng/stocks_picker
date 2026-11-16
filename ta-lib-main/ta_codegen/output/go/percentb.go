@@ -332,6 +332,25 @@ func (c *Core) PERCENTBLookback(optInTimePeriod int, optInNbDevUp, optInNbDevDn 
 	return int(lookback), nil
 }
 
+// PERCENTBDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.PERCENTB]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.PERCENTB] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.PERCENTBLookback] rejects or an index that names no output.
+func (c *Core) PERCENTBDisplayShift(optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.PERCENTBLookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // PERCENTB computes the Bollinger Bands %B over bars startIdx through endIdx.
 //
 // Bollinger Bands %B: where the input sits relative to its Bollinger Bands, 0
@@ -368,7 +387,8 @@ func (c *Core) PERCENTBLookback(optInTimePeriod int, optInNbDevUp, optInNbDevDn 
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) PERCENTB(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -446,12 +466,50 @@ func (sp *PERCENTBStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	if err := percentbStepImpl(sp, inReal); err != nil {
-		return 0, err
+	var den float64
+	var deviation float64
+	var lower float64
+	var middle float64
+	var tempReal float64
+	var upper float64
+	var cur_tempX float64
+	var cur_tempMA float64
+	var cur_outReal float64
+	var subErr error
+	cur_tempX = inReal
+	cur_tempMA, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, subErr
 	}
+	cur_outReal, subErr = sp.sub1.Update(inReal)
+	if subErr != nil {
+		return 0, subErr
+	}
+	if sp.optInNbDevUp == sp.optInNbDevDn {
+		middle = cur_tempMA
+		tempReal = float64(math.Sqrt(cur_outReal) * sp.optInNbDevUp)
+		upper = middle + tempReal
+		lower = middle - tempReal
+		den = upper - lower
+		cur_outReal = (cur_tempX - lower) / den
+		if den == 0.0 {
+			cur_outReal = 0.5
+		}
+	} else {
+		middle = cur_tempMA
+		deviation = math.Sqrt(cur_outReal)
+		upper = math.FMA(deviation, sp.optInNbDevUp, middle)
+		lower = middle - float64(deviation*sp.optInNbDevDn)
+		den = upper - lower
+		cur_outReal = (cur_tempX - lower) / den
+		if den == 0.0 {
+			cur_outReal = 0.5
+		}
+	}
+	sp.cur_outReal = cur_outReal
 	sp.outRangeCount++
 	return sp.cur_outReal, nil
 }
@@ -459,7 +517,7 @@ func (sp *PERCENTBStream) Update(inReal float64) (float64, error) {
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *PERCENTBStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	var den float64
@@ -517,51 +575,6 @@ func (sp *PERCENTBStream) Clone() *PERCENTBStream {
 	cl.sub0 = sp.sub0.Clone()
 	cl.sub1 = sp.sub1.Clone()
 	return &cl
-}
-
-func percentbStepImpl(sp *PERCENTBStream, inReal float64) error {
-	var den float64
-	var deviation float64
-	var lower float64
-	var middle float64
-	var tempReal float64
-	var upper float64
-	var cur_tempX float64
-	var cur_tempMA float64
-	var cur_outReal float64
-	var subErr error
-	cur_tempX = inReal
-	cur_tempMA, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outReal, subErr = sp.sub1.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	if sp.optInNbDevUp == sp.optInNbDevDn {
-		middle = cur_tempMA
-		tempReal = float64(math.Sqrt(cur_outReal) * sp.optInNbDevUp)
-		upper = middle + tempReal
-		lower = middle - tempReal
-		den = upper - lower
-		cur_outReal = (cur_tempX - lower) / den
-		if den == 0.0 {
-			cur_outReal = 0.5
-		}
-	} else {
-		middle = cur_tempMA
-		deviation = math.Sqrt(cur_outReal)
-		upper = math.FMA(deviation, sp.optInNbDevUp, middle)
-		lower = middle - float64(deviation*sp.optInNbDevDn)
-		den = upper - lower
-		cur_outReal = (cur_tempX - lower) / den
-		if den == 0.0 {
-			cur_outReal = 0.5
-		}
-	}
-	sp.cur_outReal = cur_outReal
-	return nil
 }
 
 func (c *Core) percentbOpenImpl(sp *PERCENTBStream, inReal []float64, startIdx, optInTimePeriod int32, optInNbDevUp, optInNbDevDn float64, optInMAType int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -732,7 +745,8 @@ func (c *Core) percentbOpenInternal(inReal []float64, startIdx, optInTimePeriod 
 // inReal is the history; the parameters are those of [Core.PERCENTB].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.PERCENTBLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.PERCENTBLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) PERCENTBOpen(inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType) (*PERCENTBStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -752,7 +766,9 @@ func (c *Core) PERCENTBOpen(inReal []float64, optInTimePeriod int, optInNbDevUp,
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.PERCENTBOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) PERCENTBOpenAndFill(inReal []float64, optInTimePeriod int, optInNbDevUp, optInNbDevDn float64, optInMAType MAType, outReal []float64) (*PERCENTBStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

@@ -48,7 +48,8 @@
 // out[k] is the value at bar r.BegIdx+k, for r.NBElement values. A parameter
 // passed as [IntegerDefault] or [RealDefault] takes its default, and a
 // Lookback method such as [Core.SMALookback] tells how many leading bars a
-// call consumes. Each method's documentation lists its inputs, parameters
+// call consumes; a DisplayShift method such as [Core.DPODisplayShift] tells
+// how many bars ahead or behind a chart draws one output. Each method's documentation lists its inputs, parameters
 // and outputs and links to the function's page on ta-lib.org.
 //
 // # Streaming
@@ -66,12 +67,21 @@
 //
 // A [Core] holds what every call reads: the unstable periods
 // ([Core.SetUnstablePeriod]) and the candlestick settings
-// ([Core.SetCandleSetting]). [NewCore] returns one with the defaults.
+// ([Core.SetCandleSetting]). A zero Core holds the defaults, as the one
+// [NewCore] returns does.
 //
 // # Errors
 //
 // A call that fails returns a [RetCode] as its error, such as [BadParam] for a
 // parameter out of range; test for one with errors.Is.
+//
+// # Metadata
+//
+// The package [ta-lib.github.io/go/metadata] describes every function at run
+// time and calls one chosen by name: list the functions, read each one's
+// inputs, parameters, outputs and flags, then bind the arguments and call it.
+// A program that does not import it links none of it. See
+// https://ta-lib.org/api/abstract/.
 //
 // # Goroutines
 //

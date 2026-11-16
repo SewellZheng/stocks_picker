@@ -124,20 +124,8 @@ func (c *Core) correlImpl(startIdx, endIdx int32, inReal0, inReal1 []float64, op
 		sumXY += float64(x * y)
 		sumY += y
 		sumY2 += float64(y * y)
-		var _T0 float64
-		if sumX2 > peakX2 {
-			_T0 = sumX2
-		} else {
-			_T0 = peakX2
-		}
-		peakX2 = _T0
-		var _T1 float64
-		if sumY2 > peakY2 {
-			_T1 = sumY2
-		} else {
-			_T1 = peakY2
-		}
-		peakY2 = _T1
+		peakX2 = selF(sumX2 > peakX2, sumX2, peakX2)
+		peakY2 = selF(sumY2 > peakY2, sumY2, peakY2)
 		ssX = sumX2 - float64(float64(sumX*sumX)*invPeriod)
 		ssY = sumY2 - float64(float64(sumY*sumY)*invPeriod)
 		spXY = sumXY - float64(float64(sumX*sumY)*invPeriod)
@@ -250,6 +238,25 @@ func (c *Core) CORRELLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// CORRELDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.CORREL]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CORREL] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CORRELLookback] rejects or an index that names no output.
+func (c *Core) CORRELDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.CORRELLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CORREL computes the Pearson's Correlation Coefficient (r) over bars startIdx
 // through endIdx.
 //
@@ -282,7 +289,8 @@ func (c *Core) CORRELLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) CORREL(startIdx, endIdx int, inReal0, inReal1 []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -375,18 +383,179 @@ func (sp *CORRELStream) Update(inReal0, inReal1 float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
-	correlStepImpl(sp, inReal0, inReal1)
 	sp.outRangeCount++
+	var x float64
+	var y float64
+	var trailingX float64
+	var trailingY float64
+	var ssX float64
+	var ssY float64
+	var spXY float64
+	var tempReal float64
+	var windowStart int32
+	var j int32
+	var shiftY float64
+	var today int32
+	var xMask int32
+	var x_inReal0 []float64
+	var x_inReal1 []float64
+	var shiftX float64
+	var sumX float64
+	var sumX2 float64
+	var sumXY float64
+	var sumY float64
+	var sumY2 float64
+	sp.x_inReal0[sp.today&sp.xMask] = inReal0
+	sp.x_inReal1[sp.today&sp.xMask] = inReal1
+	x = sp.x_inReal0[sp.today&sp.xMask] - sp.shiftX
+	sp.sumX += x
+	sp.sumX2 += float64(x * x)
+	y = sp.x_inReal1[sp.today&sp.xMask] - sp.shiftY
+	sp.sumXY += float64(x * y)
+	sp.sumY += y
+	sp.sumY2 += float64(y * y)
+	sp.peakX2 = selF(sp.sumX2 > sp.peakX2, sp.sumX2, sp.peakX2)
+	sp.peakY2 = selF(sp.sumY2 > sp.peakY2, sp.sumY2, sp.peakY2)
+	ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
+	ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
+	spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
+	sp.barsSinceReseed -= 1
+	if ssX < float64(1e-6*sp.peakX2) || ssY < float64(1e-6*sp.peakY2) || sp.barsSinceReseed <= 0 {
+		sp.barsSinceReseed = 32 * sp.optInTimePeriod
+		windowStart = sp.today - sp.lookbackTotal
+		tempReal = 0.0
+		sp.shiftY = 0.0
+		j = sp.j
+		shiftY = sp.shiftY
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j <= today; j += 1 {
+			tempReal += x_inReal0[j&xMask]
+			shiftY += x_inReal1[j&xMask]
+		}
+		sp.j = j
+		sp.shiftY = shiftY
+		sp.shiftX = float64(tempReal * sp.invPeriod)
+		sp.shiftY = float64(sp.shiftY * sp.invPeriod)
+		sp.sumY2 = 0.0
+		sp.sumX2 = sp.sumY2
+		sp.sumY = sp.sumX2
+		sp.sumX = sp.sumY
+		sp.sumXY = sp.sumX
+		j = sp.j
+		shiftX = sp.shiftX
+		shiftY = sp.shiftY
+		sumX = sp.sumX
+		sumX2 = sp.sumX2
+		sumXY = sp.sumXY
+		sumY = sp.sumY
+		sumY2 = sp.sumY2
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j <= today; j += 1 {
+			x = x_inReal0[j&xMask] - shiftX
+			sumX += x
+			sumX2 += float64(x * x)
+			y = x_inReal1[j&xMask] - shiftY
+			sumXY += float64(x * y)
+			sumY += y
+			sumY2 += float64(y * y)
+		}
+		sp.j = j
+		sp.sumX = sumX
+		sp.sumX2 = sumX2
+		sp.sumXY = sumXY
+		sp.sumY = sumY
+		sp.sumY2 = sumY2
+		ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
+		ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
+		spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
+		if ssX < float64(1e-6*sp.sumX2) || ssY < float64(1e-6*sp.sumY2) {
+			if ssX < float64(1e-6*sp.sumX2) {
+				sp.shiftX = sp.x_inReal0[sp.today&sp.xMask]
+			}
+			if ssY < float64(1e-6*sp.sumY2) {
+				sp.shiftY = sp.x_inReal1[sp.today&sp.xMask]
+			}
+			sp.sumY2 = 0.0
+			sp.sumX2 = sp.sumY2
+			sp.sumY = sp.sumX2
+			sp.sumX = sp.sumY
+			sp.sumXY = sp.sumX
+			j = sp.j
+			shiftX = sp.shiftX
+			shiftY = sp.shiftY
+			sumX = sp.sumX
+			sumX2 = sp.sumX2
+			sumXY = sp.sumXY
+			sumY = sp.sumY
+			sumY2 = sp.sumY2
+			today = sp.today
+			xMask = sp.xMask
+			x_inReal0 = sp.x_inReal0
+			x_inReal1 = sp.x_inReal1
+			for j = windowStart; j <= today; j += 1 {
+				x = x_inReal0[j&xMask] - shiftX
+				sumX += x
+				sumX2 += float64(x * x)
+				y = x_inReal1[j&xMask] - shiftY
+				sumXY += float64(x * y)
+				sumY += y
+				sumY2 += float64(y * y)
+			}
+			sp.j = j
+			sp.sumX = sumX
+			sp.sumX2 = sumX2
+			sp.sumXY = sumXY
+			sp.sumY = sumY
+			sp.sumY2 = sumY2
+			ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
+			ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
+			spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
+		}
+		sp.peakX2 = sp.sumX2
+		sp.peakY2 = sp.sumY2
+		if ssX < 0.0 {
+			ssX = 0.0
+		}
+		if ssY < 0.0 {
+			ssY = 0.0
+		}
+	}
+	trailingX = sp.x_inReal0[sp.trailingIdx&sp.xMask] - sp.shiftX
+	trailingY = sp.x_inReal1[sp.trailingIdx&sp.xMask] - sp.shiftY
+	sp.trailingIdx += 1
+	if ssX > float64(1e-14*sp.sumX2) && ssY > float64(1e-14*sp.sumY2) && float64(ssX*ssY) > 0.0 {
+		tempReal = spXY / math.Sqrt(float64(ssX*ssY))
+		if tempReal > 1.0 {
+			tempReal = 1.0
+		} else if tempReal < -1.0 {
+			tempReal = -1.0
+		}
+		sp.cur_outReal = tempReal
+	} else {
+		sp.cur_outReal = 0.0
+	}
+	sp.sumX -= trailingX
+	sp.sumX2 -= float64(trailingX * trailingX)
+	sp.sumXY -= float64(trailingX * trailingY)
+	sp.sumY -= trailingY
+	sp.sumY2 -= float64(trailingY * trailingY)
+	sp.today += 1
 	return sp.cur_outReal, nil
 }
 
 // Peek returns what Update would return for the bar (inReal0 and inReal1),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
-	if !isFinite(inReal0) || !isFinite(inReal1) {
+	if (inReal0-inReal0)+(inReal1-inReal1) != 0 {
 		return 0, BadParam
 	}
 	var x float64
@@ -396,6 +565,10 @@ func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
 	var spXY float64
 	var tempReal float64
 	var windowStart int32
+	var today int32
+	var xMask int32
+	var x_inReal0 []float64
+	var x_inReal1 []float64
 	barsSinceReseed := sp.barsSinceReseed
 	var cur_outReal float64
 	j := sp.j
@@ -435,20 +608,8 @@ func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
 	sumXY += float64(x * y)
 	sumY += y
 	sumY2 += float64(y * y)
-	var _T2 float64
-	if sumX2 > peakX2 {
-		_T2 = sumX2
-	} else {
-		_T2 = peakX2
-	}
-	peakX2 = _T2
-	var _T3 float64
-	if sumY2 > peakY2 {
-		_T3 = sumY2
-	} else {
-		_T3 = peakY2
-	}
-	peakY2 = _T3
+	peakX2 = selF(sumX2 > peakX2, sumX2, peakX2)
+	peakY2 = selF(sumY2 > peakY2, sumY2, peakY2)
 	ssX = sumX2 - float64(float64(sumX*sumX)*sp.invPeriod)
 	ssY = sumY2 - float64(float64(sumY*sumY)*sp.invPeriod)
 	spXY = sumXY - float64(float64(sumX*sumY)*sp.invPeriod)
@@ -458,21 +619,25 @@ func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
 		windowStart = sp.today - sp.lookbackTotal
 		tempReal = 0.0
 		shiftY = 0.0
-		for j = windowStart; j <= sp.today; j += 1 {
-			var _T4 float64
-			if j&sp.xMask != pkSlot0 {
-				_T4 = sp.x_inReal0[j&sp.xMask]
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j <= today; j += 1 {
+			var _T2 float64
+			if j&xMask != pkSlot0 {
+				_T2 = x_inReal0[j&xMask]
 			} else {
-				_T4 = pkVal0
+				_T2 = pkVal0
 			}
-			tempReal += _T4
-			var _T5 float64
-			if j&sp.xMask != pkSlot1 {
-				_T5 = sp.x_inReal1[j&sp.xMask]
+			tempReal += _T2
+			var _T3 float64
+			if j&xMask != pkSlot1 {
+				_T3 = x_inReal1[j&xMask]
 			} else {
-				_T5 = pkVal1
+				_T3 = pkVal1
 			}
-			shiftY += _T5
+			shiftY += _T3
 		}
 		shiftX = float64(tempReal * sp.invPeriod)
 		shiftY = float64(shiftY * sp.invPeriod)
@@ -481,23 +646,27 @@ func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
 		sumY = sumX2
 		sumX = sumY
 		sumXY = sumX
-		for j = windowStart; j <= sp.today; j += 1 {
-			var _T6 float64
-			if j&sp.xMask != pkSlot0 {
-				_T6 = sp.x_inReal0[j&sp.xMask]
+		today = sp.today
+		xMask = sp.xMask
+		x_inReal0 = sp.x_inReal0
+		x_inReal1 = sp.x_inReal1
+		for j = windowStart; j <= today; j += 1 {
+			var _T4 float64
+			if j&xMask != pkSlot0 {
+				_T4 = x_inReal0[j&xMask]
 			} else {
-				_T6 = pkVal0
+				_T4 = pkVal0
 			}
-			x = _T6 - shiftX
+			x = _T4 - shiftX
 			sumX += x
 			sumX2 += float64(x * x)
-			var _T7 float64
-			if j&sp.xMask != pkSlot1 {
-				_T7 = sp.x_inReal1[j&sp.xMask]
+			var _T5 float64
+			if j&xMask != pkSlot1 {
+				_T5 = x_inReal1[j&xMask]
 			} else {
-				_T7 = pkVal1
+				_T5 = pkVal1
 			}
-			y = _T7 - shiftY
+			y = _T5 - shiftY
 			sumXY += float64(x * y)
 			sumY += y
 			sumY2 += float64(y * y)
@@ -507,45 +676,49 @@ func (sp *CORRELStream) Peek(inReal0, inReal1 float64) (float64, error) {
 		spXY = sumXY - float64(float64(sumX*sumY)*sp.invPeriod)
 		if ssX < float64(1e-6*sumX2) || ssY < float64(1e-6*sumY2) {
 			if ssX < float64(1e-6*sumX2) {
-				var _T8 float64
+				var _T6 float64
 				if sp.today&sp.xMask != pkSlot0 {
-					_T8 = sp.x_inReal0[sp.today&sp.xMask]
+					_T6 = sp.x_inReal0[sp.today&sp.xMask]
 				} else {
-					_T8 = pkVal0
+					_T6 = pkVal0
 				}
-				shiftX = _T8
+				shiftX = _T6
 			}
 			if ssY < float64(1e-6*sumY2) {
-				var _T9 float64
+				var _T7 float64
 				if sp.today&sp.xMask != pkSlot1 {
-					_T9 = sp.x_inReal1[sp.today&sp.xMask]
+					_T7 = sp.x_inReal1[sp.today&sp.xMask]
 				} else {
-					_T9 = pkVal1
+					_T7 = pkVal1
 				}
-				shiftY = _T9
+				shiftY = _T7
 			}
 			sumY2 = 0.0
 			sumX2 = sumY2
 			sumY = sumX2
 			sumX = sumY
 			sumXY = sumX
-			for j = windowStart; j <= sp.today; j += 1 {
-				var _T10 float64
-				if j&sp.xMask != pkSlot0 {
-					_T10 = sp.x_inReal0[j&sp.xMask]
+			today = sp.today
+			xMask = sp.xMask
+			x_inReal0 = sp.x_inReal0
+			x_inReal1 = sp.x_inReal1
+			for j = windowStart; j <= today; j += 1 {
+				var _T8 float64
+				if j&xMask != pkSlot0 {
+					_T8 = x_inReal0[j&xMask]
 				} else {
-					_T10 = pkVal0
+					_T8 = pkVal0
 				}
-				x = _T10 - shiftX
+				x = _T8 - shiftX
 				sumX += x
 				sumX2 += float64(x * x)
-				var _T11 float64
-				if j&sp.xMask != pkSlot1 {
-					_T11 = sp.x_inReal1[j&sp.xMask]
+				var _T9 float64
+				if j&xMask != pkSlot1 {
+					_T9 = x_inReal1[j&xMask]
 				} else {
-					_T11 = pkVal1
+					_T9 = pkVal1
 				}
-				y = _T11 - shiftY
+				y = _T9 - shiftY
 				sumXY += float64(x * y)
 				sumY += y
 				sumY2 += float64(y * y)
@@ -589,127 +762,6 @@ func (sp *CORRELStream) Clone() *CORRELStream {
 	cl.x_inReal0 = append(sp.x_inReal0[:0:0], sp.x_inReal0...)
 	cl.x_inReal1 = append(sp.x_inReal1[:0:0], sp.x_inReal1...)
 	return &cl
-}
-
-func correlStepImpl(sp *CORRELStream, inReal0, inReal1 float64) {
-	var x float64
-	var y float64
-	var trailingX float64
-	var trailingY float64
-	var ssX float64
-	var ssY float64
-	var spXY float64
-	var tempReal float64
-	var windowStart int32
-	sp.x_inReal0[sp.today&sp.xMask] = inReal0
-	sp.x_inReal1[sp.today&sp.xMask] = inReal1
-	x = sp.x_inReal0[sp.today&sp.xMask] - sp.shiftX
-	sp.sumX += x
-	sp.sumX2 += float64(x * x)
-	y = sp.x_inReal1[sp.today&sp.xMask] - sp.shiftY
-	sp.sumXY += float64(x * y)
-	sp.sumY += y
-	sp.sumY2 += float64(y * y)
-	var _T12 float64
-	if sp.sumX2 > sp.peakX2 {
-		_T12 = sp.sumX2
-	} else {
-		_T12 = sp.peakX2
-	}
-	sp.peakX2 = _T12
-	var _T13 float64
-	if sp.sumY2 > sp.peakY2 {
-		_T13 = sp.sumY2
-	} else {
-		_T13 = sp.peakY2
-	}
-	sp.peakY2 = _T13
-	ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
-	ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
-	spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
-	sp.barsSinceReseed -= 1
-	if ssX < float64(1e-6*sp.peakX2) || ssY < float64(1e-6*sp.peakY2) || sp.barsSinceReseed <= 0 {
-		sp.barsSinceReseed = 32 * sp.optInTimePeriod
-		windowStart = sp.today - sp.lookbackTotal
-		tempReal = 0.0
-		sp.shiftY = 0.0
-		for sp.j = windowStart; sp.j <= sp.today; sp.j += 1 {
-			tempReal += sp.x_inReal0[sp.j&sp.xMask]
-			sp.shiftY += sp.x_inReal1[sp.j&sp.xMask]
-		}
-		sp.shiftX = float64(tempReal * sp.invPeriod)
-		sp.shiftY = float64(sp.shiftY * sp.invPeriod)
-		sp.sumY2 = 0.0
-		sp.sumX2 = sp.sumY2
-		sp.sumY = sp.sumX2
-		sp.sumX = sp.sumY
-		sp.sumXY = sp.sumX
-		for sp.j = windowStart; sp.j <= sp.today; sp.j += 1 {
-			x = sp.x_inReal0[sp.j&sp.xMask] - sp.shiftX
-			sp.sumX += x
-			sp.sumX2 += float64(x * x)
-			y = sp.x_inReal1[sp.j&sp.xMask] - sp.shiftY
-			sp.sumXY += float64(x * y)
-			sp.sumY += y
-			sp.sumY2 += float64(y * y)
-		}
-		ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
-		ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
-		spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
-		if ssX < float64(1e-6*sp.sumX2) || ssY < float64(1e-6*sp.sumY2) {
-			if ssX < float64(1e-6*sp.sumX2) {
-				sp.shiftX = sp.x_inReal0[sp.today&sp.xMask]
-			}
-			if ssY < float64(1e-6*sp.sumY2) {
-				sp.shiftY = sp.x_inReal1[sp.today&sp.xMask]
-			}
-			sp.sumY2 = 0.0
-			sp.sumX2 = sp.sumY2
-			sp.sumY = sp.sumX2
-			sp.sumX = sp.sumY
-			sp.sumXY = sp.sumX
-			for sp.j = windowStart; sp.j <= sp.today; sp.j += 1 {
-				x = sp.x_inReal0[sp.j&sp.xMask] - sp.shiftX
-				sp.sumX += x
-				sp.sumX2 += float64(x * x)
-				y = sp.x_inReal1[sp.j&sp.xMask] - sp.shiftY
-				sp.sumXY += float64(x * y)
-				sp.sumY += y
-				sp.sumY2 += float64(y * y)
-			}
-			ssX = sp.sumX2 - float64(float64(sp.sumX*sp.sumX)*sp.invPeriod)
-			ssY = sp.sumY2 - float64(float64(sp.sumY*sp.sumY)*sp.invPeriod)
-			spXY = sp.sumXY - float64(float64(sp.sumX*sp.sumY)*sp.invPeriod)
-		}
-		sp.peakX2 = sp.sumX2
-		sp.peakY2 = sp.sumY2
-		if ssX < 0.0 {
-			ssX = 0.0
-		}
-		if ssY < 0.0 {
-			ssY = 0.0
-		}
-	}
-	trailingX = sp.x_inReal0[sp.trailingIdx&sp.xMask] - sp.shiftX
-	trailingY = sp.x_inReal1[sp.trailingIdx&sp.xMask] - sp.shiftY
-	sp.trailingIdx += 1
-	if ssX > float64(1e-14*sp.sumX2) && ssY > float64(1e-14*sp.sumY2) && float64(ssX*ssY) > 0.0 {
-		tempReal = spXY / math.Sqrt(float64(ssX*ssY))
-		if tempReal > 1.0 {
-			tempReal = 1.0
-		} else if tempReal < -1.0 {
-			tempReal = -1.0
-		}
-		sp.cur_outReal = tempReal
-	} else {
-		sp.cur_outReal = 0.0
-	}
-	sp.sumX -= trailingX
-	sp.sumX2 -= float64(trailingX * trailingX)
-	sp.sumXY -= float64(trailingX * trailingY)
-	sp.sumY -= trailingY
-	sp.sumY2 -= float64(trailingY * trailingY)
-	sp.today += 1
 }
 
 func (c *Core) correlOpenImpl(sp *CORRELStream, inReal0, inReal1 []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -797,20 +849,8 @@ func (c *Core) correlOpenImpl(sp *CORRELStream, inReal0, inReal1 []float64, star
 		sumXY += float64(x * y)
 		sumY += y
 		sumY2 += float64(y * y)
-		var _T14 float64
-		if sumX2 > peakX2 {
-			_T14 = sumX2
-		} else {
-			_T14 = peakX2
-		}
-		peakX2 = _T14
-		var _T15 float64
-		if sumY2 > peakY2 {
-			_T15 = sumY2
-		} else {
-			_T15 = peakY2
-		}
-		peakY2 = _T15
+		peakX2 = selF(sumX2 > peakX2, sumX2, peakX2)
+		peakY2 = selF(sumY2 > peakY2, sumY2, peakY2)
 		ssX = sumX2 - float64(float64(sumX*sumX)*invPeriod)
 		ssY = sumY2 - float64(float64(sumY*sumY)*invPeriod)
 		spXY = sumXY - float64(float64(sumX*sumY)*invPeriod)
@@ -971,8 +1011,9 @@ func (c *Core) correlOpenInternal(inReal0, inReal1 []float64, startIdx, optInTim
 // those of [Core.CORREL].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CORRELLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.CORRELLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) CORRELOpen(inReal0, inReal1 []float64, optInTimePeriod int) (*CORRELStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -992,7 +1033,8 @@ func (c *Core) CORRELOpen(inReal0, inReal1 []float64, optInTimePeriod int) (*COR
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.CORRELOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CORRELOpenAndFill(inReal0, inReal1 []float64, optInTimePeriod int, outReal []float64) (*CORRELStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

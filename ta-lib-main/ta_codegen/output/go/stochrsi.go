@@ -160,6 +160,25 @@ func (c *Core) STOCHRSILookback(optInTimePeriod, optInFastK_Period, optInFastD_P
 	return int(lookback), nil
 }
 
+// STOCHRSIDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.STOCHRSI]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.STOCHRSI] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.STOCHRSILookback] rejects or an index that names no output.
+func (c *Core) STOCHRSIDisplayShift(optInTimePeriod, optInFastK_Period, optInFastD_Period int, optInFastD_MAType MAType, outputIdx int) (int, error) {
+	if _, err := c.STOCHRSILookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // STOCHRSI computes the Stochastic Relative Strength Index over bars startIdx
 // through endIdx.
 //
@@ -197,7 +216,8 @@ func (c *Core) STOCHRSILookback(optInTimePeriod, optInFastK_Period, optInFastD_P
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) STOCHRSI(startIdx, endIdx int, inReal []float64, optInTimePeriod, optInFastK_Period, optInFastD_Period int, optInFastD_MAType MAType, outFastK, outFastD []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -284,12 +304,23 @@ func (sp *STOCHRSIStream) Update(inReal float64) (float64, float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
-	if err := stochrsiStepImpl(sp, inReal); err != nil {
-		return 0, 0, err
+	var cur_tempRSIBuffer float64
+	var cur_outFastK float64
+	var cur_outFastD float64
+	var subErr error
+	cur_tempRSIBuffer, subErr = sp.sub0.Update(inReal)
+	if subErr != nil {
+		return 0, 0, subErr
 	}
+	cur_outFastK, cur_outFastD, subErr = sp.sub1.Update(cur_tempRSIBuffer, cur_tempRSIBuffer, cur_tempRSIBuffer)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	sp.cur_outFastK = cur_outFastK
+	sp.cur_outFastD = cur_outFastD
 	sp.outRangeCount++
 	return sp.cur_outFastK, sp.cur_outFastD, nil
 }
@@ -297,7 +328,7 @@ func (sp *STOCHRSIStream) Update(inReal float64) (float64, float64, error) {
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *STOCHRSIStream) Peek(inReal float64) (float64, float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, 0, BadParam
 	}
 	var cur_tempRSIBuffer float64
@@ -328,24 +359,6 @@ func (sp *STOCHRSIStream) Clone() *STOCHRSIStream {
 	cl.sub0 = sp.sub0.Clone()
 	cl.sub1 = sp.sub1.Clone()
 	return &cl
-}
-
-func stochrsiStepImpl(sp *STOCHRSIStream, inReal float64) error {
-	var cur_tempRSIBuffer float64
-	var cur_outFastK float64
-	var cur_outFastD float64
-	var subErr error
-	cur_tempRSIBuffer, subErr = sp.sub0.Update(inReal)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outFastK, cur_outFastD, subErr = sp.sub1.Update(cur_tempRSIBuffer, cur_tempRSIBuffer, cur_tempRSIBuffer)
-	if subErr != nil {
-		return subErr
-	}
-	sp.cur_outFastK = cur_outFastK
-	sp.cur_outFastD = cur_outFastD
-	return nil
 }
 
 func (c *Core) stochrsiOpenImpl(sp *STOCHRSIStream, inReal []float64, startIdx, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType int32, outBegIdx, outNBElement *int32, outFastK, outFastD []float64, outStride int32) RetCode {
@@ -478,7 +491,8 @@ func (c *Core) stochrsiOpenInternal(inReal []float64, startIdx, optInTimePeriod,
 // inReal is the history; the parameters are those of [Core.STOCHRSI].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.STOCHRSILookback] bars, and [BadParam] for a parameter out of range.
+// [Core.STOCHRSILookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) STOCHRSIOpen(inReal []float64, optInTimePeriod, optInFastK_Period, optInFastD_Period int, optInFastD_MAType MAType) (*STOCHRSIStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -504,7 +518,9 @@ func (c *Core) STOCHRSIOpen(inReal []float64, optInTimePeriod, optInFastK_Period
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.STOCHRSIOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) STOCHRSIOpenAndFill(inReal []float64, optInTimePeriod, optInFastK_Period, optInFastD_Period int, optInFastD_MAType MAType, outFastK, outFastD []float64) (*STOCHRSIStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

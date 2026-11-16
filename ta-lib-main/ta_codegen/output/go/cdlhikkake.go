@@ -141,6 +141,21 @@ func (c *Core) CDLHIKKAKELookback() (int, error) {
 	return int(lookback), nil
 }
 
+// CDLHIKKAKEDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.CDLHIKKAKE]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the output's position among the outputs of [Core.CDLHIKKAKE], from
+// 0, and returns [BadParam] for an index that names no output.
+func (c *Core) CDLHIKKAKEDisplayShift(outputIdx int) (int, error) {
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CDLHIKKAKE recognizes the Hikkake pattern over bars startIdx through endIdx.
 //
 // A 3-bar pattern: an inside bar followed by a false breakout, optionally later
@@ -250,11 +265,41 @@ func (sp *CDLHIKKAKEStream) Update(inOpen, inHigh, inLow, inClose float64) (int3
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	cdlhikkakeStepImpl(sp, inOpen, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	if sp.lag1_inHigh < sp.lag2_inHigh && sp.lag1_inLow > sp.lag2_inLow && (inHigh < sp.lag1_inHigh && inLow < sp.lag1_inLow || inHigh > sp.lag1_inHigh && inLow > sp.lag1_inLow) {
+		var _T2 int32
+		if inHigh < sp.lag1_inHigh {
+			_T2 = 1
+		} else {
+			_T2 = -1
+		}
+		sp.patternResult = 100 * _T2
+		sp.savedHigh = sp.lag1_inHigh
+		sp.savedLow = sp.lag1_inLow
+		sp.cd = 4
+		sp.cur_outInteger = sp.patternResult
+	} else if sp.cd > 0 && (sp.patternResult > 0 && inClose > sp.savedHigh || sp.patternResult < 0 && inClose < sp.savedLow) {
+		var _T3 int32
+		if sp.patternResult > 0 {
+			_T3 = 1
+		} else {
+			_T3 = -1
+		}
+		sp.cur_outInteger = sp.patternResult + 100*_T3
+		sp.cd = 0
+	} else {
+		sp.cur_outInteger = 0
+	}
+	if sp.cd > 0 {
+		sp.cd -= 1
+	}
+	sp.lag2_inHigh = sp.lag1_inHigh
+	sp.lag1_inHigh = inHigh
+	sp.lag2_inLow = sp.lag1_inLow
+	sp.lag1_inLow = inLow
 	return sp.cur_outInteger, nil
 }
 
@@ -262,7 +307,7 @@ func (sp *CDLHIKKAKEStream) Update(inOpen, inHigh, inLow, inClose float64) (int3
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CDLHIKKAKEStream) Peek(inOpen, inHigh, inLow, inClose float64) (int32, error) {
-	if !isFinite(inOpen) || !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inOpen-inOpen)+(inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	cd := sp.cd
@@ -307,40 +352,6 @@ func (sp *CDLHIKKAKEStream) Value() int32 {
 func (sp *CDLHIKKAKEStream) Clone() *CDLHIKKAKEStream {
 	cl := *sp
 	return &cl
-}
-
-func cdlhikkakeStepImpl(sp *CDLHIKKAKEStream, inOpen, inHigh, inLow, inClose float64) {
-	if sp.lag1_inHigh < sp.lag2_inHigh && sp.lag1_inLow > sp.lag2_inLow && (inHigh < sp.lag1_inHigh && inLow < sp.lag1_inLow || inHigh > sp.lag1_inHigh && inLow > sp.lag1_inLow) {
-		var _T2 int32
-		if inHigh < sp.lag1_inHigh {
-			_T2 = 1
-		} else {
-			_T2 = -1
-		}
-		sp.patternResult = 100 * _T2
-		sp.savedHigh = sp.lag1_inHigh
-		sp.savedLow = sp.lag1_inLow
-		sp.cd = 4
-		sp.cur_outInteger = sp.patternResult
-	} else if sp.cd > 0 && (sp.patternResult > 0 && inClose > sp.savedHigh || sp.patternResult < 0 && inClose < sp.savedLow) {
-		var _T3 int32
-		if sp.patternResult > 0 {
-			_T3 = 1
-		} else {
-			_T3 = -1
-		}
-		sp.cur_outInteger = sp.patternResult + 100*_T3
-		sp.cd = 0
-	} else {
-		sp.cur_outInteger = 0
-	}
-	if sp.cd > 0 {
-		sp.cd -= 1
-	}
-	sp.lag2_inHigh = sp.lag1_inHigh
-	sp.lag1_inHigh = inHigh
-	sp.lag2_inLow = sp.lag1_inLow
-	sp.lag1_inLow = inLow
 }
 
 func (c *Core) cdlhikkakeOpenImpl(sp *CDLHIKKAKEStream, inOpen, inHigh, inLow, inClose []float64, startIdx int32, outBegIdx, outNBElement *int32, outInteger []int32, outStride int32) RetCode {
@@ -479,8 +490,8 @@ func (c *Core) cdlhikkakeOpenInternal(inOpen, inHigh, inLow, inClose []float64, 
 // inOpen, inHigh, inLow and inClose are the histories, of one length.
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CDLHIKKAKELookback] bars, and [BadParam] for histories of different
-// lengths.
+// [Core.CDLHIKKAKELookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for histories of different lengths.
 func (c *Core) CDLHIKKAKEOpen(inOpen, inHigh, inLow, inClose []float64) (*CDLHIKKAKEStream, int32, error) {
 	sp, err := c.cdlhikkakeOpenInternal(inOpen, inHigh, inLow, inClose, 0)
 	if err != nil {

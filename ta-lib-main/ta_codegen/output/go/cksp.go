@@ -62,15 +62,19 @@ func (c *Core) ckspLookback(optInTimePeriod int32, optInMultiplier float64, optI
 
 func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64, optInTimePeriod int32, optInMultiplier float64, optInStopPeriod int32, outBegIdx, outNBElement *int32, outHighStop, outLowStop []float64) RetCode {
 	var hhBuf []float64
+	var local_hhBuf [30]float64
 	var hhBuf_Idx int32
 	var maxIdx_hhBuf int32
 	maxIdx_hhBuf = 29
 	var llBuf []float64
+	var local_llBuf [30]float64
 	var hsBuf []float64
+	var local_hsBuf [30]float64
 	var hsBuf_Idx int32
 	var maxIdx_hsBuf int32
 	maxIdx_hsBuf = 29
 	var lsBuf []float64
+	var local_lsBuf [30]float64
 	var i int32
 	var ip int32
 	var iq int32
@@ -137,23 +141,39 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	hhBuf = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		hhBuf = local_hhBuf[:optInTimePeriod]
+	} else {
+		hhBuf = make([]float64, optInTimePeriod)
+	}
 	maxIdx_hhBuf = optInTimePeriod - 1
 	hhBuf_Idx = 0
 	if optInTimePeriod < 1 {
 		return InternalError
 	}
-	llBuf = make([]float64, optInTimePeriod)
+	if optInTimePeriod <= 30 {
+		llBuf = local_llBuf[:optInTimePeriod]
+	} else {
+		llBuf = make([]float64, optInTimePeriod)
+	}
 	if optInStopPeriod < 1 {
 		return InternalError
 	}
-	hsBuf = make([]float64, optInStopPeriod)
+	if optInStopPeriod <= 30 {
+		hsBuf = local_hsBuf[:optInStopPeriod]
+	} else {
+		hsBuf = make([]float64, optInStopPeriod)
+	}
 	maxIdx_hsBuf = optInStopPeriod - 1
 	hsBuf_Idx = 0
 	if optInStopPeriod < 1 {
 		return InternalError
 	}
-	lsBuf = make([]float64, optInStopPeriod)
+	if optInStopPeriod <= 30 {
+		lsBuf = local_lsBuf[:optInStopPeriod]
+	} else {
+		lsBuf = make([]float64, optInStopPeriod)
+	}
 	lastP = optInTimePeriod - 1
 	lastQ = optInStopPeriod - 1
 	wBeta = float64(optInTimePeriod-1) / float64(optInTimePeriod)
@@ -248,12 +268,8 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
 		highest = hhPre
 		lowest = llPre
-		if tempHT > highest {
-			highest = tempHT
-		}
-		if tempLT < lowest {
-			lowest = tempLT
-		}
+		highest = selF(tempHT > highest, tempHT, highest)
+		lowest = selF(tempLT < lowest, tempLT, lowest)
 		if hhBuf_Idx == 0 {
 			highest = tempHT
 			lowest = tempLT
@@ -262,13 +278,9 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		llPre = lowest
 		if hhBuf_Idx < lastP {
 			tempReal = hhBuf[hhBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = llBuf[hhBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hhBuf[hhBuf_Idx] = tempHT
 		llBuf[hhBuf_Idx] = tempLT
@@ -346,12 +358,8 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
 		highest = hhPre
 		lowest = llPre
-		if tempHT > highest {
-			highest = tempHT
-		}
-		if tempLT < lowest {
-			lowest = tempLT
-		}
+		highest = selF(tempHT > highest, tempHT, highest)
+		lowest = selF(tempLT < lowest, tempLT, lowest)
 		if hhBuf_Idx == 0 {
 			highest = tempHT
 			lowest = tempLT
@@ -360,13 +368,9 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		llPre = lowest
 		if hhBuf_Idx < lastP {
 			tempReal = hhBuf[hhBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = llBuf[hhBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hhBuf[hhBuf_Idx] = tempHT
 		llBuf[hhBuf_Idx] = tempLT
@@ -379,12 +383,8 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		lowStop = lowest + band
 		highest = hsPre
 		lowest = lsPre
-		if highStop > highest {
-			highest = highStop
-		}
-		if lowStop < lowest {
-			lowest = lowStop
-		}
+		highest = selF(highStop > highest, highStop, highest)
+		lowest = selF(lowStop < lowest, lowStop, lowest)
 		if hsBuf_Idx == 0 {
 			highest = highStop
 			lowest = lowStop
@@ -393,13 +393,9 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 		lsPre = lowest
 		if hsBuf_Idx < lastQ {
 			tempReal = hsBuf[hsBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = lsBuf[hsBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hsBuf[hsBuf_Idx] = highStop
 		lsBuf[hsBuf_Idx] = lowStop
@@ -472,6 +468,25 @@ func (c *Core) CKSPLookback(optInTimePeriod int, optInMultiplier float64, optInS
 	return int(lookback), nil
 }
 
+// CKSPDisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.CKSP].
+// The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.CKSP] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.CKSPLookback] rejects or an index that names no output.
+func (c *Core) CKSPDisplayShift(optInTimePeriod int, optInMultiplier float64, optInStopPeriod, outputIdx int) (int, error) {
+	if _, err := c.CKSPLookback(optInTimePeriod, optInMultiplier, optInStopPeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // CKSP computes the Chande Kroll Stop over bars startIdx through endIdx.
 //
 // Chande and Kroll's two-line volatility stop. The highest high is offset down,
@@ -513,7 +528,8 @@ func (c *Core) CKSPLookback(optInTimePeriod int, optInMultiplier float64, optInS
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) CKSP(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64, optInStopPeriod int, outHighStop, outLowStop []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -625,11 +641,133 @@ func (sp *CKSPStream) Update(inHigh, inLow, inClose float64) (float64, float64, 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	ckspStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var ip int32
+	var iq int32
+	var val2 float64
+	var val3 float64
+	var greatest float64
+	var tempCY float64
+	var tempLT float64
+	var tempHT float64
+	var tempReal float64
+	var sufHi float64
+	var sufLo float64
+	var highest float64
+	var lowest float64
+	var band float64
+	var highStop float64
+	var lowStop float64
+	var cb_hhBuf []float64
+	var cb_llBuf []float64
+	var cb_hsBuf []float64
+	var cb_lsBuf []float64
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	greatest = tempHT - tempLT
+	val2 = math.Abs(tempCY - tempHT)
+	if val2 > greatest {
+		greatest = val2
+	}
+	val3 = math.Abs(tempCY - tempLT)
+	if val3 > greatest {
+		greatest = val3
+	}
+	sp.prevATR = math.FMA(sp.wBeta, sp.prevATR, float64(sp.wAlpha*greatest))
+	highest = sp.hhPre
+	lowest = sp.llPre
+	highest = selF(tempHT > highest, tempHT, highest)
+	lowest = selF(tempLT < lowest, tempLT, lowest)
+	if sp.hhBuf_Idx == 0 {
+		highest = tempHT
+		lowest = tempLT
+	}
+	sp.hhPre = highest
+	sp.llPre = lowest
+	if sp.hhBuf_Idx < sp.lastP {
+		tempReal = sp.cb_hhBuf[sp.hhBuf_Idx+1]
+		highest = selF(tempReal > highest, tempReal, highest)
+		tempReal = sp.cb_llBuf[sp.hhBuf_Idx+1]
+		lowest = selF(tempReal < lowest, tempReal, lowest)
+	}
+	sp.cb_hhBuf[sp.hhBuf_Idx] = tempHT
+	sp.cb_llBuf[sp.hhBuf_Idx] = tempLT
+	sp.hhBuf_Idx = sp.hhBuf_Idx + 1
+	if sp.hhBuf_Idx > sp.maxIdx_hhBuf {
+		sp.hhBuf_Idx = 0
+	}
+	band = float64(sp.optInMultiplier * sp.prevATR)
+	highStop = highest - band
+	lowStop = lowest + band
+	highest = sp.hsPre
+	lowest = sp.lsPre
+	highest = selF(highStop > highest, highStop, highest)
+	lowest = selF(lowStop < lowest, lowStop, lowest)
+	if sp.hsBuf_Idx == 0 {
+		highest = highStop
+		lowest = lowStop
+	}
+	sp.hsPre = highest
+	sp.lsPre = lowest
+	if sp.hsBuf_Idx < sp.lastQ {
+		tempReal = sp.cb_hsBuf[sp.hsBuf_Idx+1]
+		highest = selF(tempReal > highest, tempReal, highest)
+		tempReal = sp.cb_lsBuf[sp.hsBuf_Idx+1]
+		lowest = selF(tempReal < lowest, tempReal, lowest)
+	}
+	sp.cb_hsBuf[sp.hsBuf_Idx] = highStop
+	sp.cb_lsBuf[sp.hsBuf_Idx] = lowStop
+	sp.hsBuf_Idx = sp.hsBuf_Idx + 1
+	if sp.hsBuf_Idx > sp.maxIdx_hsBuf {
+		sp.hsBuf_Idx = 0
+	}
+	sp.cur_outHighStop = highest
+	sp.cur_outLowStop = lowest
+	if sp.hhBuf_Idx == 0 {
+		sufHi = sp.cb_hhBuf[sp.lastP]
+		sufLo = sp.cb_llBuf[sp.lastP]
+		ip = sp.lastP
+		cb_hhBuf = sp.cb_hhBuf
+		cb_llBuf = sp.cb_llBuf
+		for ip > 1 {
+			ip -= 1
+			tempReal = cb_hhBuf[ip]
+			if tempReal > sufHi {
+				sufHi = tempReal
+			}
+			cb_hhBuf[ip] = sufHi
+			tempReal = cb_llBuf[ip]
+			if tempReal < sufLo {
+				sufLo = tempReal
+			}
+			cb_llBuf[ip] = sufLo
+		}
+	}
+	if sp.hsBuf_Idx == 0 {
+		sufHi = sp.cb_hsBuf[sp.lastQ]
+		sufLo = sp.cb_lsBuf[sp.lastQ]
+		iq = sp.lastQ
+		cb_hsBuf = sp.cb_hsBuf
+		cb_lsBuf = sp.cb_lsBuf
+		for iq > 1 {
+			iq -= 1
+			tempReal = cb_hsBuf[iq]
+			if tempReal > sufHi {
+				sufHi = tempReal
+			}
+			cb_hsBuf[iq] = sufHi
+			tempReal = cb_lsBuf[iq]
+			if tempReal < sufLo {
+				sufLo = tempReal
+			}
+			cb_lsBuf[iq] = sufLo
+		}
+	}
+	sp.lag1_inClose = inClose
 	return sp.cur_outHighStop, sp.cur_outLowStop, nil
 }
 
@@ -637,7 +775,7 @@ func (sp *CKSPStream) Update(inHigh, inLow, inClose float64) (float64, float64, 
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *CKSPStream) Peek(inHigh, inLow, inClose float64) (float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
 	var val2 float64
@@ -666,22 +804,14 @@ func (sp *CKSPStream) Peek(inHigh, inLow, inClose float64) (float64, float64, er
 	tempCY = sp.lag1_inClose
 	greatest = tempHT - tempLT
 	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
+	greatest = selF(val2 > greatest, val2, greatest)
 	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
+	greatest = selF(val3 > greatest, val3, greatest)
 	prevATR = math.FMA(sp.wBeta, prevATR, float64(sp.wAlpha*greatest))
 	highest = hhPre
 	lowest = llPre
-	if tempHT > highest {
-		highest = tempHT
-	}
-	if tempLT < lowest {
-		lowest = tempLT
-	}
+	highest = selF(tempHT > highest, tempHT, highest)
+	lowest = selF(tempLT < lowest, tempLT, lowest)
 	if hhBuf_Idx == 0 {
 		highest = tempHT
 		lowest = tempLT
@@ -690,13 +820,9 @@ func (sp *CKSPStream) Peek(inHigh, inLow, inClose float64) (float64, float64, er
 	llPre = lowest
 	if hhBuf_Idx < sp.lastP {
 		tempReal = sp.cb_hhBuf[hhBuf_Idx+1]
-		if tempReal > highest {
-			highest = tempReal
-		}
+		highest = selF(tempReal > highest, tempReal, highest)
 		tempReal = sp.cb_llBuf[hhBuf_Idx+1]
-		if tempReal < lowest {
-			lowest = tempReal
-		}
+		lowest = selF(tempReal < lowest, tempReal, lowest)
 	}
 	hhBuf_Idx = hhBuf_Idx + 1
 	if hhBuf_Idx > sp.maxIdx_hhBuf {
@@ -707,12 +833,8 @@ func (sp *CKSPStream) Peek(inHigh, inLow, inClose float64) (float64, float64, er
 	lowStop = lowest + band
 	highest = hsPre
 	lowest = lsPre
-	if highStop > highest {
-		highest = highStop
-	}
-	if lowStop < lowest {
-		lowest = lowStop
-	}
+	highest = selF(highStop > highest, highStop, highest)
+	lowest = selF(lowStop < lowest, lowStop, lowest)
 	if hsBuf_Idx == 0 {
 		highest = highStop
 		lowest = lowStop
@@ -721,13 +843,9 @@ func (sp *CKSPStream) Peek(inHigh, inLow, inClose float64) (float64, float64, er
 	lsPre = lowest
 	if hsBuf_Idx < sp.lastQ {
 		tempReal = sp.cb_hsBuf[hsBuf_Idx+1]
-		if tempReal > highest {
-			highest = tempReal
-		}
+		highest = selF(tempReal > highest, tempReal, highest)
 		tempReal = sp.cb_lsBuf[hsBuf_Idx+1]
-		if tempReal < lowest {
-			lowest = tempReal
-		}
+		lowest = selF(tempReal < lowest, tempReal, lowest)
 	}
 	hsBuf_Idx = hsBuf_Idx + 1
 	if hsBuf_Idx > sp.maxIdx_hsBuf {
@@ -753,140 +871,6 @@ func (sp *CKSPStream) Clone() *CKSPStream {
 	cl.cb_hsBuf = append(sp.cb_hsBuf[:0:0], sp.cb_hsBuf...)
 	cl.cb_lsBuf = append(sp.cb_lsBuf[:0:0], sp.cb_lsBuf...)
 	return &cl
-}
-
-func ckspStepImpl(sp *CKSPStream, inHigh, inLow, inClose float64) {
-	var ip int32
-	var iq int32
-	var val2 float64
-	var val3 float64
-	var greatest float64
-	var tempCY float64
-	var tempLT float64
-	var tempHT float64
-	var tempReal float64
-	var sufHi float64
-	var sufLo float64
-	var highest float64
-	var lowest float64
-	var band float64
-	var highStop float64
-	var lowStop float64
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	greatest = tempHT - tempLT
-	val2 = math.Abs(tempCY - tempHT)
-	if val2 > greatest {
-		greatest = val2
-	}
-	val3 = math.Abs(tempCY - tempLT)
-	if val3 > greatest {
-		greatest = val3
-	}
-	sp.prevATR = math.FMA(sp.wBeta, sp.prevATR, float64(sp.wAlpha*greatest))
-	highest = sp.hhPre
-	lowest = sp.llPre
-	if tempHT > highest {
-		highest = tempHT
-	}
-	if tempLT < lowest {
-		lowest = tempLT
-	}
-	if sp.hhBuf_Idx == 0 {
-		highest = tempHT
-		lowest = tempLT
-	}
-	sp.hhPre = highest
-	sp.llPre = lowest
-	if sp.hhBuf_Idx < sp.lastP {
-		tempReal = sp.cb_hhBuf[sp.hhBuf_Idx+1]
-		if tempReal > highest {
-			highest = tempReal
-		}
-		tempReal = sp.cb_llBuf[sp.hhBuf_Idx+1]
-		if tempReal < lowest {
-			lowest = tempReal
-		}
-	}
-	sp.cb_hhBuf[sp.hhBuf_Idx] = tempHT
-	sp.cb_llBuf[sp.hhBuf_Idx] = tempLT
-	sp.hhBuf_Idx = sp.hhBuf_Idx + 1
-	if sp.hhBuf_Idx > sp.maxIdx_hhBuf {
-		sp.hhBuf_Idx = 0
-	}
-	band = float64(sp.optInMultiplier * sp.prevATR)
-	highStop = highest - band
-	lowStop = lowest + band
-	highest = sp.hsPre
-	lowest = sp.lsPre
-	if highStop > highest {
-		highest = highStop
-	}
-	if lowStop < lowest {
-		lowest = lowStop
-	}
-	if sp.hsBuf_Idx == 0 {
-		highest = highStop
-		lowest = lowStop
-	}
-	sp.hsPre = highest
-	sp.lsPre = lowest
-	if sp.hsBuf_Idx < sp.lastQ {
-		tempReal = sp.cb_hsBuf[sp.hsBuf_Idx+1]
-		if tempReal > highest {
-			highest = tempReal
-		}
-		tempReal = sp.cb_lsBuf[sp.hsBuf_Idx+1]
-		if tempReal < lowest {
-			lowest = tempReal
-		}
-	}
-	sp.cb_hsBuf[sp.hsBuf_Idx] = highStop
-	sp.cb_lsBuf[sp.hsBuf_Idx] = lowStop
-	sp.hsBuf_Idx = sp.hsBuf_Idx + 1
-	if sp.hsBuf_Idx > sp.maxIdx_hsBuf {
-		sp.hsBuf_Idx = 0
-	}
-	sp.cur_outHighStop = highest
-	sp.cur_outLowStop = lowest
-	if sp.hhBuf_Idx == 0 {
-		sufHi = sp.cb_hhBuf[sp.lastP]
-		sufLo = sp.cb_llBuf[sp.lastP]
-		ip = sp.lastP
-		for ip > 1 {
-			ip -= 1
-			tempReal = sp.cb_hhBuf[ip]
-			if tempReal > sufHi {
-				sufHi = tempReal
-			}
-			sp.cb_hhBuf[ip] = sufHi
-			tempReal = sp.cb_llBuf[ip]
-			if tempReal < sufLo {
-				sufLo = tempReal
-			}
-			sp.cb_llBuf[ip] = sufLo
-		}
-	}
-	if sp.hsBuf_Idx == 0 {
-		sufHi = sp.cb_hsBuf[sp.lastQ]
-		sufLo = sp.cb_lsBuf[sp.lastQ]
-		iq = sp.lastQ
-		for iq > 1 {
-			iq -= 1
-			tempReal = sp.cb_hsBuf[iq]
-			if tempReal > sufHi {
-				sufHi = tempReal
-			}
-			sp.cb_hsBuf[iq] = sufHi
-			tempReal = sp.cb_lsBuf[iq]
-			if tempReal < sufLo {
-				sufLo = tempReal
-			}
-			sp.cb_lsBuf[iq] = sufLo
-		}
-	}
-	sp.lag1_inClose = inClose
 }
 
 func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod int32, optInMultiplier float64, optInStopPeriod int32, outBegIdx, outNBElement *int32, outHighStop, outLowStop []float64, outStride int32) RetCode {
@@ -1091,12 +1075,8 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
 		highest = hhPre
 		lowest = llPre
-		if tempHT > highest {
-			highest = tempHT
-		}
-		if tempLT < lowest {
-			lowest = tempLT
-		}
+		highest = selF(tempHT > highest, tempHT, highest)
+		lowest = selF(tempLT < lowest, tempLT, lowest)
 		if hhBuf_Idx == 0 {
 			highest = tempHT
 			lowest = tempLT
@@ -1105,13 +1085,9 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		llPre = lowest
 		if hhBuf_Idx < lastP {
 			tempReal = hhBuf[hhBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = llBuf[hhBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hhBuf[hhBuf_Idx] = tempHT
 		llBuf[hhBuf_Idx] = tempLT
@@ -1189,12 +1165,8 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
 		highest = hhPre
 		lowest = llPre
-		if tempHT > highest {
-			highest = tempHT
-		}
-		if tempLT < lowest {
-			lowest = tempLT
-		}
+		highest = selF(tempHT > highest, tempHT, highest)
+		lowest = selF(tempLT < lowest, tempLT, lowest)
 		if hhBuf_Idx == 0 {
 			highest = tempHT
 			lowest = tempLT
@@ -1203,13 +1175,9 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		llPre = lowest
 		if hhBuf_Idx < lastP {
 			tempReal = hhBuf[hhBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = llBuf[hhBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hhBuf[hhBuf_Idx] = tempHT
 		llBuf[hhBuf_Idx] = tempLT
@@ -1222,12 +1190,8 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		lowStop = lowest + band
 		highest = hsPre
 		lowest = lsPre
-		if highStop > highest {
-			highest = highStop
-		}
-		if lowStop < lowest {
-			lowest = lowStop
-		}
+		highest = selF(highStop > highest, highStop, highest)
+		lowest = selF(lowStop < lowest, lowStop, lowest)
 		if hsBuf_Idx == 0 {
 			highest = highStop
 			lowest = lowStop
@@ -1236,13 +1200,9 @@ func (c *Core) ckspOpenImpl(sp *CKSPStream, inHigh, inLow, inClose []float64, st
 		lsPre = lowest
 		if hsBuf_Idx < lastQ {
 			tempReal = hsBuf[hsBuf_Idx+1]
-			if tempReal > highest {
-				highest = tempReal
-			}
+			highest = selF(tempReal > highest, tempReal, highest)
 			tempReal = lsBuf[hsBuf_Idx+1]
-			if tempReal < lowest {
-				lowest = tempReal
-			}
+			lowest = selF(tempReal < lowest, tempReal, lowest)
 		}
 		hsBuf[hsBuf_Idx] = highStop
 		lsBuf[hsBuf_Idx] = lowStop
@@ -1374,8 +1334,9 @@ func (c *Core) ckspOpenInternal(inHigh, inLow, inClose []float64, startIdx, optI
 // are those of [Core.CKSP].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.CKSPLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.CKSPLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) CKSPOpen(inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64, optInStopPeriod int) (*CKSPStream, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, BadParam
@@ -1398,7 +1359,8 @@ func (c *Core) CKSPOpen(inHigh, inLow, inClose []float64, optInTimePeriod int, o
 // no memory with an input or another output.
 //
 // The errors are those of [Core.CKSPOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) CKSPOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod int, optInMultiplier float64, optInStopPeriod int, outHighStop, outLowStop []float64) (*CKSPStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

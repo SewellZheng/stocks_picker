@@ -83,15 +83,13 @@ impl Core {
     /// default value.
     #[doc(alias = "TA_ZIGZAG_Lookback")]
     #[inline]
-    pub fn zigzag_lookback(&self, mut optInSensitivity: f64, mut optInMinTrendLength: i32) -> Result<usize, RetCode> {
-        if optInSensitivity == Self::REAL_DEFAULT {
-            optInSensitivity = 5e0;
-        } else if !((optInSensitivity >= 0e0) && (optInSensitivity <= 1e2)) {
+    pub fn zigzag_lookback(&self, optInSensitivity: f64, mut optInMinTrendLength: i32) -> Result<usize, RetCode> {
+        if optInSensitivity != Self::REAL_DEFAULT && !((optInSensitivity >= 0e0) && (optInSensitivity <= 1e2)) {
             return Err(RetCode::BadParam);
         }
-        if ((optInMinTrendLength) as i32) == (i32::MIN) {
+        if optInMinTrendLength == i32::MIN {
             optInMinTrendLength = 1;
-        } else if (((optInMinTrendLength) as i32) < 1) || (((optInMinTrendLength) as i32) > 100000) {
+        } else if optInMinTrendLength < 1 || optInMinTrendLength > 100000 {
             return Err(RetCode::BadParam);
         }
         // The first bar at which a reversal off the seed can fire. The gate counts
@@ -101,7 +99,7 @@ impl Core {
         //
         // Independent of the sensitivity: the threshold decides WHETHER a reversal
         // fires, never how early it may.
-        return Ok((optInMinTrendLength) as usize);
+        return Ok(optInMinTrendLength as usize);
     }
     /// Display shift of one output of [`Core::zigzag`]: how many bars ahead (positive) or behind
     /// (negative) of the bar that computed it a chart draws that output. The values are never
@@ -123,7 +121,7 @@ impl Core {
     /// parameters accept [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to
     /// select their default value.
     #[doc(alias = "TA_ZIGZAG_DisplayShift")]
-    pub fn zigzag_display_shift(&self, mut optInSensitivity: f64, mut optInMinTrendLength: i32, outputIdx: usize) -> Result<i32, RetCode> {
+    pub fn zigzag_display_shift(&self, optInSensitivity: f64, optInMinTrendLength: i32, outputIdx: usize) -> Result<i32, RetCode> {
         self.zigzag_lookback(optInSensitivity, optInMinTrendLength)?;
         if outputIdx >= 3 {
             return Err(RetCode::BadParam);
@@ -158,9 +156,9 @@ impl Core {
         } else if !((optInSensitivity >= 0e0) && (optInSensitivity <= 1e2)) {
             return RetCode::BadParam;
         }
-        if ((optInMinTrendLength) as i32) == (i32::MIN) {
+        if optInMinTrendLength == i32::MIN {
             optInMinTrendLength = 1;
-        } else if (((optInMinTrendLength) as i32) < 1) || (((optInMinTrendLength) as i32) > 100000) {
+        } else if optInMinTrendLength < 1 || optInMinTrendLength > 100000 {
             return RetCode::BadParam;
         }
         let _assertLb = self.zigzag_lookback(optInSensitivity, optInMinTrendLength).unwrap_or(usize::MAX);
@@ -170,7 +168,7 @@ impl Core {
         assert!(_assertStart > endIdx || endIdx - _assertStart < outZigZag.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outTrend.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outPivotIdx.len());
-        if (outTrend.as_ptr() == outPivotIdx.as_ptr()) {
+        if outTrend.as_ptr() == outPivotIdx.as_ptr() {
             return RetCode::BadParam;
         }
         let mut startIdx = startIdx;
@@ -190,8 +188,8 @@ impl Core {
             startIdx = lookbackTotal;
         }
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return RetCode::Success;
         }
         let inHigh = &inHigh[..=endIdx];
@@ -199,7 +197,7 @@ impl Core {
         // Percent in, fraction inside. Each factor is rounded once, here, rather
         // than rebuilt per bar: the threshold is `pivot * up` in binary64, which is
         // the expression order the oracle uses.
-        s = ((optInSensitivity) as f64) / 100.0;
+        s = (optInSensitivity as f64) / 100.0;
         up = 1.0 + s;
         dn = 1.0 - s;
         // The seed: a down leg whose extreme is the low of the bar
@@ -224,7 +222,7 @@ impl Core {
             // and lose the reversal, which is a whole leg of difference rather than a
             // rounding.
             if trend == -1 {
-                if inHigh[today] >= pivot * up && barsSincePivot >= ((optInMinTrendLength) as usize) {
+                if inHigh[today] >= pivot * up && barsSincePivot >= (optInMinTrendLength as usize) {
                     trend = 1;
                     pivot = inHigh[today];
                     barsSincePivot = 0;
@@ -234,29 +232,29 @@ impl Core {
                     //
                     // A select, not a branch: on moving prices the extension is taken
                     // on a share of the bars no predictor follows.
-                    isExt = (if inLow[today] <= pivot { 1 } else { 0 });
-                    pivot = (if pivot < inLow[today] { pivot } else { inLow[today] });
+                    isExt = if inLow[today] <= pivot { 1 } else { 0 };
+                    pivot = if pivot < inLow[today] { pivot } else { inLow[today] };
                     barsSincePivot = barsSincePivot - isExt * barsSincePivot;
                 }
-            } else if inLow[today] <= pivot * dn && barsSincePivot >= ((optInMinTrendLength) as usize) {
+            } else if inLow[today] <= pivot * dn && barsSincePivot >= (optInMinTrendLength as usize) {
                 trend = -1;
                 pivot = inLow[today];
                 barsSincePivot = 0;
             } else {
-                isExt = (if inHigh[today] >= pivot { 1 } else { 0 });
-                pivot = (if pivot > inHigh[today] { pivot } else { inHigh[today] });
+                isExt = if inHigh[today] >= pivot { 1 } else { 0 };
+                pivot = if pivot > inHigh[today] { pivot } else { inHigh[today] };
                 barsSincePivot = barsSincePivot - isExt * barsSincePivot;
             }
             if today >= startIdx {
                 outZigZag[outIdx] = pivot;
-                outTrend[outIdx] = (trend) as i32;
+                outTrend[outIdx] = trend as i32;
                 outPivotIdx[outIdx] = (barIdx - barsSincePivot) as i32;
                 outIdx = outIdx + 1;
             }
             today = today + 1;
         }
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
         return RetCode::Success;
     }
     /// The percent-filter swing line. A leg runs from the last confirmed pivot to the most extreme
@@ -318,9 +316,13 @@ impl Core {
     /// use ta_lib::Core;
     ///
     /// let high = vec![0.0; 252]; // your data, oldest first
-    /// # let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let high: Vec<f64> = (0..252)
+    /// #     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let low = vec![0.0; 252]; // your data, oldest first
-    /// # let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// # let low: Vec<f64> = (0..252)
+    /// #     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    /// #     .collect();
     /// let mut zig_zag = vec![0.0; 252];
     /// let mut trend = vec![0i32; 252];
     /// let mut pivot_idx = vec![0i32; 252];
@@ -328,8 +330,11 @@ impl Core {
     /// let core = Core::new();
     /// let range = core.zigzag(0, high.len() - 1, &high, &low, 5.0, 1,
     ///                         &mut zig_zag, &mut trend, &mut pivot_idx)?;
-    /// # assert!(range.count > 0);
-    /// println!("{} values from bar {}; last zig_zag = {}", range.count, range.beg_idx, zig_zag[range.count - 1]);
+    /// # assert!(range.count > 2);
+    /// println!("{} values from bar {}:", range.count, range.beg_idx);
+    /// println!("zig_zag = [{:.4}, ..., {:.4}]", zig_zag[0], zig_zag[range.count - 1]);
+    /// println!("trend = [{}, ..., {}]", trend[0], trend[range.count - 1]);
+    /// println!("pivot_idx = [{}, ..., {}]", pivot_idx[0], pivot_idx[range.count - 1]);
     /// # assert!(zig_zag[..range.count].iter().all(|v| v.is_finite()));
     /// # assert_eq!(range.beg_idx + range.count, high.len());
     /// # // the leg is a two-state latch: +1 while it runs up, -1 while it runs down
@@ -432,7 +437,6 @@ pub struct ZigzagStream {
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct ZigzagStreamState {
-    optInSensitivity: f64,
     optInMinTrendLength: i32,
     trend: i32,
     barsSincePivot: usize,
@@ -463,7 +467,7 @@ impl Core {
         // and lose the reversal, which is a whole leg of difference rather than a
         // rounding.
         if sp.trend == -1 {
-            if inHigh >= sp.pivot * sp.up && sp.barsSincePivot >= ((sp.optInMinTrendLength) as usize) {
+            if inHigh >= sp.pivot * sp.up && sp.barsSincePivot >= (sp.optInMinTrendLength as usize) {
                 sp.trend = 1;
                 sp.pivot = inHigh;
                 sp.barsSincePivot = 0;
@@ -473,25 +477,25 @@ impl Core {
                 //
                 // A select, not a branch: on moving prices the extension is taken
                 // on a share of the bars no predictor follows.
-                isExt = (if inLow <= sp.pivot { 1 } else { 0 });
-                sp.pivot = (if sp.pivot < inLow { sp.pivot } else { inLow });
+                isExt = if inLow <= sp.pivot { 1 } else { 0 };
+                sp.pivot = if sp.pivot < inLow { sp.pivot } else { inLow };
                 sp.barsSincePivot = sp.barsSincePivot - isExt * sp.barsSincePivot;
             }
-        } else if inLow <= sp.pivot * sp.dn && sp.barsSincePivot >= ((sp.optInMinTrendLength) as usize) {
+        } else if inLow <= sp.pivot * sp.dn && sp.barsSincePivot >= (sp.optInMinTrendLength as usize) {
             sp.trend = -1;
             sp.pivot = inLow;
             sp.barsSincePivot = 0;
         } else {
-            isExt = (if inHigh >= sp.pivot { 1 } else { 0 });
-            sp.pivot = (if sp.pivot > inHigh { sp.pivot } else { inHigh });
+            isExt = if inHigh >= sp.pivot { 1 } else { 0 };
+            sp.pivot = if sp.pivot > inHigh { sp.pivot } else { inHigh };
             sp.barsSincePivot = sp.barsSincePivot - isExt * sp.barsSincePivot;
         }
-        (*outZigZag) = sp.pivot;
-        (*outTrend) = (sp.trend) as i32;
-        (*outPivotIdx) = (sp.barIdx - sp.barsSincePivot) as i32;
-        sp.cur_outZigZag = (*outZigZag);
-        sp.cur_outTrend = (*outTrend);
-        sp.cur_outPivotIdx = (*outPivotIdx);
+        *outZigZag = sp.pivot;
+        *outTrend = sp.trend as i32;
+        *outPivotIdx = (sp.barIdx - sp.barsSincePivot) as i32;
+        sp.cur_outZigZag = *outZigZag;
+        sp.cur_outTrend = *outTrend;
+        sp.cur_outPivotIdx = *outPivotIdx;
     }
 
     /// The single whole-history transcription behind [`Core::zigzag_open_internal`]
@@ -507,9 +511,9 @@ impl Core {
         } else if !((optInSensitivity >= 0e0) && (optInSensitivity <= 1e2)) {
             return Err(RetCode::BadParam);
         }
-        if ((optInMinTrendLength) as i32) == (i32::MIN) {
+        if optInMinTrendLength == i32::MIN {
             optInMinTrendLength = 1;
-        } else if (((optInMinTrendLength) as i32) < 1) || (((optInMinTrendLength) as i32) > 100000) {
+        } else if optInMinTrendLength < 1 || optInMinTrendLength > 100000 {
             return Err(RetCode::BadParam);
         }
         if inLow.len() != inHigh.len() {
@@ -517,14 +521,12 @@ impl Core {
         }
         let historyLen: usize = inHigh.len();
         if startIdx >= historyLen {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
-        let mut dummyBegIdx: usize = 0;
-        let mut dummyNBElement: usize = 0;
         let mut lookbackTotal: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
@@ -541,14 +543,14 @@ impl Core {
             startIdx = lookbackTotal;
         }
         if startIdx > endIdx {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
+            *outBegIdx = 0;
+            *outNBElement = 0;
             return Err(RetCode::InsufficientHistory);
         }
         // Percent in, fraction inside. Each factor is rounded once, here, rather
         // than rebuilt per bar: the threshold is `pivot * up` in binary64, which is
         // the expression order the oracle uses.
-        s = ((optInSensitivity) as f64) / 100.0;
+        s = (optInSensitivity as f64) / 100.0;
         up = 1.0 + s;
         dn = 1.0 - s;
         // The seed: a down leg whose extreme is the low of the bar
@@ -573,7 +575,7 @@ impl Core {
             // and lose the reversal, which is a whole leg of difference rather than a
             // rounding.
             if trend == -1 {
-                if inHigh[today] >= pivot * up && barsSincePivot >= ((optInMinTrendLength) as usize) {
+                if inHigh[today] >= pivot * up && barsSincePivot >= (optInMinTrendLength as usize) {
                     trend = 1;
                     pivot = inHigh[today];
                     barsSincePivot = 0;
@@ -583,33 +585,32 @@ impl Core {
                     //
                     // A select, not a branch: on moving prices the extension is taken
                     // on a share of the bars no predictor follows.
-                    isExt = (if inLow[today] <= pivot { 1 } else { 0 });
-                    pivot = (if pivot < inLow[today] { pivot } else { inLow[today] });
+                    isExt = if inLow[today] <= pivot { 1 } else { 0 };
+                    pivot = if pivot < inLow[today] { pivot } else { inLow[today] };
                     barsSincePivot = barsSincePivot - isExt * barsSincePivot;
                 }
-            } else if inLow[today] <= pivot * dn && barsSincePivot >= ((optInMinTrendLength) as usize) {
+            } else if inLow[today] <= pivot * dn && barsSincePivot >= (optInMinTrendLength as usize) {
                 trend = -1;
                 pivot = inLow[today];
                 barsSincePivot = 0;
             } else {
-                isExt = (if inHigh[today] >= pivot { 1 } else { 0 });
-                pivot = (if pivot > inHigh[today] { pivot } else { inHigh[today] });
+                isExt = if inHigh[today] >= pivot { 1 } else { 0 };
+                pivot = if pivot > inHigh[today] { pivot } else { inHigh[today] };
                 barsSincePivot = barsSincePivot - isExt * barsSincePivot;
             }
             if today >= startIdx {
-                outZigZag[(outIdx * outStride) as usize] = pivot;
-                outTrend[(outIdx * outStride) as usize] = (trend) as i32;
-                outPivotIdx[(outIdx * outStride) as usize] = (barIdx - barsSincePivot) as i32;
+                outZigZag[outIdx * outStride] = pivot;
+                outTrend[outIdx * outStride] = trend as i32;
+                outPivotIdx[outIdx * outStride] = (barIdx - barsSincePivot) as i32;
                 outIdx = outIdx + 1;
             }
             today = today + 1;
         }
-        (*outBegIdx) = startIdx;
-        (*outNBElement) = outIdx;
+        *outBegIdx = startIdx;
+        *outNBElement = outIdx;
 
         // Capture the live batch state into the handle.
         let state = ZigzagStreamState {
-            optInSensitivity,
             optInMinTrendLength,
             trend,
             barsSincePivot,
@@ -626,7 +627,7 @@ impl Core {
 
     /// Internal startIdx-anchored open behind [`Core::zigzag_open`] (composition seam).
     pub(crate) fn zigzag_open_internal(
-        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInSensitivity: f64, mut optInMinTrendLength: i32,
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInSensitivity: f64, optInMinTrendLength: i32,
     ) -> Result<(ZigzagStream, (f64, i32, i32)), RetCode> {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
@@ -649,8 +650,12 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.zigzag_open(&high, &low, 5.0, 1).expect("enough history");
@@ -683,8 +688,12 @@ impl Core {
     ///
     /// ```
     /// use ta_lib::Core;
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let high: Vec<f64> = (0..252)
+    ///     .map(|i| 92.0 + ((i % 40 - 20) * (i % 40 - 20) + (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
+    /// let low: Vec<f64> = (0..252)
+    ///     .map(|i| 88.0 + ((i % 40 - 20) * (i % 40 - 20) - (i % 13 - 6) * (i % 13 - 6)) as f64 / 20.0)
+    ///     .collect();
     ///
     /// let core = Core::new();
     /// let mut batch_zig_zag = vec![0.0; 252];
@@ -707,7 +716,7 @@ impl Core {
     /// ```
     #[doc(alias = "TA_ZIGZAG_OpenAndFill")]
     pub fn zigzag_open_and_fill(
-        &self, inHigh: &[f64], inLow: &[f64], mut optInSensitivity: f64, mut optInMinTrendLength: i32, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32],
+        &self, inHigh: &[f64], inLow: &[f64], optInSensitivity: f64, optInMinTrendLength: i32, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32],
     ) -> Result<(ZigzagStream, OutRange), RetCode> {
         if inHigh.len() > Self::INDEX_MAX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -735,7 +744,7 @@ impl Core {
     /// [`Core::zigzag_open_and_fill`] anchored at `startIdx` — the composed-open
     /// fusion seam (issue #192), not a public entry point.
     pub(crate) fn zigzag_open_and_fill_internal(
-        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInSensitivity: f64, mut optInMinTrendLength: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32],
+        &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, optInSensitivity: f64, optInMinTrendLength: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outZigZag: &mut [f64], outTrend: &mut [i32], outPivotIdx: &mut [i32],
     ) -> Result<ZigzagStream, RetCode> {
         self.zigzag_open_impl(inHigh, inLow, startIdx, optInSensitivity, optInMinTrendLength, outBegIdx, outNBElement, outZigZag, outTrend, outPivotIdx, 1)
     }
@@ -823,7 +832,7 @@ impl ZigzagStream {
             // and lose the reversal, which is a whole leg of difference rather than a
             // rounding.
             if trend == -1 {
-                if inHigh >= pivot * sp.up && barsSincePivot >= ((sp.optInMinTrendLength) as usize) {
+                if inHigh >= pivot * sp.up && barsSincePivot >= (sp.optInMinTrendLength as usize) {
                     trend = 1;
                     pivot = inHigh;
                     barsSincePivot = 0;
@@ -833,22 +842,22 @@ impl ZigzagStream {
                     //
                     // A select, not a branch: on moving prices the extension is taken
                     // on a share of the bars no predictor follows.
-                    isExt = (if inLow <= pivot { 1 } else { 0 });
-                    pivot = (if pivot < inLow { pivot } else { inLow });
+                    isExt = if inLow <= pivot { 1 } else { 0 };
+                    pivot = if pivot < inLow { pivot } else { inLow };
                     barsSincePivot = barsSincePivot - isExt * barsSincePivot;
                 }
-            } else if inLow <= pivot * sp.dn && barsSincePivot >= ((sp.optInMinTrendLength) as usize) {
+            } else if inLow <= pivot * sp.dn && barsSincePivot >= (sp.optInMinTrendLength as usize) {
                 trend = -1;
                 pivot = inLow;
                 barsSincePivot = 0;
             } else {
-                isExt = (if inHigh >= pivot { 1 } else { 0 });
-                pivot = (if pivot > inHigh { pivot } else { inHigh });
+                isExt = if inHigh >= pivot { 1 } else { 0 };
+                pivot = if pivot > inHigh { pivot } else { inHigh };
                 barsSincePivot = barsSincePivot - isExt * barsSincePivot;
             }
-            (*outZigZag) = pivot;
-            (*outTrend) = (trend) as i32;
-            (*outPivotIdx) = (barIdx - barsSincePivot) as i32;
+            *outZigZag = pivot;
+            *outTrend = trend as i32;
+            *outPivotIdx = (barIdx - barsSincePivot) as i32;
         }
         Ok((outZigZag, outTrend, outPivotIdx))
     }

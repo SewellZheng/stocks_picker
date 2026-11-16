@@ -156,6 +156,25 @@ func (c *Core) DONCHIANLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+// DONCHIANDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.DONCHIAN]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.DONCHIAN] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.DONCHIANLookback] rejects or an index that names no output.
+func (c *Core) DONCHIANDisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.DONCHIANLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 3 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // DONCHIAN computes the Donchian Channels over bars startIdx through endIdx.
 //
 // Donchian Channels: three overlap lines built from rolling price extrema. The
@@ -191,7 +210,8 @@ func (c *Core) DONCHIANLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) DONCHIAN(startIdx, endIdx int, inHigh, inLow []float64, optInTimePeriod int, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -284,22 +304,101 @@ func (sp *DONCHIANStream) Update(inHigh, inLow float64) (float64, float64, float
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, 0, BadParam
 	}
-	donchianStepImpl(sp, inHigh, inLow)
 	sp.outRangeCount++
+	var tmpLow float64
+	var tmpHigh float64
+	var highest float64
+	var highestIdx int32
+	var i int32
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var lowest float64
+	var lowestIdx int32
+	var x_inLow []float64
+	sp.x_inHigh[sp.today&sp.xMask] = inHigh
+	sp.x_inLow[sp.today&sp.xMask] = inLow
+	tmpHigh = sp.x_inHigh[sp.today&sp.xMask]
+	tmpLow = sp.x_inLow[sp.today&sp.xMask]
+	if sp.highestIdx < sp.trailingIdx {
+		sp.highestIdx = sp.trailingIdx
+		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
+		sp.i = sp.highestIdx
+		highest = sp.highest
+		highestIdx = sp.highestIdx
+		i = sp.i
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpHigh = x_inHigh[i&xMask]
+			if tmpHigh > highest {
+				highestIdx = i
+				highest = tmpHigh
+			}
+		}
+		sp.highest = highest
+		sp.highestIdx = highestIdx
+		sp.i = i
+	} else if tmpHigh >= sp.highest {
+		sp.highestIdx = sp.today
+		sp.highest = tmpHigh
+	}
+	if sp.lowestIdx < sp.trailingIdx {
+		sp.lowestIdx = sp.trailingIdx
+		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
+		sp.i = sp.lowestIdx
+		i = sp.i
+		lowest = sp.lowest
+		lowestIdx = sp.lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
+		for {
+			i++
+			if !(i <= today) {
+				break
+			}
+			tmpLow = x_inLow[i&xMask]
+			if tmpLow < lowest {
+				lowestIdx = i
+				lowest = tmpLow
+			}
+		}
+		sp.i = i
+		sp.lowest = lowest
+		sp.lowestIdx = lowestIdx
+	} else if tmpLow <= sp.lowest {
+		sp.lowestIdx = sp.today
+		sp.lowest = tmpLow
+	}
+	sp.cur_outRealUpperBand = sp.highest
+	sp.cur_outRealLowerBand = sp.lowest
+	sp.cur_outRealMiddleBand = (sp.highest + sp.lowest) / 2.0
+	sp.trailingIdx += 1
+	sp.today += 1
 	return sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand, nil
 }
 
 // Peek returns what Update would return for the bar (inHigh and inLow),
 // changing nothing. It returns [BadParam] for a bar value that is not finite.
 func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) {
+	if (inHigh-inHigh)+(inLow-inLow) != 0 {
 		return 0, 0, 0, BadParam
 	}
 	var tmpLow float64
 	var tmpHigh float64
+	var today int32
+	var xMask int32
+	var x_inHigh []float64
+	var x_inLow []float64
 	var cur_outRealLowerBand float64
 	var cur_outRealMiddleBand float64
 	var cur_outRealUpperBand float64
@@ -340,14 +439,17 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 		}
 		highest = _T2
 		i = highestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inHigh = sp.x_inHigh
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T3 float64
-			if i&sp.xMask != pkSlot0 {
-				_T3 = sp.x_inHigh[i&sp.xMask]
+			if i&xMask != pkSlot0 {
+				_T3 = x_inHigh[i&xMask]
 			} else {
 				_T3 = pkVal0
 			}
@@ -371,14 +473,17 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 		}
 		lowest = _T4
 		i = lowestIdx
+		today = sp.today
+		xMask = sp.xMask
+		x_inLow = sp.x_inLow
 		for {
 			i++
-			if !(i <= sp.today) {
+			if !(i <= today) {
 				break
 			}
 			var _T5 float64
-			if i&sp.xMask != pkSlot1 {
-				_T5 = sp.x_inLow[i&sp.xMask]
+			if i&xMask != pkSlot1 {
+				_T5 = x_inLow[i&xMask]
 			} else {
 				_T5 = pkVal1
 			}
@@ -411,58 +516,6 @@ func (sp *DONCHIANStream) Clone() *DONCHIANStream {
 	cl.x_inHigh = append(sp.x_inHigh[:0:0], sp.x_inHigh...)
 	cl.x_inLow = append(sp.x_inLow[:0:0], sp.x_inLow...)
 	return &cl
-}
-
-func donchianStepImpl(sp *DONCHIANStream, inHigh, inLow float64) {
-	var tmpLow float64
-	var tmpHigh float64
-	sp.x_inHigh[sp.today&sp.xMask] = inHigh
-	sp.x_inLow[sp.today&sp.xMask] = inLow
-	tmpHigh = sp.x_inHigh[sp.today&sp.xMask]
-	tmpLow = sp.x_inLow[sp.today&sp.xMask]
-	if sp.highestIdx < sp.trailingIdx {
-		sp.highestIdx = sp.trailingIdx
-		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
-		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpHigh = sp.x_inHigh[sp.i&sp.xMask]
-			if tmpHigh > sp.highest {
-				sp.highestIdx = sp.i
-				sp.highest = tmpHigh
-			}
-		}
-	} else if tmpHigh >= sp.highest {
-		sp.highestIdx = sp.today
-		sp.highest = tmpHigh
-	}
-	if sp.lowestIdx < sp.trailingIdx {
-		sp.lowestIdx = sp.trailingIdx
-		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
-		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
-			tmpLow = sp.x_inLow[sp.i&sp.xMask]
-			if tmpLow < sp.lowest {
-				sp.lowestIdx = sp.i
-				sp.lowest = tmpLow
-			}
-		}
-	} else if tmpLow <= sp.lowest {
-		sp.lowestIdx = sp.today
-		sp.lowest = tmpLow
-	}
-	sp.cur_outRealUpperBand = sp.highest
-	sp.cur_outRealLowerBand = sp.lowest
-	sp.cur_outRealMiddleBand = (sp.highest + sp.lowest) / 2.0
-	sp.trailingIdx += 1
-	sp.today += 1
 }
 
 func (c *Core) donchianOpenImpl(sp *DONCHIANStream, inHigh, inLow []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64, outStride int32) RetCode {
@@ -625,8 +678,9 @@ func (c *Core) donchianOpenInternal(inHigh, inLow []float64, startIdx, optInTime
 // of [Core.DONCHIAN].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.DONCHIANLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.DONCHIANLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) DONCHIANOpen(inHigh, inLow []float64, optInTimePeriod int) (*DONCHIANStream, float64, float64, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, 0, 0, BadParam
@@ -646,7 +700,9 @@ func (c *Core) DONCHIANOpen(inHigh, inLow []float64, optInTimePeriod int) (*DONC
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.DONCHIANOpen], and [BadParam] for an output
-// that is empty, too short or sharing memory.
+// that is empty, too short or sharing memory. A slice whose capacity a
+// three-index expression cut, as slices.Clip does, can escape the sharing
+// check.
 func (c *Core) DONCHIANOpenAndFill(inHigh, inLow []float64, optInTimePeriod int, outRealUpperBand, outRealMiddleBand, outRealLowerBand []float64) (*DONCHIANStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

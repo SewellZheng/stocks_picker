@@ -259,6 +259,25 @@ func (c *Core) MALookback(optInTimePeriod int, optInMAType MAType) (int, error) 
 	return int(lookback), nil
 }
 
+// MADisplayShift returns how many bars ahead (positive) or behind (negative) of
+// the bar that computed it a chart draws output outputIdx of [Core.MA]. The
+// values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.MA] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter [Core.MALookback]
+// rejects or an index that names no output.
+func (c *Core) MADisplayShift(optInTimePeriod int, optInMAType MAType, outputIdx int) (int, error) {
+	if _, err := c.MALookback(optInTimePeriod, optInMAType); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // MA computes the Moving average over bars startIdx through endIdx.
 //
 // Generic moving-average dispatcher that forwards the job to the MA
@@ -290,7 +309,8 @@ func (c *Core) MALookback(optInTimePeriod int, optInMAType MAType) (int, error) 
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) MA(startIdx, endIdx int, inReal []float64, optInTimePeriod int, optInMAType MAType, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -362,11 +382,96 @@ func (sp *MAStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	if err := maStepImpl(sp, inReal); err != nil {
-		return 0, err
+	switch sp.arm {
+	case -1:
+		sp.cur_outReal = inReal
+	case 0:
+		v0, err := sp.sub.(*SMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 1:
+		v0, err := sp.sub.(*EMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 2:
+		v0, err := sp.sub.(*WMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 3:
+		v0, err := sp.sub.(*DEMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 4:
+		v0, err := sp.sub.(*TEMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 5:
+		v0, err := sp.sub.(*TRIMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 6:
+		v0, err := sp.sub.(*KAMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 7:
+		v0, _, err := sp.sub.(*MAMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 8:
+		v0, err := sp.sub.(*T3Stream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 9:
+		v0, err := sp.sub.(*HMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 10:
+		v0, err := sp.sub.(*ZLEMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 11:
+		v0, err := sp.sub.(*RMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 12:
+		v0, err := sp.sub.(*VIDYAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
+	case 13:
+		v0, err := sp.sub.(*ALMAStream).Update(inReal)
+		if err != nil {
+			return 0, err
+		}
+		sp.cur_outReal = v0
 	}
 	sp.outRangeCount++
 	return sp.cur_outReal, nil
@@ -375,7 +480,7 @@ func (sp *MAStream) Update(inReal float64) (float64, error) {
 // Peek returns what Update would return for the bar inReal, changing nothing.
 // It returns [BadParam] for a bar value that is not finite.
 func (sp *MAStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
 	switch sp.arm {
@@ -455,98 +560,6 @@ func (sp *MAStream) Clone() *MAStream {
 		cl.sub = sub.Clone()
 	}
 	return &cl
-}
-
-func maStepImpl(sp *MAStream, inReal float64) error {
-	switch sp.arm {
-	case -1:
-		sp.cur_outReal = inReal
-	case 0:
-		v0, err := sp.sub.(*SMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 1:
-		v0, err := sp.sub.(*EMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 2:
-		v0, err := sp.sub.(*WMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 3:
-		v0, err := sp.sub.(*DEMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 4:
-		v0, err := sp.sub.(*TEMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 5:
-		v0, err := sp.sub.(*TRIMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 6:
-		v0, err := sp.sub.(*KAMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 7:
-		v0, _, err := sp.sub.(*MAMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 8:
-		v0, err := sp.sub.(*T3Stream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 9:
-		v0, err := sp.sub.(*HMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 10:
-		v0, err := sp.sub.(*ZLEMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 11:
-		v0, err := sp.sub.(*RMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 12:
-		v0, err := sp.sub.(*VIDYAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	case 13:
-		v0, err := sp.sub.(*ALMAStream).Update(inReal)
-		if err != nil {
-			return err
-		}
-		sp.cur_outReal = v0
-	}
-	return nil
 }
 
 func (c *Core) maOpenImpl(sp *MAStream, inReal []float64, startIdx, optInTimePeriod, optInMAType int32) RetCode {
@@ -1094,7 +1107,8 @@ func (c *Core) maOpenInternal(inReal []float64, startIdx, optInTimePeriod, optIn
 // inReal is the history; the parameters are those of [Core.MA].
 //
 // The error is [InsufficientHistory] for a history of at most [Core.MALookback]
-// bars, and [BadParam] for a parameter out of range.
+// bars, [OutOfRangeEndIndex] for one longer than [IndexMax]+1 bars, and
+// [BadParam] for a parameter out of range.
 func (c *Core) MAOpen(inReal []float64, optInTimePeriod int, optInMAType MAType) (*MAStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -1114,7 +1128,8 @@ func (c *Core) MAOpen(inReal []float64, optInTimePeriod int, optInMAType MAType)
 // memory with an input or another output.
 //
 // The errors are those of [Core.MAOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) MAOpenAndFill(inReal []float64, optInTimePeriod int, optInMAType MAType, outReal []float64) (*MAStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

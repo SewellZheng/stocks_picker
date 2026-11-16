@@ -91,7 +91,9 @@ func (c *Core) ultoscImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float
 	var periods [3]int32
 	var sortedPeriods [3]int32
 	var term_closeMinusTrueLow []float64
+	var local_term_closeMinusTrueLow [32]float64
 	var term_trueRange []float64
+	var local_term_trueRange [32]float64
 	var term_Idx int32
 	var maxIdx_term int32
 	maxIdx_term = 31
@@ -149,8 +151,16 @@ func (c *Core) ultoscImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float
 	if optInTimePeriod3 < 1 {
 		return InternalError
 	}
-	term_closeMinusTrueLow = make([]float64, optInTimePeriod3)
-	term_trueRange = make([]float64, optInTimePeriod3)
+	if optInTimePeriod3 <= 32 {
+		term_closeMinusTrueLow = local_term_closeMinusTrueLow[:optInTimePeriod3]
+	} else {
+		term_closeMinusTrueLow = make([]float64, optInTimePeriod3)
+	}
+	if optInTimePeriod3 <= 32 {
+		term_trueRange = local_term_trueRange[:optInTimePeriod3]
+	} else {
+		term_trueRange = make([]float64, optInTimePeriod3)
+	}
 	maxIdx_term = optInTimePeriod3 - 1
 	term_Idx = 0
 	a1Total = 0.0
@@ -283,20 +293,8 @@ func (c *Core) ultoscImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float
 			trailingPos3 = 0
 		}
 		outReal[outIdx] = float64(100.0 * (output / 7.0))
-		var _T0 float64
-		if a1Total < a2Total {
-			_T0 = a1Total
-		} else {
-			_T0 = a2Total
-		}
-		lowest = _T0
-		var _T1 float64
-		if a3Total < lowest {
-			_T1 = a3Total
-		} else {
-			_T1 = lowest
-		}
-		lowest = _T1
+		lowest = selF(a1Total < a2Total, a1Total, a2Total)
+		lowest = selF(a3Total < lowest, a3Total, lowest)
 		if lowest < 0.0 && (negSlot == term_Idx || term_closeMinusTrueLow[negSlot] >= 0.0) {
 			a1Total = 0.0
 			b1Total = 0.0
@@ -354,6 +352,25 @@ func (c *Core) ULTOSCLookback(optInTimePeriod1, optInTimePeriod2, optInTimePerio
 	return int(lookback), nil
 }
 
+// ULTOSCDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.ULTOSC]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.ULTOSC] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.ULTOSCLookback] rejects or an index that names no output.
+func (c *Core) ULTOSCDisplayShift(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outputIdx int) (int, error) {
+	if _, err := c.ULTOSCLookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // ULTOSC computes the Ultimate Oscillator over bars startIdx through endIdx.
 //
 // Ultimate Oscillator: momentum indicator combining buying-pressure/true-range
@@ -390,7 +407,8 @@ func (c *Core) ULTOSCLookback(optInTimePeriod1, optInTimePeriod2, optInTimePerio
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) ULTOSC(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3 int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -493,11 +511,158 @@ func (sp *ULTOSCStream) Update(inHigh, inLow, inClose float64) (float64, error) 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
-	ultoscStepImpl(sp, inHigh, inLow, inClose)
 	sp.outRangeCount++
+	var trueLow float64
+	var trueRange float64
+	var closeMinusTrueLow float64
+	var tempDouble float64
+	var output float64
+	var tempHT float64
+	var tempLT float64
+	var tempCY float64
+	var lowest float64
+	var i int32
+	var j int32
+	var live int32
+	var a1Total float64
+	var a2Total float64
+	var a3Total float64
+	var b1Total float64
+	var b2Total float64
+	var b3Total float64
+	var cb_term_closeMinusTrueLow []float64
+	var cb_term_trueRange []float64
+	var negSlot int32
+	var optInTimePeriod1 int32
+	var optInTimePeriod2 int32
+	var optInTimePeriod3 int32
+	var term_Idx int32
+	tempLT = inLow
+	tempHT = inHigh
+	tempCY = sp.lag1_inClose
+	trueLow = selF(tempLT < tempCY, tempLT, tempCY)
+	closeMinusTrueLow = inClose - trueLow
+	trueRange = tempHT - tempLT
+	tempDouble = math.Abs(tempCY - tempHT)
+	if tempDouble > trueRange {
+		trueRange = tempDouble
+	}
+	tempDouble = math.Abs(tempCY - tempLT)
+	if tempDouble > trueRange {
+		trueRange = tempDouble
+	}
+	sp.cb_term_closeMinusTrueLow[sp.term_Idx] = closeMinusTrueLow
+	sp.cb_term_trueRange[sp.term_Idx] = trueRange
+	live = b2i(!(trueRange+math.Abs(closeMinusTrueLow) <= 0.0))
+	sp.nullRun = (sp.nullRun + 1) & (live - 1)
+	if sp.nullRun >= sp.optInTimePeriod3 {
+		sp.nullRun = sp.optInTimePeriod3
+		sp.a1Total = 0.0
+		sp.b1Total = 0.0
+		sp.a2Total = 0.0
+		sp.b2Total = 0.0
+		sp.a3Total = 0.0
+		sp.b3Total = 0.0
+		output = 0.0
+	} else {
+		sp.a1Total += closeMinusTrueLow
+		sp.a2Total += closeMinusTrueLow
+		sp.a3Total += closeMinusTrueLow
+		sp.b1Total += trueRange
+		sp.b2Total += trueRange
+		sp.b3Total += trueRange
+		if sp.nullRun >= sp.optInTimePeriod1 {
+			sp.a1Total = 0.0
+			sp.b1Total = 0.0
+			if sp.nullRun >= sp.optInTimePeriod2 {
+				sp.a2Total = 0.0
+				sp.b2Total = 0.0
+			}
+		}
+		output = 0.0
+		if sp.b1Total > 0.0 {
+			output += float64(4.0 * (sp.a1Total / sp.b1Total))
+		}
+		if sp.b2Total > 0.0 {
+			output += float64(2.0 * (sp.a2Total / sp.b2Total))
+		}
+		if sp.b3Total > 0.0 {
+			output += sp.a3Total / sp.b3Total
+		}
+		sp.a1Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos1]
+		sp.b1Total -= sp.cb_term_trueRange[sp.trailingPos1]
+		sp.a2Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos2]
+		sp.b2Total -= sp.cb_term_trueRange[sp.trailingPos2]
+		sp.a3Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos3]
+		sp.b3Total -= sp.cb_term_trueRange[sp.trailingPos3]
+	}
+	sp.trailingPos1 += 1
+	if sp.trailingPos1 >= sp.optInTimePeriod3 {
+		sp.trailingPos1 = 0
+	}
+	sp.trailingPos2 += 1
+	if sp.trailingPos2 >= sp.optInTimePeriod3 {
+		sp.trailingPos2 = 0
+	}
+	sp.term_Idx = sp.trailingPos3
+	sp.trailingPos3 += 1
+	if sp.trailingPos3 >= sp.optInTimePeriod3 {
+		sp.trailingPos3 = 0
+	}
+	sp.cur_outReal = float64(100.0 * (output / 7.0))
+	lowest = selF(sp.a1Total < sp.a2Total, sp.a1Total, sp.a2Total)
+	lowest = selF(sp.a3Total < lowest, sp.a3Total, lowest)
+	if lowest < 0.0 && (sp.negSlot == sp.term_Idx || sp.cb_term_closeMinusTrueLow[sp.negSlot] >= 0.0) {
+		sp.a1Total = 0.0
+		sp.b1Total = 0.0
+		sp.a2Total = 0.0
+		sp.b2Total = 0.0
+		sp.a3Total = 0.0
+		sp.b3Total = 0.0
+		a1Total = sp.a1Total
+		a2Total = sp.a2Total
+		a3Total = sp.a3Total
+		b1Total = sp.b1Total
+		b2Total = sp.b2Total
+		b3Total = sp.b3Total
+		cb_term_closeMinusTrueLow = sp.cb_term_closeMinusTrueLow
+		cb_term_trueRange = sp.cb_term_trueRange
+		negSlot = sp.negSlot
+		optInTimePeriod1 = sp.optInTimePeriod1
+		optInTimePeriod2 = sp.optInTimePeriod2
+		optInTimePeriod3 = sp.optInTimePeriod3
+		term_Idx = sp.term_Idx
+		for i = 1; i < optInTimePeriod3; i += 1 {
+			j = term_Idx + i
+			if j >= optInTimePeriod3 {
+				j -= optInTimePeriod3
+			}
+			if i > optInTimePeriod3-optInTimePeriod1 {
+				a1Total += cb_term_closeMinusTrueLow[j]
+				b1Total += cb_term_trueRange[j]
+			}
+			if i > optInTimePeriod3-optInTimePeriod2 {
+				a2Total += cb_term_closeMinusTrueLow[j]
+				b2Total += cb_term_trueRange[j]
+			}
+			a3Total += cb_term_closeMinusTrueLow[j]
+			b3Total += cb_term_trueRange[j]
+			if cb_term_closeMinusTrueLow[j] < 0.0 {
+				negSlot = j
+			}
+		}
+		sp.a1Total = a1Total
+		sp.a2Total = a2Total
+		sp.a3Total = a3Total
+		sp.b1Total = b1Total
+		sp.b2Total = b2Total
+		sp.b3Total = b3Total
+		sp.negSlot = negSlot
+	}
+	sp.lag1_inClose = inClose
 	return sp.cur_outReal, nil
 }
 
@@ -505,7 +670,7 @@ func (sp *ULTOSCStream) Update(inHigh, inLow, inClose float64) (float64, error) 
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *ULTOSCStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, BadParam
 	}
 	var trueLow float64
@@ -536,17 +701,13 @@ func (sp *ULTOSCStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 	tempLT = inLow
 	tempHT = inHigh
 	tempCY = sp.lag1_inClose
-	trueLow = minF(tempLT, tempCY)
+	trueLow = selF(tempLT < tempCY, tempLT, tempCY)
 	closeMinusTrueLow = inClose - trueLow
 	trueRange = tempHT - tempLT
 	tempDouble = math.Abs(tempCY - tempHT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
 	tempDouble = math.Abs(tempCY - tempLT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
+	trueRange = selF(tempDouble > trueRange, tempDouble, trueRange)
 	pkSlot0 = term_Idx
 	pkVal0 = closeMinusTrueLow
 	pkSlot1 = term_Idx
@@ -659,136 +820,6 @@ func (sp *ULTOSCStream) Clone() *ULTOSCStream {
 	cl.cb_term_closeMinusTrueLow = append(sp.cb_term_closeMinusTrueLow[:0:0], sp.cb_term_closeMinusTrueLow...)
 	cl.cb_term_trueRange = append(sp.cb_term_trueRange[:0:0], sp.cb_term_trueRange...)
 	return &cl
-}
-
-func ultoscStepImpl(sp *ULTOSCStream, inHigh, inLow, inClose float64) {
-	var trueLow float64
-	var trueRange float64
-	var closeMinusTrueLow float64
-	var tempDouble float64
-	var output float64
-	var tempHT float64
-	var tempLT float64
-	var tempCY float64
-	var lowest float64
-	var i int32
-	var j int32
-	var live int32
-	tempLT = inLow
-	tempHT = inHigh
-	tempCY = sp.lag1_inClose
-	trueLow = minF(tempLT, tempCY)
-	closeMinusTrueLow = inClose - trueLow
-	trueRange = tempHT - tempLT
-	tempDouble = math.Abs(tempCY - tempHT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	tempDouble = math.Abs(tempCY - tempLT)
-	if tempDouble > trueRange {
-		trueRange = tempDouble
-	}
-	sp.cb_term_closeMinusTrueLow[sp.term_Idx] = closeMinusTrueLow
-	sp.cb_term_trueRange[sp.term_Idx] = trueRange
-	live = b2i(!(trueRange+math.Abs(closeMinusTrueLow) <= 0.0))
-	sp.nullRun = (sp.nullRun + 1) & (live - 1)
-	if sp.nullRun >= sp.optInTimePeriod3 {
-		sp.nullRun = sp.optInTimePeriod3
-		sp.a1Total = 0.0
-		sp.b1Total = 0.0
-		sp.a2Total = 0.0
-		sp.b2Total = 0.0
-		sp.a3Total = 0.0
-		sp.b3Total = 0.0
-		output = 0.0
-	} else {
-		sp.a1Total += closeMinusTrueLow
-		sp.a2Total += closeMinusTrueLow
-		sp.a3Total += closeMinusTrueLow
-		sp.b1Total += trueRange
-		sp.b2Total += trueRange
-		sp.b3Total += trueRange
-		if sp.nullRun >= sp.optInTimePeriod1 {
-			sp.a1Total = 0.0
-			sp.b1Total = 0.0
-			if sp.nullRun >= sp.optInTimePeriod2 {
-				sp.a2Total = 0.0
-				sp.b2Total = 0.0
-			}
-		}
-		output = 0.0
-		if sp.b1Total > 0.0 {
-			output += float64(4.0 * (sp.a1Total / sp.b1Total))
-		}
-		if sp.b2Total > 0.0 {
-			output += float64(2.0 * (sp.a2Total / sp.b2Total))
-		}
-		if sp.b3Total > 0.0 {
-			output += sp.a3Total / sp.b3Total
-		}
-		sp.a1Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos1]
-		sp.b1Total -= sp.cb_term_trueRange[sp.trailingPos1]
-		sp.a2Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos2]
-		sp.b2Total -= sp.cb_term_trueRange[sp.trailingPos2]
-		sp.a3Total -= sp.cb_term_closeMinusTrueLow[sp.trailingPos3]
-		sp.b3Total -= sp.cb_term_trueRange[sp.trailingPos3]
-	}
-	sp.trailingPos1 += 1
-	if sp.trailingPos1 >= sp.optInTimePeriod3 {
-		sp.trailingPos1 = 0
-	}
-	sp.trailingPos2 += 1
-	if sp.trailingPos2 >= sp.optInTimePeriod3 {
-		sp.trailingPos2 = 0
-	}
-	sp.term_Idx = sp.trailingPos3
-	sp.trailingPos3 += 1
-	if sp.trailingPos3 >= sp.optInTimePeriod3 {
-		sp.trailingPos3 = 0
-	}
-	sp.cur_outReal = float64(100.0 * (output / 7.0))
-	var _T6 float64
-	if sp.a1Total < sp.a2Total {
-		_T6 = sp.a1Total
-	} else {
-		_T6 = sp.a2Total
-	}
-	lowest = _T6
-	var _T7 float64
-	if sp.a3Total < lowest {
-		_T7 = sp.a3Total
-	} else {
-		_T7 = lowest
-	}
-	lowest = _T7
-	if lowest < 0.0 && (sp.negSlot == sp.term_Idx || sp.cb_term_closeMinusTrueLow[sp.negSlot] >= 0.0) {
-		sp.a1Total = 0.0
-		sp.b1Total = 0.0
-		sp.a2Total = 0.0
-		sp.b2Total = 0.0
-		sp.a3Total = 0.0
-		sp.b3Total = 0.0
-		for i = 1; i < sp.optInTimePeriod3; i += 1 {
-			j = sp.term_Idx + i
-			if j >= sp.optInTimePeriod3 {
-				j -= sp.optInTimePeriod3
-			}
-			if i > sp.optInTimePeriod3-sp.optInTimePeriod1 {
-				sp.a1Total += sp.cb_term_closeMinusTrueLow[j]
-				sp.b1Total += sp.cb_term_trueRange[j]
-			}
-			if i > sp.optInTimePeriod3-sp.optInTimePeriod2 {
-				sp.a2Total += sp.cb_term_closeMinusTrueLow[j]
-				sp.b2Total += sp.cb_term_trueRange[j]
-			}
-			sp.a3Total += sp.cb_term_closeMinusTrueLow[j]
-			sp.b3Total += sp.cb_term_trueRange[j]
-			if sp.cb_term_closeMinusTrueLow[j] < 0.0 {
-				sp.negSlot = j
-			}
-		}
-	}
-	sp.lag1_inClose = inClose
 }
 
 func (c *Core) ultoscOpenImpl(sp *ULTOSCStream, inHigh, inLow, inClose []float64, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3 int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -1023,20 +1054,8 @@ func (c *Core) ultoscOpenImpl(sp *ULTOSCStream, inHigh, inLow, inClose []float64
 			trailingPos3 = 0
 		}
 		outReal[outIdx*outStride] = float64(100.0 * (output / 7.0))
-		var _T8 float64
-		if a1Total < a2Total {
-			_T8 = a1Total
-		} else {
-			_T8 = a2Total
-		}
-		lowest = _T8
-		var _T9 float64
-		if a3Total < lowest {
-			_T9 = a3Total
-		} else {
-			_T9 = lowest
-		}
-		lowest = _T9
+		lowest = selF(a1Total < a2Total, a1Total, a2Total)
+		lowest = selF(a3Total < lowest, a3Total, lowest)
 		if lowest < 0.0 && (negSlot == term_Idx || term_closeMinusTrueLow[negSlot] >= 0.0) {
 			a1Total = 0.0
 			b1Total = 0.0
@@ -1127,8 +1146,9 @@ func (c *Core) ultoscOpenInternal(inHigh, inLow, inClose []float64, startIdx, op
 // are those of [Core.ULTOSC].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.ULTOSCLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.ULTOSCLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) ULTOSCOpen(inHigh, inLow, inClose []float64, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3 int) (*ULTOSCStream, float64, error) {
 	if !fitsInt32(optInTimePeriod1) {
 		return nil, 0, BadParam
@@ -1154,7 +1174,8 @@ func (c *Core) ULTOSCOpen(inHigh, inLow, inClose []float64, optInTimePeriod1, op
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.ULTOSCOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) ULTOSCOpenAndFill(inHigh, inLow, inClose []float64, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3 int, outReal []float64) (*ULTOSCStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod1) {
 		return nil, OutRange{}, BadParam

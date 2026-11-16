@@ -114,6 +114,32 @@ func (c *Core) DPOLookback(optInTimePeriod int) (int, error) {
 	return int(lookback), nil
 }
 
+func (c *Core) dpoDisplayShift(optInTimePeriod, outputIdx int32) int32 {
+	if optInTimePeriod == IntegerDefault {
+		optInTimePeriod = 20
+	} else if optInTimePeriod < 2 || optInTimePeriod > 100000 {
+		return 0
+	}
+	return -(optInTimePeriod/2 + 1)
+}
+
+// DPODisplayShift returns how many bars ahead (positive) or behind (negative)
+// of the bar that computed it a chart draws output outputIdx of [Core.DPO]. The
+// values are never shifted.
+//
+// It takes the parameters of [Core.DPO] followed by the output's position among
+// its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.DPOLookback] rejects or an index that names no output.
+func (c *Core) DPODisplayShift(optInTimePeriod, outputIdx int) (int, error) {
+	if _, err := c.DPOLookback(optInTimePeriod); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 1 {
+		return 0, BadParam
+	}
+	return int(c.dpoDisplayShift(int32(optInTimePeriod), int32(outputIdx))), nil
+}
+
 // DPO computes the Detrended Price Oscillator over bars startIdx through
 // endIdx.
 //
@@ -145,7 +171,8 @@ func (c *Core) DPOLookback(optInTimePeriod int) (int, error) {
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) DPO(startIdx, endIdx int, inReal []float64, optInTimePeriod int, outReal []float64) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -221,47 +248,10 @@ func (sp *DPOStream) Update(inReal float64) (float64, error) {
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inReal) {
+	if inReal-inReal != 0 {
 		return 0, BadParam
 	}
-	dpoStepImpl(sp, inReal)
 	sp.outRangeCount++
-	return sp.cur_outReal, nil
-}
-
-// Peek returns what Update would return for the bar inReal, changing nothing.
-// It returns [BadParam] for a bar value that is not finite.
-func (sp *DPOStream) Peek(inReal float64) (float64, error) {
-	if !isFinite(inReal) {
-		return 0, BadParam
-	}
-	var tempReal float64
-	var dispVal float64
-	var cur_outReal float64
-	periodTotal := sp.periodTotal
-	periodTotal += inReal
-	tempReal = periodTotal
-	periodTotal -= sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
-	dispVal = sp.ring_dispIdx_inReal[sp.ringPos_dispIdx]
-	cur_outReal = dispVal - tempReal/float64(sp.optInTimePeriod)
-	return cur_outReal, nil
-}
-
-// Value returns the value at the last bar of OutRange; Peek does not change it.
-func (sp *DPOStream) Value() float64 {
-	return sp.cur_outReal
-}
-
-// Clone returns an independent copy of the stream at the same bar: the two
-// evolve separately and share only the [Core].
-func (sp *DPOStream) Clone() *DPOStream {
-	cl := *sp
-	cl.ring_dispIdx_inReal = append(sp.ring_dispIdx_inReal[:0:0], sp.ring_dispIdx_inReal...)
-	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
-	return &cl
-}
-
-func dpoStepImpl(sp *DPOStream, inReal float64) {
 	var tempReal float64
 	var dispVal float64
 	var ringPosL_dispIdx int32
@@ -289,6 +279,39 @@ func dpoStepImpl(sp *DPOStream, inReal float64) {
 		ringPosL_trailingIdx = 0
 	}
 	sp.ringPos_trailingIdx = ringPosL_trailingIdx
+	return sp.cur_outReal, nil
+}
+
+// Peek returns what Update would return for the bar inReal, changing nothing.
+// It returns [BadParam] for a bar value that is not finite.
+func (sp *DPOStream) Peek(inReal float64) (float64, error) {
+	if inReal-inReal != 0 {
+		return 0, BadParam
+	}
+	var tempReal float64
+	var dispVal float64
+	var cur_outReal float64
+	periodTotal := sp.periodTotal
+	periodTotal += inReal
+	tempReal = periodTotal
+	periodTotal -= sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
+	dispVal = sp.ring_dispIdx_inReal[sp.ringPos_dispIdx]
+	cur_outReal = dispVal - tempReal/float64(sp.optInTimePeriod)
+	return cur_outReal, nil
+}
+
+// Value returns the value at the last bar of OutRange; Peek does not change it.
+func (sp *DPOStream) Value() float64 {
+	return sp.cur_outReal
+}
+
+// Clone returns an independent copy of the stream at the same bar: the two
+// evolve separately and share only the [Core].
+func (sp *DPOStream) Clone() *DPOStream {
+	cl := *sp
+	cl.ring_dispIdx_inReal = append(sp.ring_dispIdx_inReal[:0:0], sp.ring_dispIdx_inReal...)
+	cl.ring_trailingIdx_inReal = append(sp.ring_trailingIdx_inReal[:0:0], sp.ring_trailingIdx_inReal...)
+	return &cl
 }
 
 func (c *Core) dpoOpenImpl(sp *DPOStream, inReal []float64, startIdx, optInTimePeriod int32, outBegIdx, outNBElement *int32, outReal []float64, outStride int32) RetCode {
@@ -399,7 +422,8 @@ func (c *Core) dpoOpenInternal(inReal []float64, startIdx, optInTimePeriod int32
 // inReal is the history; the parameters are those of [Core.DPO].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.DPOLookback] bars, and [BadParam] for a parameter out of range.
+// [Core.DPOLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range.
 func (c *Core) DPOOpen(inReal []float64, optInTimePeriod int) (*DPOStream, float64, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, 0, BadParam
@@ -419,7 +443,8 @@ func (c *Core) DPOOpen(inReal []float64, optInTimePeriod int) (*DPOStream, float
 // no memory with an input or another output.
 //
 // The errors are those of [Core.DPOOpen], and [BadParam] for an output that is
-// empty, too short or sharing memory.
+// empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) DPOOpenAndFill(inReal []float64, optInTimePeriod int, outReal []float64) (*DPOStream, OutRange, error) {
 	if !fitsInt32(optInTimePeriod) {
 		return nil, OutRange{}, BadParam

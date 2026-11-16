@@ -34,6 +34,9 @@ on:
         type: string
 
 jobs:
+  # No job here `needs: test`. Each checks out job.workflow_sha and builds what
+  # it uses; waiting on packaging would add its whole time to the critical
+  # path, and a failure there must not skip the others.
   test:
     name: Test ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -354,13 +357,9 @@ jobs:
         shell: bash
         run: python scripts/check_dll_exports.py
 
-  # Cross-language codegen verification — runs AFTER the C tests (needs: test).
-  # C is the hero: the 'test' job above validates the C library with a C-only
-  # toolchain (CMake/autotools never invoke cargo, so ta_regtest needs no Rust
-  # toolchain). Only this job adds the Rust/Java/.NET toolchains, builds the
-  # JSON-RPC language servers, and runs ta_regtest --codegen: every function x
-  # 4 languages diffed against the in-process library, including the
-  # non-default-parameter sweep. POSIX-only (the server harness uses
+  # Cross-language codegen verification. It runs ta_regtest --codegen: every
+  # function in every language server diffed against the in-process library,
+  # including the non-default-parameter sweep. POSIX-only (the server harness uses
   # fork/exec), hence no Windows leg.
   #
   # --codegen runs the C reference tests in the same process as the codegen
@@ -370,11 +369,8 @@ jobs:
   # tier a cross-language check.
   cross-language:
     name: "xlang: all langs vs in-process C"
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    # The bounds-checked TypeScript leg roughly doubles the job.
-    timeout-minutes: 75
+    timeout-minutes: 45
     permissions:
       contents: read
 
@@ -384,6 +380,7 @@ jobs:
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0 # the release tags the ta_ref members pin
+          filter: blob:none
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -415,10 +412,46 @@ jobs:
       - name: Check the function pages' reference data
         run: python3 scripts/build.py refdata --check
 
-      # A JS typed array reads undefined past its end and drops the store, so the
-      # leg above cannot see an off-by-one the JVM, the CLR and safe Rust throw
-      # on. Here every typed array the TS server and library build is
-      # bounds-checked; the log proves the servers really loaded the preload.
+      # The benchmark CORPUS, not the benchmark. --verify-corpus checks every
+      # shape is reproducible and produces valid OHLC — deterministic, so unlike
+      # the timings it belongs in CI. It rides this job because regtest.py's
+      # build step already put ta_bench in bin/. A shape that stops generating
+      # valid data silently changes what every bench measures (#147).
+      - name: Verify the benchmark input corpus
+        shell: bash
+        run: cd bin && ./ta_bench --verify-corpus --points=100000
+
+  # A JS typed array reads undefined past its end and drops the store, so the
+  # cross-language job cannot see an off-by-one the JVM, the CLR and safe Rust
+  # throw on. Here every typed array the TS server and library build is
+  # bounds-checked; the log proves the servers really loaded the preload. Its
+  # own job because the checked server roughly doubles the TS sweep.
+  cross-language-ts-checked:
+    name: "xlang: TypeScript with bounds-checked typed arrays"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ job.workflow_sha }}
+
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Build the C and TypeScript servers
+        run: python3 scripts/build.py servers --language=c,ts
+
       - name: TypeScript with bounds-checked typed arrays
         shell: bash
         run: |
@@ -435,15 +468,6 @@ jobs:
             exit 1
           fi
 
-      # The benchmark CORPUS, not the benchmark. --verify-corpus checks every
-      # shape is reproducible and produces valid OHLC — deterministic, so unlike
-      # the timings it belongs in CI. It rides this job because regtest.py's
-      # build step already put ta_bench in bin/. A shape that stops generating
-      # valid data silently changes what every bench measures (#147).
-      - name: Verify the benchmark input corpus
-        shell: bash
-        run: cd bin && ./ta_bench --verify-corpus --points=100000
-
   # Synthetic-function gate. The cross-language job above verifies the SHIPPED
   # functions; this one verifies generator surface no shipped function uses
   # (bitwise operators, integer truthiness, do-while, switch-on-expression, ...).
@@ -456,9 +480,34 @@ jobs:
   # asserts the SYNTH functions were actually swept in every leg, so a
   # refactor that silently stops enumerating them fails instead of passing an
   # empty run. Nothing synthetic ever lands in the shipped tree.
+  #
+  # Two jobs, one per --part, run in parallel. Together they are the whole gate.
+  synth-gate-generator:
+    name: "synth-gate: the generator suite over the fixtures"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ job.workflow_sha }}
+
+      - name: Install Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Run the generator suite on the injected tree
+        shell: bash
+        run: |
+          # Rust toolchain is preinstalled on ubuntu-latest.
+          python3 scripts/synth_gate.py --part=generator
+
   synth-gate:
     name: "synth-gate: unshipped generator surface, all langs"
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -470,6 +519,7 @@ jobs:
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0 # the release tags the ta_ref members pin
+          filter: blob:none
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -493,11 +543,10 @@ jobs:
         shell: bash
         run: |
           # Rust toolchain and cmake are preinstalled on ubuntu-latest.
-          python3 scripts/synth_gate.py
+          python3 scripts/synth_gate.py --part=languages
 
   # The publishable Java jars, built with the committed Maven wrapper and tested
-  # AS THE ARTIFACT (#428). No `needs:`, so a dist-pool failure cannot take it
-  # down with it.
+  # AS THE ARTIFACT (#428).
   java:
     name: Java jars built and tested
     runs-on: ubuntu-latest
@@ -906,7 +955,7 @@ jobs:
   # panic. This job rebuilds the Rust server with the debug profile (overflow
   # checks on) and runs the codegen edge-range sweep (test_codegen.c
   # run_edge_range_sweep) against it, so any such overflow becomes a hard
-  # failure. Rust-only (no JDK/.NET), gated on the C hero job.
+  # failure. Rust-only (no JDK/.NET).
   #
   # The BATCH tier is what the sweep covers; the second step extends the same
   # debug binary to the STREAM tier (Open/Update/Peek/Close, rings, sub-handles),
@@ -914,7 +963,6 @@ jobs:
   # warm — it costs one extra pipe, not a second job.
   cross-language-rust-debug:
     name: Rust tests (debug profile — overflow gate)
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -926,6 +974,7 @@ jobs:
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0 # the release tags the ta_ref members pin
+          filter: blob:none
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -960,8 +1009,7 @@ jobs:
   # sets #![warn(missing_docs)] (#179 D7), and `-D warnings` here is the only thing
   # that turns an undocumented public item into a failure rather than a warning
   # nobody reads.
-  # Rust-only and self-contained: no C build, no JDK/.NET, and intentionally NOT
-  # gated on the C hero 'test' job, so an unrelated dist failure can't skip it.
+  # Rust-only and self-contained: no C build, no JDK/.NET.
   #
   # This job also RUNS the generator's own unit tests (`cargo test`). Clippy with
   # --all-targets only *compiles* the test target; it never executes it, so
@@ -1140,9 +1188,6 @@ jobs:
   # ta_codegen/generator/src/main.rs moves this gate with it, and the two
   # reads are also the job's non-vacuity guard -- a missing floor, or a ta-lib
   # floor below ta-lib-dispatch's, fails before any toolchain is installed.
-  #
-  # Rust-only and self-contained, so like clippy above it is deliberately NOT
-  # gated on the C hero 'test' job.
   msrv:
     name: Rust MSRV floor
     runs-on: ubuntu-latest
@@ -1220,8 +1265,7 @@ jobs:
   #
   # Nightly, not the PR gate, for the same reason as msrv above: two rust-std
   # downloads of unmeasured time do not belong in every contributor's
-  # merge-blocking path. Rust-only and self-contained, so also not gated on the
-  # C hero 'test' job.
+  # merge-blocking path.
   cross-target:
     name: Rust cross-target check
     runs-on: ubuntu-latest
@@ -1277,10 +1321,6 @@ jobs:
   # ta-ref.yml. fetch-depth: 0 so the release tags are available.
   ta-ref:
     name: C Latest vs frozen releases
-    needs: test
-    # Run after 'test' but don't let an unrelated failure (e.g. the Windows leg)
-    # silently skip this release gate — it has its own checkout+build.
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1292,6 +1332,7 @@ jobs:
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0 # the release tags the ta_ref members pin
+          filter: blob:none
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -1308,8 +1349,6 @@ jobs:
   # start passes every other gate.
   auto-stabilization-sample:
     name: Auto-Stabilization sampled census
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1350,9 +1389,6 @@ jobs:
   #      an FMA-baseline target can therefore make the two sides generate DIFFERENT
   #      inputs from the same (shape, seed, n). The reporter could not test this
   #      half: macOS /usr/bin/gcc is an Apple clang shim.
-  #
-  # Not gated on 'test': that job is x86-64 + Windows, so an unrelated dist failure
-  # there must never skip this platform's only coverage.
   arm64-linux:
     name: arm64 Linux (GCC, baseline FMA — oracle contraction gate)
     runs-on: ubuntu-24.04-arm
@@ -1366,6 +1402,7 @@ jobs:
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0 # the release tags the ta_ref members pin
+          filter: blob:none
 
       - name: Install Python
         uses: actions/setup-python@v7
@@ -1510,8 +1547,6 @@ jobs:
   # JDK and the managed C# server needs the .NET SDK (both set up below).
   xlang-hash:
     name: xlang matching (C vs Rust + Java + C#, seed/hex+hash)
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1554,8 +1589,6 @@ jobs:
   # block below — it needs only Docker and the repo root as $PWD.
   musl-build:
     name: musllinux build (FMA dispatch correctly excluded)
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1612,11 +1645,9 @@ jobs:
   # parameter-boundary sweep (every optional parameter at min/min+1/default+-1/
   # large across every function). Turns an out-of-bounds / uninitialized read in
   # indicator code (the MACD/TRIX/MAVP/STOCH boundary class) into a hard failure
-  # instead of plausible garbage. C-only, GCC, gated on 'test'.
+  # instead of plausible garbage. C-only, GCC.
   sanitizers:
     name: ASan/UBSan (C reference suite + boundary sweep)
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1656,14 +1687,12 @@ jobs:
   # gcc + Python (the server compiles from the committed generated sources — no
   # cargo). Allocation-failure branches are guarded by generate-time generator
   # tests instead (they require malloc to fail, which no run exercises). C-only,
-  # GCC, gated on 'test'.
+  # GCC.
   #
   # Its last step is the one run of the C library on several threads, under
   # ThreadSanitizer. That one needs clang: see scripts/thread_sanitize.py.
   stream-sanitizers:
     name: ASan/UBSan/LSan (streaming API)
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1694,10 +1723,9 @@ jobs:
 
   # Conan packaging (#86) was never exercised by CI: build the package
   # recipe end to end (library-only; BUILD_TESTING stays off in the
-  # recipe). Gated on the C hero job like the other non-hero jobs.
+  # recipe).
   conan:
     name: Conan package build
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1783,14 +1811,10 @@ jobs:
           python setup.py build_ext --inplace
           PYTHONPATH=. pytest -q
 
-  # Runs LAST (needs: test) so every other job tested the committed,
-  # already-generated sources. This regenerates from ta_codegen/input/ and fails
-  # if anything differs — i.e. an input edit whose generated output was never
-  # re-generated and committed.
+  # Regenerates from ta_codegen/input/ and fails if anything differs — i.e. an
+  # input edit whose generated output was never re-generated and committed.
   regen-check:
     name: ta_codegen output up-to-date
-    needs: test
-    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -1899,19 +1923,24 @@ jobs:
   # A job here rather than its own workflow because it COMMITS to dev: keeping it
   # inside the nightly's single writer window is what keeps "green dev-nightly
   # means mergeable dev" true. Do not give it `needs:` and do not feed it another
-  # job's build artifact (which would require one): the critical path is the
-  # arm64 job at ~21 min and this is ~1, so in parallel it costs zero wall clock,
-  # while serialising it charges the nightly for every minute it takes.
+  # job's build artifact (which would require one): in parallel it costs no
+  # wall clock, while serialising it charges the nightly for every minute it
+  # takes.
   #
   # It counts retired instructions under callgrind rather than timing anything:
   # exact, byte-identical across runs on a loaded box, which is what lets a 10%
   # threshold mean anything on a shared vCPU. It is blind to out-of-order
   # execution and to what a mispredicted branch costs, so a percentage from it
   # is never a quoted performance figure.
+  #
+  # Advisory: a row over the threshold is a warning in the run summary, and
+  # nothing in this job turns the nightly red. Counts are exact on one host
+  # only, and a hosted runner's hardware is not ours to pick.
   icount:
     name: Instruction counts (x86_64)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    continue-on-error: true
     env:
       MODE: ${{ inputs.perf_mode || 'gate' }}
       THRESHOLD: ${{ inputs.perf_threshold || '0.10' }}
@@ -2058,14 +2087,14 @@ jobs:
           for shape in randwalk peg; do
             python3 scripts/bench_icount.py --no-build --shape="$shape" \
               --out-file="temp/callgrind.icount.$shape.out" \
-              --threshold="$THRESHOLD" "${flags[@]}" || rc=1
+              --threshold="$THRESHOLD" --advisory "${flags[@]}" || rc=1
           done
           exit $rc
 
       # Reached only when the step above exited 0, and in `gate` mode
-      # bench_icount.py only ever LOWERS a row. A regression cannot be absorbed
-      # here one green night at a time; raising a row needs mode=accept naming
-      # that row, which is a person deciding to.
+      # bench_icount.py only ever LOWERS a row: one over the threshold is
+      # held, not absorbed. Raising a row needs mode=accept naming that row,
+      # which is a person deciding to.
       - name: Commit the lowered baseline
         if: success() && steps.decide.outputs.measure == 'true' && env.IS_MAIN != '1'
         run: |

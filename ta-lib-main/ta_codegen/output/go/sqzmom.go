@@ -247,6 +247,25 @@ func (c *Core) SQZMOMLookback(optInBBPeriod int, optInNbDev float64, optInKCPeri
 	return int(lookback), nil
 }
 
+// SQZMOMDisplayShift returns how many bars ahead (positive) or behind
+// (negative) of the bar that computed it a chart draws output outputIdx of
+// [Core.SQZMOM]. The values are never shifted.
+//
+// Every output of this function is drawn at its own bar, so the answer is 0.
+//
+// It takes the parameters of [Core.SQZMOM] followed by the output's position
+// among its outputs, from 0, and returns [BadParam] for a parameter
+// [Core.SQZMOMLookback] rejects or an index that names no output.
+func (c *Core) SQZMOMDisplayShift(optInBBPeriod int, optInNbDev float64, optInKCPeriod int, optInFactorWide, optInFactorNormal, optInFactorNarrow float64, outputIdx int) (int, error) {
+	if _, err := c.SQZMOMLookback(optInBBPeriod, optInNbDev, optInKCPeriod, optInFactorWide, optInFactorNormal, optInFactorNarrow); err != nil {
+		return 0, err
+	}
+	if outputIdx < 0 || outputIdx >= 2 {
+		return 0, BadParam
+	}
+	return 0, nil
+}
+
 // SQZMOM computes the Squeeze Momentum and Level over bars startIdx through
 // endIdx.
 //
@@ -297,7 +316,8 @@ func (c *Core) SQZMOMLookback(optInBBPeriod int, optInNbDev float64, optInKCPeri
 // The error is [OutOfRangeStartIndex] or [OutOfRangeEndIndex] for a range
 // outside 0 to [IndexMax] or ending before it starts, and [BadParam] for a
 // parameter out of range, an input too short, an output empty or too short or
-// memory shared otherwise.
+// memory shared otherwise. A slice whose capacity a three-index expression cut,
+// as slices.Clip does, can escape the sharing check.
 func (c *Core) SQZMOM(startIdx, endIdx int, inHigh, inLow, inClose []float64, optInBBPeriod int, optInNbDev float64, optInKCPeriod int, optInFactorWide, optInFactorNormal, optInFactorNarrow float64, outMomentum []float64, outSqueeze []int32) (OutRange, error) {
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutRange{}, OutOfRangeStartIndex
@@ -394,12 +414,69 @@ func (sp *SQZMOMStream) Update(inHigh, inLow, inClose float64) (float64, int32, 
 	if sp.outRangeBegIdx+sp.outRangeCount > IndexMax {
 		return 0, 0, OutOfRangeEndIndex
 	}
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
-	if err := sqzmomStepImpl(sp, inHigh, inLow, inClose); err != nil {
-		return 0, 0, err
+	var band float64
+	var centre float64
+	var dev float64
+	var lo float64
+	var up float64
+	var cur_tempDev float64
+	var cur_tempKCM float64
+	var cur_tempWork float64
+	var cur_tempMid float64
+	var cur_tempSD float64
+	var cur_outMomentum float64
+	var cur_outSqueeze int32
+	var subErr error
+	cur_tempDev, subErr = sp.sub0.Update(inHigh, inLow)
+	if subErr != nil {
+		return 0, 0, subErr
 	}
+	cur_tempKCM, subErr = sp.sub1.Update(inClose)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempDev = inClose - (cur_tempDev+cur_tempKCM)/2.0
+	cur_tempWork, subErr = sp.sub2.Update(inHigh, inLow, inClose)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempWork, subErr = sp.sub3.Update(cur_tempWork)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempMid, subErr = sp.sub4.Update(inClose)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_tempSD, subErr = sp.sub5.Update(inClose)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	cur_outMomentum, subErr = sp.sub6.Update(cur_tempDev)
+	if subErr != nil {
+		return 0, 0, subErr
+	}
+	dev = float64(cur_tempSD * sp.optInNbDev)
+	up = cur_tempMid + dev
+	lo = cur_tempMid - dev
+	centre = cur_tempKCM
+	band = cur_tempWork
+	if lo > centre-float64(sp.optInFactorNarrow*band) && up < centre+float64(sp.optInFactorNarrow*band) {
+		cur_outSqueeze = 3
+	} else if lo > centre-float64(sp.optInFactorNormal*band) && up < centre+float64(sp.optInFactorNormal*band) {
+		cur_outSqueeze = 2
+	} else if lo > centre-float64(sp.optInFactorWide*band) && up < centre+float64(sp.optInFactorWide*band) {
+		cur_outSqueeze = 1
+	} else if lo < centre-float64(sp.optInFactorWide*band) && up > centre+float64(sp.optInFactorWide*band) {
+		cur_outSqueeze = -1
+	} else {
+		cur_outSqueeze = 0
+	}
+	sp.cur_outMomentum = cur_outMomentum
+	sp.cur_outSqueeze = cur_outSqueeze
 	sp.outRangeCount++
 	return sp.cur_outMomentum, sp.cur_outSqueeze, nil
 }
@@ -408,7 +485,7 @@ func (sp *SQZMOMStream) Update(inHigh, inLow, inClose float64) (float64, int32, 
 // inClose), changing nothing. It returns [BadParam] for a bar value that is not
 // finite.
 func (sp *SQZMOMStream) Peek(inHigh, inLow, inClose float64) (float64, int32, error) {
-	if !isFinite(inHigh) || !isFinite(inLow) || !isFinite(inClose) {
+	if (inHigh-inHigh)+(inLow-inLow)+(inClose-inClose) != 0 {
 		return 0, 0, BadParam
 	}
 	var band float64
@@ -490,70 +567,6 @@ func (sp *SQZMOMStream) Clone() *SQZMOMStream {
 	cl.sub5 = sp.sub5.Clone()
 	cl.sub6 = sp.sub6.Clone()
 	return &cl
-}
-
-func sqzmomStepImpl(sp *SQZMOMStream, inHigh, inLow, inClose float64) error {
-	var band float64
-	var centre float64
-	var dev float64
-	var lo float64
-	var up float64
-	var cur_tempDev float64
-	var cur_tempKCM float64
-	var cur_tempWork float64
-	var cur_tempMid float64
-	var cur_tempSD float64
-	var cur_outMomentum float64
-	var cur_outSqueeze int32
-	var subErr error
-	cur_tempDev, subErr = sp.sub0.Update(inHigh, inLow)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempKCM, subErr = sp.sub1.Update(inClose)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempDev = inClose - (cur_tempDev+cur_tempKCM)/2.0
-	cur_tempWork, subErr = sp.sub2.Update(inHigh, inLow, inClose)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempWork, subErr = sp.sub3.Update(cur_tempWork)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempMid, subErr = sp.sub4.Update(inClose)
-	if subErr != nil {
-		return subErr
-	}
-	cur_tempSD, subErr = sp.sub5.Update(inClose)
-	if subErr != nil {
-		return subErr
-	}
-	cur_outMomentum, subErr = sp.sub6.Update(cur_tempDev)
-	if subErr != nil {
-		return subErr
-	}
-	dev = float64(cur_tempSD * sp.optInNbDev)
-	up = cur_tempMid + dev
-	lo = cur_tempMid - dev
-	centre = cur_tempKCM
-	band = cur_tempWork
-	if lo > centre-float64(sp.optInFactorNarrow*band) && up < centre+float64(sp.optInFactorNarrow*band) {
-		cur_outSqueeze = 3
-	} else if lo > centre-float64(sp.optInFactorNormal*band) && up < centre+float64(sp.optInFactorNormal*band) {
-		cur_outSqueeze = 2
-	} else if lo > centre-float64(sp.optInFactorWide*band) && up < centre+float64(sp.optInFactorWide*band) {
-		cur_outSqueeze = 1
-	} else if lo < centre-float64(sp.optInFactorWide*band) && up > centre+float64(sp.optInFactorWide*band) {
-		cur_outSqueeze = -1
-	} else {
-		cur_outSqueeze = 0
-	}
-	sp.cur_outMomentum = cur_outMomentum
-	sp.cur_outSqueeze = cur_outSqueeze
-	return nil
 }
 
 func (c *Core) sqzmomOpenImpl(sp *SQZMOMStream, inHigh, inLow, inClose []float64, startIdx, optInBBPeriod int32, optInNbDev float64, optInKCPeriod int32, optInFactorWide, optInFactorNormal, optInFactorNarrow float64, outBegIdx, outNBElement *int32, outMomentum []float64, outSqueeze []int32, outStride int32) RetCode {
@@ -811,8 +824,9 @@ func (c *Core) sqzmomOpenInternal(inHigh, inLow, inClose []float64, startIdx, op
 // are those of [Core.SQZMOM].
 //
 // The error is [InsufficientHistory] for a history of at most
-// [Core.SQZMOMLookback] bars, and [BadParam] for a parameter out of range or
-// histories of different lengths.
+// [Core.SQZMOMLookback] bars, [OutOfRangeEndIndex] for one longer than
+// [IndexMax]+1 bars, and [BadParam] for a parameter out of range or histories
+// of different lengths.
 func (c *Core) SQZMOMOpen(inHigh, inLow, inClose []float64, optInBBPeriod int, optInNbDev float64, optInKCPeriod int, optInFactorWide, optInFactorNormal, optInFactorNarrow float64) (*SQZMOMStream, float64, int32, error) {
 	if !fitsInt32(optInBBPeriod) {
 		return nil, 0, 0, BadParam
@@ -835,7 +849,8 @@ func (c *Core) SQZMOMOpen(inHigh, inLow, inClose []float64, optInBBPeriod int, o
 // share no memory with an input or another output.
 //
 // The errors are those of [Core.SQZMOMOpen], and [BadParam] for an output that
-// is empty, too short or sharing memory.
+// is empty, too short or sharing memory. A slice whose capacity a three-index
+// expression cut, as slices.Clip does, can escape the sharing check.
 func (c *Core) SQZMOMOpenAndFill(inHigh, inLow, inClose []float64, optInBBPeriod int, optInNbDev float64, optInKCPeriod int, optInFactorWide, optInFactorNormal, optInFactorNarrow float64, outMomentum []float64, outSqueeze []int32) (*SQZMOMStream, OutRange, error) {
 	if !fitsInt32(optInBBPeriod) {
 		return nil, OutRange{}, BadParam
