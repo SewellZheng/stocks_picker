@@ -93,8 +93,9 @@ func (c *Core) erImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod 
 		tempReal = inReal[today]
 		today++
 		tempReal -= inReal[today]
-		sumROC1 += math.Abs(tempReal)
-		live = b2i(!(math.Abs(tempReal) <= 0.0))
+		_e1 := math.Abs(tempReal)
+		sumROC1 += _e1
+		live = b2i(!(_e1 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 	}
 	tempReal = inReal[today]
@@ -113,33 +114,36 @@ func (c *Core) erImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod 
 	}
 	outIdx = 1
 	today += 1
-	for today <= endIdx {
-		tempReal = inReal[today]
-		tempReal2 = inReal[trailingIdx]
-		trailingIdx++
-		periodROC = tempReal - tempReal2
-		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInTimePeriod {
-			nullRun = optInTimePeriod
-			sumROC1 = 0.0
-			outReal[outIdx] = 1.0
-			outIdx++
-		} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
-			outReal[outIdx] = 1.0
-			outIdx++
-		} else {
-			tempReal = math.Abs(periodROC / sumROC1)
-			if tempReal > 1.0 {
-				tempReal = 1.0
+	if _n1 := int(endIdx) - int(today) + 1; _n1 > 0 {
+		_r3 := inReal[today:][:_n1]
+		_r4 := inReal[trailingIdx:][:_n1]
+		_r5 := inReal[today-1:][:_n1]
+		_r6 := outReal[outIdx:][:_n1]
+		for _k2 := range _r3 {
+			tempReal = _r3[_k2]
+			tempReal2 = _r4[_k2]
+			periodROC = tempReal - tempReal2
+			sumROC1 -= math.Abs(trailingValue - tempReal2)
+			_e2 := math.Abs(tempReal - _r5[_k2])
+			sumROC1 += _e2
+			live = b2i(!(_e2 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInTimePeriod {
+				nullRun = optInTimePeriod
+				sumROC1 = 0.0
+				_r6[_k2] = 1.0
+			} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
+				_r6[_k2] = 1.0
+			} else {
+				tempReal = math.Abs(periodROC / sumROC1)
+				if tempReal > 1.0 {
+					tempReal = 1.0
+				}
+				_r6[_k2] = tempReal
 			}
-			outReal[outIdx] = tempReal
-			outIdx++
+			trailingValue = tempReal2
 		}
-		trailingValue = tempReal2
-		today += 1
+		outIdx += int32(_n1)
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -303,8 +307,9 @@ func (sp *ERStream) Update(inReal float64) (float64, error) {
 	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
 	periodROC = tempReal - tempReal2
 	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e4 := math.Abs(tempReal - sp.lag1_inReal)
+	sp.sumROC1 += _e4
+	live = b2i(!(_e4 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInTimePeriod {
 		sp.nullRun = sp.optInTimePeriod
@@ -349,8 +354,9 @@ func (sp *ERStream) Peek(inReal float64) (float64, error) {
 	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
 	periodROC = tempReal - tempReal2
 	sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e3 := math.Abs(tempReal - sp.lag1_inReal)
+	sumROC1 += _e3
+	live = b2i(!(_e3 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInTimePeriod {
 		nullRun = sp.optInTimePeriod
@@ -432,8 +438,9 @@ func (c *Core) erOpenImpl(sp *ERStream, inReal []float64, startIdx, optInTimePer
 		tempReal = inReal[today]
 		today++
 		tempReal -= inReal[today]
-		sumROC1 += math.Abs(tempReal)
-		live = b2i(!(math.Abs(tempReal) <= 0.0))
+		_e5 := math.Abs(tempReal)
+		sumROC1 += _e5
+		live = b2i(!(_e5 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 	}
 	tempReal = inReal[today]
@@ -458,8 +465,9 @@ func (c *Core) erOpenImpl(sp *ERStream, inReal []float64, startIdx, optInTimePer
 		trailingIdx++
 		periodROC = tempReal - tempReal2
 		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
+		_e6 := math.Abs(tempReal - inReal[today-1])
+		sumROC1 += _e6
+		live = b2i(!(_e6 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod

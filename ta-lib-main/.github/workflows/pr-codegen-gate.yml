@@ -269,7 +269,7 @@ jobs:
         shell: bash
         working-directory: ta_codegen/output/ts
         run: |
-          if ! node -e "require('./library/dist/index.js'); require('./library/dist/metadata/index.js')"; then
+          if ! node -e "require('./library/dist/index.js'); require('./library/dist/abstract/index.js')"; then
             echo "::error::The compiled TypeScript package does not load through require(): a top-level await, a module-evaluation error or a broken emitted import. Fix the emitter or src/runtime/, never dist/."
             exit 1
           fi
@@ -320,7 +320,7 @@ jobs:
         run: |
           go version
           if ! { go build ./... && go vet ./...; }; then
-            echo "::error::The generated Go module does not compile or vet on Go 1.22. Fix the emitter (ta_codegen/generator/src/backends/go*.rs), never the generated file; core.go, doc.go, retcode.go, runtime.go, talib_test.go and metadata/metadata_test.go are hand-written."
+            echo "::error::The generated Go module does not compile or vet on Go 1.22. Fix the emitter (ta_codegen/generator/src/backends/go*.rs), never the generated file; core.go, doc.go, retcode.go, runtime.go, talib_test.go and abstract/abstract_test.go are hand-written."
             exit 1
           fi
 

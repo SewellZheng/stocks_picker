@@ -35,8 +35,6 @@
 
 package talib
 
-import "math"
-
 func (c *Core) wclpriceLookback() int32 {
 	return 0
 }
@@ -51,9 +49,35 @@ func (c *Core) wclpriceImpl(startIdx, endIdx int32, inHigh, inLow, inClose []flo
 		return OutOfRangeEndIndex
 	}
 	outIdx = 0
-	for i = startIdx; i <= endIdx; i += 1 {
-		outReal[outIdx] = math.FMA(inClose[i], 2.0, inHigh[i]+inLow[i]) / 4.0
-		outIdx++
+	i = startIdx
+	if _n0 := int(endIdx) - int(i) + 1; _n0 > 0 {
+		_r2 := inHigh[i:][:_n0:_n0]
+		_r3 := inLow[i:][:_n0:_n0]
+		_r4 := inClose[i:][:_n0:_n0]
+		_r5 := outReal[outIdx:][:_n0:_n0]
+		_k1 := 0
+		for ; _k1+8 <= _n0; _k1 += 8 {
+			_g6 := _r2[_k1 : _k1+8 : _k1+8]
+			_g7 := _r3[_k1 : _k1+8 : _k1+8]
+			_g8 := _r4[_k1 : _k1+8 : _k1+8]
+			_g9 := _r5[_k1 : _k1+8 : _k1+8]
+			_g9[0] = (_g6[0] + _g7[0] + float64(_g8[0]*2.0)) / 4.0
+			_g9[1] = (_g6[1] + _g7[1] + float64(_g8[1]*2.0)) / 4.0
+			_g9[2] = (_g6[2] + _g7[2] + float64(_g8[2]*2.0)) / 4.0
+			_g9[3] = (_g6[3] + _g7[3] + float64(_g8[3]*2.0)) / 4.0
+			_g9[4] = (_g6[4] + _g7[4] + float64(_g8[4]*2.0)) / 4.0
+			_g9[5] = (_g6[5] + _g7[5] + float64(_g8[5]*2.0)) / 4.0
+			_g9[6] = (_g6[6] + _g7[6] + float64(_g8[6]*2.0)) / 4.0
+			_g9[7] = (_g6[7] + _g7[7] + float64(_g8[7]*2.0)) / 4.0
+		}
+		_t10 := _r2[_k1:]
+		_t11 := _r3[_k1:][:len(_t10)]
+		_t12 := _r4[_k1:][:len(_t10)]
+		_t13 := _r5[_k1:][:len(_t10)]
+		for _j14 := range _t10 {
+			_t13[_j14] = (_t10[_j14] + _t11[_j14] + float64(_t12[_j14]*2.0)) / 4.0
+		}
+		outIdx += int32(_n0)
 	}
 	*outNBElement = outIdx
 	*outBegIdx = startIdx
@@ -191,7 +215,7 @@ func (sp *WCLPRICEStream) Update(inHigh, inLow, inClose float64) (float64, error
 		return 0, BadParam
 	}
 	sp.outRangeCount++
-	sp.cur_outReal = math.FMA(inClose, 2.0, inHigh+inLow) / 4.0
+	sp.cur_outReal = (inHigh + inLow + float64(inClose*2.0)) / 4.0
 	return sp.cur_outReal, nil
 }
 
@@ -203,7 +227,7 @@ func (sp *WCLPRICEStream) Peek(inHigh, inLow, inClose float64) (float64, error) 
 		return 0, BadParam
 	}
 	var cur_outReal float64
-	cur_outReal = math.FMA(inClose, 2.0, inHigh+inLow) / 4.0
+	cur_outReal = (inHigh + inLow + float64(inClose*2.0)) / 4.0
 	return cur_outReal, nil
 }
 
@@ -237,7 +261,7 @@ func (c *Core) wclpriceOpenImpl(sp *WCLPRICEStream, inHigh, inLow, inClose []flo
 	}
 	outIdx = 0
 	for i = startIdx; i <= endIdx; i += 1 {
-		outReal[outIdx*outStride] = math.FMA(inClose[i], 2.0, inHigh[i]+inLow[i]) / 4.0
+		outReal[outIdx*outStride] = (inHigh[i] + inLow[i] + float64(inClose[i]*2.0)) / 4.0
 		outIdx++
 	}
 	*outNBElement = outIdx

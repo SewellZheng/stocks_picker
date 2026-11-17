@@ -103,13 +103,16 @@ func (c *Core) maxImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		i = blockStart + optInTimePeriod - 1
 		highest = inReal[i]
 		sufHighest[optInTimePeriod-1] = highest
-		for i > blockStart {
-			i -= 1
-			tmp = inReal[i]
-			if tmp > highest {
-				highest = tmp
+		if _n0 := int(i) - int(blockStart); _n0 > 0 {
+			_r2 := inReal[i-int32(_n0):][:_n0]
+			_r3 := sufHighest[i-blockStart-int32(_n0):][:_n0]
+			for _k1 := _n0 - 1; _k1 >= 0; _k1-- {
+				tmp = _r2[_k1]
+				if tmp > highest {
+					highest = tmp
+				}
+				_r3[_k1] = highest
 			}
-			sufHighest[i-blockStart] = highest
 		}
 		highest = sufHighest[0]
 		outReal[outIdx] = highest
@@ -126,23 +129,30 @@ func (c *Core) maxImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 			highest = inReal[blockStart+optInTimePeriod]
 			preHighest[0] = highest
 			i = 1
-			for i < nAvail {
-				tmp = inReal[blockStart+optInTimePeriod+i]
-				if tmp > highest {
-					highest = tmp
+			if _n4 := int(nAvail) - int(i); _n4 > 0 {
+				_r6 := inReal[blockStart+optInTimePeriod+i:][:_n4]
+				_r7 := preHighest[i:][:_n4]
+				for _k5 := range _r6 {
+					tmp = _r6[_k5]
+					if tmp > highest {
+						highest = tmp
+					}
+					_r7[_k5] = highest
 				}
-				preHighest[i] = highest
-				i += 1
 			}
 			m = 1
-			for m <= nAvail {
-				highest = sufHighest[m]
-				if preHighest[m-1] > highest {
-					highest = preHighest[m-1]
+			if _n8 := int(nAvail) - int(m) + 1; _n8 > 0 {
+				_r10 := sufHighest[m:][:_n8]
+				_r11 := preHighest[m-1:][:_n8]
+				_r12 := outReal[outIdx:][:_n8]
+				for _k9 := range _r10 {
+					highest = _r10[_k9]
+					if _r11[_k9] > highest {
+						highest = _r11[_k9]
+					}
+					_r12[_k9] = highest
 				}
-				outReal[outIdx] = highest
-				outIdx++
-				m += 1
+				outIdx += int32(_n8)
 			}
 			trailingIdx = trailingIdx + nAvail
 			today = today + nAvail
@@ -320,16 +330,18 @@ func (sp *MAXStream) Update(inReal float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			tmp = x_inReal[i&xMask]
 			if tmp > highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -382,11 +394,9 @@ func (sp *MAXStream) Peek(inReal float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot0 {
 				_T2 = x_inReal[i&xMask]
@@ -397,7 +407,11 @@ func (sp *MAXStream) Peek(inReal float64) (float64, error) {
 			if tmp > highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp >= highest {
 		highestIdx = sp.today
@@ -464,16 +478,18 @@ func (c *Core) maxOpenImpl(sp *MAXStream, inReal []float64, startIdx, optInTimeP
 			highestIdx = trailingIdx
 			highest = inReal[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan2:
+			if i <= today {
 				tmp = inReal[i]
 				if tmp > highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan2
 				}
+				i++
+				goto scan2
 			}
 		} else if tmp >= highest {
 			highestIdx = today

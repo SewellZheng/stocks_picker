@@ -116,10 +116,28 @@ func (c *Core) vidyaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeri
 		*outBegIdx = startIdx
 		outIdx = 0
 		today = startIdx
-		for today <= endIdx {
-			outReal[outIdx] = inReal[today]
-			outIdx++
-			today++
+		if _n0 := int(endIdx) - int(today) + 1; _n0 > 0 {
+			_r2 := inReal[today:][:_n0:_n0]
+			_r3 := outReal[outIdx:][:_n0:_n0]
+			_k1 := 0
+			for ; _k1+8 <= _n0; _k1 += 8 {
+				_g4 := _r2[_k1 : _k1+8 : _k1+8]
+				_g5 := _r3[_k1 : _k1+8 : _k1+8]
+				_g5[0] = _g4[0]
+				_g5[1] = _g4[1]
+				_g5[2] = _g4[2]
+				_g5[3] = _g4[3]
+				_g5[4] = _g4[4]
+				_g5[5] = _g4[5]
+				_g5[6] = _g4[6]
+				_g5[7] = _g4[7]
+			}
+			_t6 := _r2[_k1:]
+			_t7 := _r3[_k1:][:len(_t6)]
+			for _j8 := range _t6 {
+				_t7[_j8] = _t6[_j8]
+			}
+			outIdx += int32(_n0)
 		}
 		*outNBElement = outIdx
 		return Success
@@ -140,23 +158,28 @@ func (c *Core) vidyaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeri
 	upSum = 0.0
 	downSum = 0.0
 	nullRun = 0
-	for i = 0; i < optInCMOPeriod; i += 1 {
-		today += 1
-		tempReal = inReal[today]
-		diff = tempReal - prevValue
-		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum += up
-		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		sum = upSum + downSum
-		if sum > 0.0 {
-			k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
-		} else {
-			k = 0.0
+	i = 0
+	if _n9 := int(optInCMOPeriod) - int(i); _n9 > 0 {
+		_r11 := inReal[today+1:][:_n9]
+		for _k10 := range _r11 {
+			tempReal = _r11[_k10]
+			diff = tempReal - prevValue
+			prevValue = tempReal
+			_e1 := math.Abs(diff)
+			up = float64((diff + _e1) * 0.5)
+			upSum += up
+			downSum += up - diff
+			live = b2i(!(_e1 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			sum = upSum + downSum
+			if sum > 0.0 {
+				k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
+			} else {
+				k = 0.0
+			}
+			prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
 		}
-		prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
+		today += int32(_n9)
 	}
 	tempReal = inReal[trailingIdx]
 	diff = tempReal - trailingValue
@@ -166,73 +189,82 @@ func (c *Core) vidyaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeri
 	upSum -= up
 	downSum -= up - diff
 	today += 1
-	for today <= startIdx {
-		tempReal = inReal[today]
-		diff = tempReal - prevValue
-		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum += up
-		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInCMOPeriod {
-			nullRun = optInCMOPeriod
-			upSum = 0.0
-			downSum = 0.0
-			k = 0.0
-		} else {
-			sum = upSum + downSum
-			if sum > 0.0 {
-				k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
-			} else {
+	if _n12 := int(startIdx) - int(today) + 1; _n12 > 0 {
+		_r14 := inReal[today:][:_n12]
+		_r15 := inReal[trailingIdx:][:_n12]
+		for _k13 := range _r14 {
+			tempReal = _r14[_k13]
+			diff = tempReal - prevValue
+			prevValue = tempReal
+			_e2 := math.Abs(diff)
+			up = float64((diff + _e2) * 0.5)
+			upSum += up
+			downSum += up - diff
+			live = b2i(!(_e2 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInCMOPeriod {
+				nullRun = optInCMOPeriod
+				upSum = 0.0
+				downSum = 0.0
 				k = 0.0
+			} else {
+				sum = upSum + downSum
+				if sum > 0.0 {
+					k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
+				} else {
+					k = 0.0
+				}
 			}
+			prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
+			tempReal = _r15[_k13]
+			diff = tempReal - trailingValue
+			trailingValue = tempReal
+			up = float64((diff + math.Abs(diff)) * 0.5)
+			upSum -= up
+			downSum -= up - diff
 		}
-		prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
-		tempReal = inReal[trailingIdx]
-		diff = tempReal - trailingValue
-		trailingValue = tempReal
-		trailingIdx += 1
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum -= up
-		downSum -= up - diff
-		today += 1
+		today += int32(_n12)
+		trailingIdx += int32(_n12)
 	}
 	outReal[0] = prevVIDYA
 	outIdx = 1
-	for today <= endIdx {
-		tempReal = inReal[today]
-		diff = tempReal - prevValue
-		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum += up
-		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInCMOPeriod {
-			nullRun = optInCMOPeriod
-			upSum = 0.0
-			downSum = 0.0
-			k = 0.0
-		} else {
-			sum = upSum + downSum
-			if sum > 0.0 {
-				k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
-			} else {
+	if _n16 := int(endIdx) - int(today) + 1; _n16 > 0 {
+		_r18 := inReal[today:][:_n16]
+		_r19 := outReal[outIdx:][:_n16]
+		_r20 := inReal[trailingIdx:][:_n16]
+		for _k17 := range _r18 {
+			tempReal = _r18[_k17]
+			diff = tempReal - prevValue
+			prevValue = tempReal
+			_e3 := math.Abs(diff)
+			up = float64((diff + _e3) * 0.5)
+			upSum += up
+			downSum += up - diff
+			live = b2i(!(_e3 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInCMOPeriod {
+				nullRun = optInCMOPeriod
+				upSum = 0.0
+				downSum = 0.0
 				k = 0.0
+			} else {
+				sum = upSum + downSum
+				if sum > 0.0 {
+					k = float64(alpha * (math.Abs(float64(100.0*(upSum-downSum))/sum) / 100.0))
+				} else {
+					k = 0.0
+				}
 			}
+			prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
+			_r19[_k17] = prevVIDYA
+			tempReal = _r20[_k17]
+			diff = tempReal - trailingValue
+			trailingValue = tempReal
+			up = float64((diff + math.Abs(diff)) * 0.5)
+			upSum -= up
+			downSum -= up - diff
 		}
-		prevVIDYA = math.FMA(prevValue-prevVIDYA, k, prevVIDYA)
-		outReal[outIdx] = prevVIDYA
-		outIdx++
-		tempReal = inReal[trailingIdx]
-		diff = tempReal - trailingValue
-		trailingValue = tempReal
-		trailingIdx += 1
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum -= up
-		downSum -= up - diff
-		today += 1
+		outIdx += int32(_n16)
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -420,10 +452,11 @@ func (sp *VIDYAStream) Update(inReal float64) (float64, error) {
 	tempReal = inReal
 	diff = tempReal - sp.prevValue
 	sp.prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e5 := math.Abs(diff)
+	up = float64((diff + _e5) * 0.5)
 	sp.upSum += up
 	sp.downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e5 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInCMOPeriod {
 		sp.nullRun = sp.optInCMOPeriod
@@ -482,10 +515,11 @@ func (sp *VIDYAStream) Peek(inReal float64) (float64, error) {
 	tempReal = inReal
 	diff = tempReal - prevValue
 	prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e4 := math.Abs(diff)
+	up = float64((diff + _e4) * 0.5)
 	upSum += up
 	downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e4 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInCMOPeriod {
 		nullRun = sp.optInCMOPeriod
@@ -612,10 +646,11 @@ func (c *Core) vidyaOpenImpl(sp *VIDYAStream, inReal []float64, startIdx, optInT
 		tempReal = inReal[today]
 		diff = tempReal - prevValue
 		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
+		_e6 := math.Abs(diff)
+		up = float64((diff + _e6) * 0.5)
 		upSum += up
 		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
+		live = b2i(!(_e6 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		sum = upSum + downSum
 		if sum > 0.0 {
@@ -637,10 +672,11 @@ func (c *Core) vidyaOpenImpl(sp *VIDYAStream, inReal []float64, startIdx, optInT
 		tempReal = inReal[today]
 		diff = tempReal - prevValue
 		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
+		_e7 := math.Abs(diff)
+		up = float64((diff + _e7) * 0.5)
 		upSum += up
 		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
+		live = b2i(!(_e7 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInCMOPeriod {
 			nullRun = optInCMOPeriod
@@ -671,10 +707,11 @@ func (c *Core) vidyaOpenImpl(sp *VIDYAStream, inReal []float64, startIdx, optInT
 		tempReal = inReal[today]
 		diff = tempReal - prevValue
 		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
+		_e8 := math.Abs(diff)
+		up = float64((diff + _e8) * 0.5)
 		upSum += up
 		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
+		live = b2i(!(_e8 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInCMOPeriod {
 			nullRun = optInCMOPeriod
@@ -822,10 +859,11 @@ func vidyaStepTape(sp *VIDYAStream, tape []float64, tapeBase, tapeMask int32, in
 	tempReal = inReal
 	diff = tempReal - sp.prevValue
 	sp.prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e9 := math.Abs(diff)
+	up = float64((diff + _e9) * 0.5)
 	sp.upSum += up
 	sp.downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e9 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInCMOPeriod {
 		sp.nullRun = sp.optInCMOPeriod
@@ -868,10 +906,11 @@ func vidyaPeekTape(sp *VIDYAStream, tape []float64, tapeBase, tapeMask int32, in
 	tempReal = inReal
 	diff = tempReal - prevValue
 	prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e10 := math.Abs(diff)
+	up = float64((diff + _e10) * 0.5)
 	upSum += up
 	downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e10 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInCMOPeriod {
 		nullRun = sp.optInCMOPeriod

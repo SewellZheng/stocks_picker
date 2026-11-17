@@ -128,18 +128,23 @@ func (c *Core) midpriceImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 		lowest = inLow[i]
 		sufHighest[optInTimePeriod-1] = highest
 		sufLowest[optInTimePeriod-1] = lowest
-		for i > blockStart {
-			i -= 1
-			tmpHigh = inHigh[i]
-			if tmpHigh > highest {
-				highest = tmpHigh
+		if _n0 := int(i) - int(blockStart); _n0 > 0 {
+			_r2 := inHigh[i-int32(_n0):][:_n0]
+			_r3 := inLow[i-int32(_n0):][:_n0]
+			_r4 := sufHighest[i-blockStart-int32(_n0):][:_n0]
+			_r5 := sufLowest[i-blockStart-int32(_n0):][:_n0]
+			for _k1 := _n0 - 1; _k1 >= 0; _k1-- {
+				tmpHigh = _r2[_k1]
+				if tmpHigh > highest {
+					highest = tmpHigh
+				}
+				tmpLow = _r3[_k1]
+				if tmpLow < lowest {
+					lowest = tmpLow
+				}
+				_r4[_k1] = highest
+				_r5[_k1] = lowest
 			}
-			tmpLow = inLow[i]
-			if tmpLow < lowest {
-				lowest = tmpLow
-			}
-			sufHighest[i-blockStart] = highest
-			sufLowest[i-blockStart] = lowest
 		}
 		outReal[outIdx] = (sufHighest[0] + sufLowest[0]) / 2.0
 		outIdx++
@@ -158,32 +163,43 @@ func (c *Core) midpriceImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 			preHighest[0] = highest
 			preLowest[0] = lowest
 			i = 1
-			for i < nAvail {
-				tmpHigh = inHigh[blockNext+i]
-				if tmpHigh > highest {
-					highest = tmpHigh
+			if _n6 := int(nAvail) - int(i); _n6 > 0 {
+				_r8 := inHigh[blockNext+i:][:_n6]
+				_r9 := inLow[blockNext+i:][:_n6]
+				_r10 := preHighest[i:][:_n6]
+				_r11 := preLowest[i:][:_n6]
+				for _k7 := range _r8 {
+					tmpHigh = _r8[_k7]
+					if tmpHigh > highest {
+						highest = tmpHigh
+					}
+					tmpLow = _r9[_k7]
+					if tmpLow < lowest {
+						lowest = tmpLow
+					}
+					_r10[_k7] = highest
+					_r11[_k7] = lowest
 				}
-				tmpLow = inLow[blockNext+i]
-				if tmpLow < lowest {
-					lowest = tmpLow
-				}
-				preHighest[i] = highest
-				preLowest[i] = lowest
-				i += 1
 			}
 			m = 1
-			for m <= nAvail {
-				highest = sufHighest[m]
-				if preHighest[m-1] > highest {
-					highest = preHighest[m-1]
+			if _n12 := int(nAvail) - int(m) + 1; _n12 > 0 {
+				_r14 := sufHighest[m:][:_n12]
+				_r15 := preHighest[m-1:][:_n12]
+				_r16 := sufLowest[m:][:_n12]
+				_r17 := preLowest[m-1:][:_n12]
+				_r18 := outReal[outIdx:][:_n12]
+				for _k13 := range _r14 {
+					highest = _r14[_k13]
+					if _r15[_k13] > highest {
+						highest = _r15[_k13]
+					}
+					lowest = _r16[_k13]
+					if _r17[_k13] < lowest {
+						lowest = _r17[_k13]
+					}
+					_r18[_k13] = (highest + lowest) / 2.0
 				}
-				lowest = sufLowest[m]
-				if preLowest[m-1] < lowest {
-					lowest = preLowest[m-1]
-				}
-				outReal[outIdx] = (highest + lowest) / 2.0
-				outIdx++
-				m += 1
+				outIdx += int32(_n12)
 			}
 			trailingIdx = trailingIdx + nAvail
 			today = today + nAvail
@@ -379,16 +395,18 @@ func (sp *MIDPRICEStream) Update(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tmpHigh = x_inHigh[i&xMask]
 			if tmpHigh > highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -407,16 +425,18 @@ func (sp *MIDPRICEStream) Update(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tmpLow = x_inLow[i&xMask]
 			if tmpLow < lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -484,11 +504,9 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T3 float64
 			if i&xMask != pkSlot0 {
 				_T3 = x_inHigh[i&xMask]
@@ -499,7 +517,11 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 			if tmpHigh > highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmpHigh >= highest {
 		highestIdx = sp.today
@@ -518,11 +540,9 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T5 float64
 			if i&xMask != pkSlot1 {
 				_T5 = x_inLow[i&xMask]
@@ -533,7 +553,11 @@ func (sp *MIDPRICEStream) Peek(inHigh, inLow float64) (float64, error) {
 			if tmpLow < lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmpLow <= lowest {
 		lowestIdx = sp.today
@@ -610,16 +634,18 @@ func (c *Core) midpriceOpenImpl(sp *MIDPRICEStream, inHigh, inLow []float64, sta
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmpHigh = inHigh[i]
 				if tmpHigh > highest {
 					highestIdx = i
 					highest = tmpHigh
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmpHigh >= highest {
 			highestIdx = today
@@ -629,16 +655,18 @@ func (c *Core) midpriceOpenImpl(sp *MIDPRICEStream, inHigh, inLow []float64, sta
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmpLow = inLow[i]
 				if tmpLow < lowest {
 					lowestIdx = i
 					lowest = tmpLow
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmpLow <= lowest {
 			lowestIdx = today

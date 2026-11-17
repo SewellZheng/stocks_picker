@@ -125,27 +125,31 @@ func (c *Core) betaImpl(startIdx, endIdx int32, inReal0, inReal1 []float64, optI
 	if last_price_y != 0.0 {
 		shift_y = (inReal1[i] - last_price_y) / last_price_y
 	}
-	for i < startIdx {
-		tmp_real = inReal0[i]
-		if last_price_x != 0.0 {
-			x = (tmp_real-last_price_x)/last_price_x - shift_x
-		} else {
-			x = -shift_x
+	if _n0 := int(startIdx) - int(i); _n0 > 0 {
+		_r2 := inReal0[i:][:_n0]
+		_r3 := inReal1[i:][:_n0]
+		for _k1 := range _r2 {
+			tmp_real = _r2[_k1]
+			if last_price_x != 0.0 {
+				x = (tmp_real-last_price_x)/last_price_x - shift_x
+			} else {
+				x = -shift_x
+			}
+			last_price_x = tmp_real
+			tmp_real = _r3[_k1]
+			if last_price_y != 0.0 {
+				y = (tmp_real-last_price_y)/last_price_y - shift_y
+			} else {
+				y = -shift_y
+			}
+			last_price_y = tmp_real
+			S_xx += float64(x * x)
+			S_yy += float64(y * y)
+			S_xy += float64(x * y)
+			S_x += x
+			S_y += y
 		}
-		last_price_x = tmp_real
-		tmp_real = inReal1[i]
-		i++
-		if last_price_y != 0.0 {
-			y = (tmp_real-last_price_y)/last_price_y - shift_y
-		} else {
-			y = -shift_y
-		}
-		last_price_y = tmp_real
-		S_xx += float64(x * x)
-		S_yy += float64(y * y)
-		S_xy += float64(x * y)
-		S_x += x
-		S_y += y
+		i += int32(_n0)
 	}
 	outIdx = 0
 	n = float64(optInTimePeriod)
@@ -247,10 +251,12 @@ func (c *Core) betaImpl(startIdx, endIdx int32, inReal0, inReal1 []float64, optI
 			outReal[outIdx] = 0.0
 			outIdx++
 		}
-		leaving_xx = float64(x * x)
-		leaving_yy = float64(y * y)
-		S_xx -= float64(x * x)
-		S_yy -= float64(y * y)
+		_e1 := float64(x * x)
+		leaving_xx = _e1
+		_e2 := float64(y * y)
+		leaving_yy = _e2
+		S_xx -= _e1
+		S_yy -= _e2
 		S_xy -= float64(x * y)
 		S_x -= x
 		S_y -= y
@@ -572,10 +578,12 @@ func (sp *BETAStream) Update(inReal0, inReal1 float64) (float64, error) {
 	} else {
 		sp.cur_outReal = 0.0
 	}
-	sp.leaving_xx = float64(x * x)
-	sp.leaving_yy = float64(y * y)
-	sp.S_xx -= float64(x * x)
-	sp.S_yy -= float64(y * y)
+	_e3 := float64(x * x)
+	sp.leaving_xx = _e3
+	_e4 := float64(y * y)
+	sp.leaving_yy = _e4
+	sp.S_xx -= _e3
+	sp.S_yy -= _e4
 	sp.S_xy -= float64(x * y)
 	sp.S_x -= x
 	sp.S_y -= y
@@ -1024,10 +1032,12 @@ func (c *Core) betaOpenImpl(sp *BETAStream, inReal0, inReal1 []float64, startIdx
 			outReal[outIdx*outStride] = 0.0
 			outIdx++
 		}
-		leaving_xx = float64(x * x)
-		leaving_yy = float64(y * y)
-		S_xx -= float64(x * x)
-		S_yy -= float64(y * y)
+		_e5 := float64(x * x)
+		leaving_xx = _e5
+		_e6 := float64(y * y)
+		leaving_yy = _e6
+		S_xx -= _e5
+		S_yy -= _e6
 		S_xy -= float64(x * y)
 		S_x -= x
 		S_y -= y

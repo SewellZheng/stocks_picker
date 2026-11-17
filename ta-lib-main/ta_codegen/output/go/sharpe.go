@@ -122,16 +122,20 @@ func (c *Core) sharpeImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 	shift = ret
 	periodTotal1 = 0.0
 	periodTotal2 = 0.0
-	for j = trailingIdx + 1; j < startIdx; j += 1 {
-		price = inReal[j]
-		ret = 0.0
-		if prevPrice != 0.0 {
-			ret = (price - prevPrice) / prevPrice
+	j = trailingIdx + 1
+	if _n0 := int(startIdx) - int(j); _n0 > 0 {
+		_r2 := inReal[j:][:_n0]
+		for _k1 := range _r2 {
+			price = _r2[_k1]
+			ret = 0.0
+			if prevPrice != 0.0 {
+				ret = (price - prevPrice) / prevPrice
+			}
+			prevPrice = price
+			dev = ret - shift
+			periodTotal1 += dev
+			periodTotal2 += float64(dev * dev)
 		}
-		prevPrice = price
-		dev = ret - shift
-		periodTotal1 += dev
-		periodTotal2 += float64(dev * dev)
 	}
 	i = startIdx
 	outIdx = 0

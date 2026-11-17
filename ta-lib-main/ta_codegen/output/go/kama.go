@@ -93,10 +93,28 @@ func (c *Core) kamaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		*outBegIdx = startIdx
 		outIdx = 0
 		today = startIdx
-		for today <= endIdx {
-			outReal[outIdx] = inReal[today]
-			outIdx++
-			today++
+		if _n0 := int(endIdx) - int(today) + 1; _n0 > 0 {
+			_r2 := inReal[today:][:_n0:_n0]
+			_r3 := outReal[outIdx:][:_n0:_n0]
+			_k1 := 0
+			for ; _k1+8 <= _n0; _k1 += 8 {
+				_g4 := _r2[_k1 : _k1+8 : _k1+8]
+				_g5 := _r3[_k1 : _k1+8 : _k1+8]
+				_g5[0] = _g4[0]
+				_g5[1] = _g4[1]
+				_g5[2] = _g4[2]
+				_g5[3] = _g4[3]
+				_g5[4] = _g4[4]
+				_g5[5] = _g4[5]
+				_g5[6] = _g4[6]
+				_g5[7] = _g4[7]
+			}
+			_t6 := _r2[_k1:]
+			_t7 := _r3[_k1:][:len(_t6)]
+			for _j8 := range _t6 {
+				_t7[_j8] = _t6[_j8]
+			}
+			outIdx += int32(_n0)
 		}
 		*outNBElement = outIdx
 		return Success
@@ -116,16 +134,17 @@ func (c *Core) kamaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	trailingIdx = today
 	i = optInTimePeriod
 	for {
-		_C0 := i > 0
+		_C9 := i > 0
 		i--
-		if !_C0 {
+		if !_C9 {
 			break
 		}
 		tempReal = inReal[today]
 		today++
 		tempReal -= inReal[today]
-		sumROC1 += math.Abs(tempReal)
-		live = b2i(!(math.Abs(tempReal) <= 0.0))
+		_e1 := math.Abs(tempReal)
+		sumROC1 += _e1
+		live = b2i(!(_e1 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 	}
 	prevKAMA = inReal[today-1]
@@ -146,64 +165,75 @@ func (c *Core) kamaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	tempReal = float64(tempReal * tempReal)
 	prevKAMA = math.FMA(inReal[today]-prevKAMA, tempReal, prevKAMA)
 	today++
-	for today <= startIdx {
-		tempReal = inReal[today]
-		tempReal2 = inReal[trailingIdx]
-		trailingIdx++
-		periodROC = tempReal - tempReal2
-		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInTimePeriod {
-			nullRun = optInTimePeriod
-			sumROC1 = 0.0
-			tempReal = 1.0
-		} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
-			tempReal = 1.0
-		} else {
-			tempReal = math.Abs(periodROC / sumROC1)
-			if tempReal > 1.0 {
+	if _n10 := int(startIdx) - int(today) + 1; _n10 > 0 {
+		_r12 := inReal[today:][:_n10]
+		_r13 := inReal[trailingIdx:][:_n10]
+		_r14 := inReal[today-1:][:_n10]
+		for _k11 := range _r12 {
+			tempReal = _r12[_k11]
+			tempReal2 = _r13[_k11]
+			periodROC = tempReal - tempReal2
+			sumROC1 -= math.Abs(trailingValue - tempReal2)
+			_e2 := math.Abs(tempReal - _r14[_k11])
+			sumROC1 += _e2
+			live = b2i(!(_e2 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInTimePeriod {
+				nullRun = optInTimePeriod
+				sumROC1 = 0.0
 				tempReal = 1.0
+			} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
+				tempReal = 1.0
+			} else {
+				tempReal = math.Abs(periodROC / sumROC1)
+				if tempReal > 1.0 {
+					tempReal = 1.0
+				}
 			}
+			trailingValue = tempReal2
+			tempReal = math.FMA(tempReal, constDiff, constMax)
+			tempReal = float64(tempReal * tempReal)
+			prevKAMA = math.FMA(_r12[_k11]-prevKAMA, tempReal, prevKAMA)
 		}
-		trailingValue = tempReal2
-		tempReal = math.FMA(tempReal, constDiff, constMax)
-		tempReal = float64(tempReal * tempReal)
-		prevKAMA = math.FMA(inReal[today]-prevKAMA, tempReal, prevKAMA)
-		today++
+		today += int32(_n10)
+		trailingIdx += int32(_n10)
 	}
 	outReal[0] = prevKAMA
 	outIdx = 1
 	*outBegIdx = today - 1
-	for today <= endIdx {
-		tempReal = inReal[today]
-		tempReal2 = inReal[trailingIdx]
-		trailingIdx++
-		periodROC = tempReal - tempReal2
-		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInTimePeriod {
-			nullRun = optInTimePeriod
-			sumROC1 = 0.0
-			tempReal = 1.0
-		} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
-			tempReal = 1.0
-		} else {
-			tempReal = math.Abs(periodROC / sumROC1)
-			if tempReal > 1.0 {
+	if _n15 := int(endIdx) - int(today) + 1; _n15 > 0 {
+		_r17 := inReal[today:][:_n15]
+		_r18 := inReal[trailingIdx:][:_n15]
+		_r19 := inReal[today-1:][:_n15]
+		_r20 := outReal[outIdx:][:_n15]
+		for _k16 := range _r17 {
+			tempReal = _r17[_k16]
+			tempReal2 = _r18[_k16]
+			periodROC = tempReal - tempReal2
+			sumROC1 -= math.Abs(trailingValue - tempReal2)
+			_e3 := math.Abs(tempReal - _r19[_k16])
+			sumROC1 += _e3
+			live = b2i(!(_e3 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInTimePeriod {
+				nullRun = optInTimePeriod
+				sumROC1 = 0.0
 				tempReal = 1.0
+			} else if sumROC1 <= 0.0 || sumROC1 <= periodROC {
+				tempReal = 1.0
+			} else {
+				tempReal = math.Abs(periodROC / sumROC1)
+				if tempReal > 1.0 {
+					tempReal = 1.0
+				}
 			}
+			trailingValue = tempReal2
+			tempReal = math.FMA(tempReal, constDiff, constMax)
+			tempReal = float64(tempReal * tempReal)
+			prevKAMA = math.FMA(_r17[_k16]-prevKAMA, tempReal, prevKAMA)
+			_r20[_k16] = prevKAMA
 		}
-		trailingValue = tempReal2
-		tempReal = math.FMA(tempReal, constDiff, constMax)
-		tempReal = float64(tempReal * tempReal)
-		prevKAMA = math.FMA(inReal[today]-prevKAMA, tempReal, prevKAMA)
-		today++
-		outReal[outIdx] = prevKAMA
-		outIdx++
+		outIdx += int32(_n15)
 	}
 	*outNBElement = outIdx
 	return Success
@@ -380,8 +410,9 @@ func (sp *KAMAStream) Update(inReal float64) (float64, error) {
 	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
 	periodROC = tempReal - tempReal2
 	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e5 := math.Abs(tempReal - sp.lag1_inReal)
+	sp.sumROC1 += _e5
+	live = b2i(!(_e5 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInTimePeriod {
 		sp.nullRun = sp.optInTimePeriod
@@ -435,8 +466,9 @@ func (sp *KAMAStream) Peek(inReal float64) (float64, error) {
 	tempReal2 = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx]
 	periodROC = tempReal - tempReal2
 	sumROC1 -= math.Abs(trailingValue - tempReal2)
-	sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e4 := math.Abs(tempReal - sp.lag1_inReal)
+	sumROC1 += _e4
+	live = b2i(!(_e4 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInTimePeriod {
 		nullRun = sp.optInTimePeriod
@@ -560,8 +592,9 @@ func (c *Core) kamaOpenImpl(sp *KAMAStream, inReal []float64, startIdx, optInTim
 		tempReal = inReal[today]
 		today++
 		tempReal -= inReal[today]
-		sumROC1 += math.Abs(tempReal)
-		live = b2i(!(math.Abs(tempReal) <= 0.0))
+		_e6 := math.Abs(tempReal)
+		sumROC1 += _e6
+		live = b2i(!(_e6 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 	}
 	prevKAMA = inReal[today-1]
@@ -588,8 +621,9 @@ func (c *Core) kamaOpenImpl(sp *KAMAStream, inReal []float64, startIdx, optInTim
 		trailingIdx++
 		periodROC = tempReal - tempReal2
 		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
+		_e7 := math.Abs(tempReal - inReal[today-1])
+		sumROC1 += _e7
+		live = b2i(!(_e7 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
@@ -618,8 +652,9 @@ func (c *Core) kamaOpenImpl(sp *KAMAStream, inReal []float64, startIdx, optInTim
 		trailingIdx++
 		periodROC = tempReal - tempReal2
 		sumROC1 -= math.Abs(trailingValue - tempReal2)
-		sumROC1 += math.Abs(tempReal - inReal[today-1])
-		live = b2i(!(math.Abs(tempReal-inReal[today-1]) <= 0.0))
+		_e8 := math.Abs(tempReal - inReal[today-1])
+		sumROC1 += _e8
+		live = b2i(!(_e8 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
@@ -753,8 +788,9 @@ func kamaStepTape(sp *KAMAStream, tape []float64, tapeBase, tapeMask int32, inRe
 	tempReal2 = tape[(tapeBase-sp.ringCap_trailingIdx)&tapeMask]
 	periodROC = tempReal - tempReal2
 	sp.sumROC1 -= math.Abs(sp.trailingValue - tempReal2)
-	sp.sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e9 := math.Abs(tempReal - sp.lag1_inReal)
+	sp.sumROC1 += _e9
+	live = b2i(!(_e9 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInTimePeriod {
 		sp.nullRun = sp.optInTimePeriod
@@ -792,8 +828,9 @@ func kamaPeekTape(sp *KAMAStream, tape []float64, tapeBase, tapeMask int32, inRe
 	tempReal2 = tape[(tapeBase-sp.ringCap_trailingIdx)&tapeMask]
 	periodROC = tempReal - tempReal2
 	sumROC1 -= math.Abs(trailingValue - tempReal2)
-	sumROC1 += math.Abs(tempReal - sp.lag1_inReal)
-	live = b2i(!(math.Abs(tempReal-sp.lag1_inReal) <= 0.0))
+	_e10 := math.Abs(tempReal - sp.lag1_inReal)
+	sumROC1 += _e10
+	live = b2i(!(_e10 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInTimePeriod {
 		nullRun = sp.optInTimePeriod

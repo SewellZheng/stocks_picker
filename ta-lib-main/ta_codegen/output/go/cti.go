@@ -98,11 +98,15 @@ func (c *Core) ctiImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 	sumXY = 0.0
 	sumX2 = sumXY
 	sumX = sumX2
-	for j = trailingIdx; j < startIdx; j += 1 {
-		x = inReal[j] - shift
-		sumX += x
-		sumX2 += float64(x * x)
-		sumXY += float64(x * float64(startIdx-j))
+	j = trailingIdx
+	if _n0 := int(startIdx) - int(j); _n0 > 0 {
+		_r2 := inReal[j:][:_n0]
+		for _k1 := range _r2 {
+			x = _r2[_k1] - shift
+			sumX += x
+			sumX2 += float64(x * x)
+			sumXY += float64(x * float64(startIdx-(j+int32(_k1))))
+		}
 	}
 	today = startIdx
 	outIdx = 0

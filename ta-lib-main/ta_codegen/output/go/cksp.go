@@ -204,40 +204,48 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 	}
 	prevATR = periodTotal / float64(optInTimePeriod)
 	i = lookbackTotal - lastQ - optInTimePeriod
-	for i != 0 {
-		tempLT = inLow[today]
-		tempHT = inHigh[today]
-		tempCY = inClose[today-1]
-		greatest = tempHT - tempLT
-		val2 = math.Abs(tempCY - tempHT)
-		if val2 > greatest {
-			greatest = val2
+	if _n1 := int(i); _n1 > 0 {
+		_r3 := inLow[today:][:_n1]
+		_r4 := inHigh[today:][:_n1]
+		_r5 := inClose[today-1:][:_n1]
+		for _k2 := range _r3 {
+			tempLT = _r3[_k2]
+			tempHT = _r4[_k2]
+			tempCY = _r5[_k2]
+			greatest = tempHT - tempLT
+			val2 = math.Abs(tempCY - tempHT)
+			if val2 > greatest {
+				greatest = val2
+			}
+			val3 = math.Abs(tempCY - tempLT)
+			if val3 > greatest {
+				greatest = val3
+			}
+			prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
 		}
-		val3 = math.Abs(tempCY - tempLT)
-		if val3 > greatest {
-			greatest = val3
-		}
-		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
-		today += 1
-		i -= 1
+		today += int32(_n1)
 	}
 	highest = inHigh[today-1]
 	lowest = inLow[today-1]
 	hhBuf[lastP] = highest
 	llBuf[lastP] = lowest
 	ip = lastP
-	for ip > 0 {
-		ip -= 1
-		tempHT = inHigh[today-1-lastP+ip]
-		tempLT = inLow[today-1-lastP+ip]
-		if tempHT > highest {
-			highest = tempHT
+	if _n6 := int(ip); _n6 > 0 {
+		_r8 := inHigh[today-1-lastP+ip-int32(_n6):][:_n6]
+		_r9 := inLow[today-1-lastP+ip-int32(_n6):][:_n6]
+		_r10 := llBuf[ip-int32(_n6):][:_n6]
+		for _k7 := _n6 - 1; _k7 >= 0; _k7-- {
+			tempHT = _r8[_k7]
+			tempLT = _r9[_k7]
+			if tempHT > highest {
+				highest = tempHT
+			}
+			if tempLT < lowest {
+				lowest = tempLT
+			}
+			hhBuf[ip-int32(_n6-1-_k7)-1] = highest
+			_r10[_k7] = lowest
 		}
-		if tempLT < lowest {
-			lowest = tempLT
-		}
-		hhBuf[ip] = highest
-		llBuf[ip] = lowest
 	}
 	hhPre = highest
 	llPre = lowest
@@ -252,197 +260,210 @@ func (c *Core) ckspImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64
 	if hsBuf_Idx > maxIdx_hsBuf {
 		hsBuf_Idx = 0
 	}
-	for today <= startIdx {
-		tempLT = inLow[today]
-		tempHT = inHigh[today]
-		tempCY = inClose[today-1]
-		greatest = tempHT - tempLT
-		val2 = math.Abs(tempCY - tempHT)
-		if val2 > greatest {
-			greatest = val2
-		}
-		val3 = math.Abs(tempCY - tempLT)
-		if val3 > greatest {
-			greatest = val3
-		}
-		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
-		highest = hhPre
-		lowest = llPre
-		highest = selF(tempHT > highest, tempHT, highest)
-		lowest = selF(tempLT < lowest, tempLT, lowest)
-		if hhBuf_Idx == 0 {
-			highest = tempHT
-			lowest = tempLT
-		}
-		hhPre = highest
-		llPre = lowest
-		if hhBuf_Idx < lastP {
-			tempReal = hhBuf[hhBuf_Idx+1]
-			highest = selF(tempReal > highest, tempReal, highest)
-			tempReal = llBuf[hhBuf_Idx+1]
-			lowest = selF(tempReal < lowest, tempReal, lowest)
-		}
-		hhBuf[hhBuf_Idx] = tempHT
-		llBuf[hhBuf_Idx] = tempLT
-		hhBuf_Idx++
-		if hhBuf_Idx > maxIdx_hhBuf {
-			hhBuf_Idx = 0
-		}
-		if hhBuf_Idx == 0 {
-			sufHi = hhBuf[lastP]
-			sufLo = llBuf[lastP]
-			ip = lastP
-			for ip > 1 {
-				ip -= 1
-				tempReal = hhBuf[ip]
-				if tempReal > sufHi {
-					sufHi = tempReal
+	if _n11 := int(startIdx) - int(today) + 1; _n11 > 0 {
+		_r13 := inLow[today:][:_n11]
+		_r14 := inHigh[today:][:_n11]
+		_r15 := inClose[today-1:][:_n11]
+		for _k12 := range _r13 {
+			tempLT = _r13[_k12]
+			tempHT = _r14[_k12]
+			tempCY = _r15[_k12]
+			greatest = tempHT - tempLT
+			val2 = math.Abs(tempCY - tempHT)
+			if val2 > greatest {
+				greatest = val2
+			}
+			val3 = math.Abs(tempCY - tempLT)
+			if val3 > greatest {
+				greatest = val3
+			}
+			prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
+			highest = hhPre
+			lowest = llPre
+			highest = selF(tempHT > highest, tempHT, highest)
+			lowest = selF(tempLT < lowest, tempLT, lowest)
+			if hhBuf_Idx == 0 {
+				highest = tempHT
+				lowest = tempLT
+			}
+			hhPre = highest
+			llPre = lowest
+			if hhBuf_Idx < lastP {
+				tempReal = hhBuf[hhBuf_Idx+1]
+				highest = selF(tempReal > highest, tempReal, highest)
+				tempReal = llBuf[hhBuf_Idx+1]
+				lowest = selF(tempReal < lowest, tempReal, lowest)
+			}
+			hhBuf[hhBuf_Idx] = tempHT
+			llBuf[hhBuf_Idx] = tempLT
+			hhBuf_Idx++
+			if hhBuf_Idx > maxIdx_hhBuf {
+				hhBuf_Idx = 0
+			}
+			if hhBuf_Idx == 0 {
+				sufHi = hhBuf[lastP]
+				sufLo = llBuf[lastP]
+				ip = lastP
+				for ip > 1 {
+					ip -= 1
+					tempReal = hhBuf[ip]
+					if tempReal > sufHi {
+						sufHi = tempReal
+					}
+					hhBuf[ip] = sufHi
+					tempReal = llBuf[ip]
+					if tempReal < sufLo {
+						sufLo = tempReal
+					}
+					llBuf[ip] = sufLo
 				}
-				hhBuf[ip] = sufHi
-				tempReal = llBuf[ip]
-				if tempReal < sufLo {
-					sufLo = tempReal
-				}
-				llBuf[ip] = sufLo
+			}
+			band = float64(optInMultiplier * prevATR)
+			highStop = highest - band
+			lowStop = lowest + band
+			if highStop > hsPre {
+				hsPre = highStop
+			}
+			if lowStop < lsPre {
+				lsPre = lowStop
+			}
+			hsBuf[hsBuf_Idx] = highStop
+			lsBuf[hsBuf_Idx] = lowStop
+			hsBuf_Idx++
+			if hsBuf_Idx > maxIdx_hsBuf {
+				hsBuf_Idx = 0
 			}
 		}
-		band = float64(optInMultiplier * prevATR)
-		highStop = highest - band
-		lowStop = lowest + band
-		if highStop > hsPre {
-			hsPre = highStop
-		}
-		if lowStop < lsPre {
-			lsPre = lowStop
-		}
-		hsBuf[hsBuf_Idx] = highStop
-		lsBuf[hsBuf_Idx] = lowStop
-		hsBuf_Idx++
-		if hsBuf_Idx > maxIdx_hsBuf {
-			hsBuf_Idx = 0
-		}
-		today += 1
+		today += int32(_n11)
 	}
 	sufHi = hsBuf[lastQ]
 	sufLo = lsBuf[lastQ]
 	iq = lastQ
-	for iq > 1 {
-		iq -= 1
-		tempReal = hsBuf[iq]
-		if tempReal > sufHi {
-			sufHi = tempReal
+	if _n16 := int(iq) - int(1); _n16 > 0 {
+		_r18 := lsBuf[iq-int32(_n16):][:_n16]
+		for _k17 := _n16 - 1; _k17 >= 0; _k17-- {
+			tempReal = hsBuf[iq-int32(_n16-1-_k17)-1]
+			if tempReal > sufHi {
+				sufHi = tempReal
+			}
+			hsBuf[iq-int32(_n16-1-_k17)-1] = sufHi
+			tempReal = _r18[_k17]
+			if tempReal < sufLo {
+				sufLo = tempReal
+			}
+			_r18[_k17] = sufLo
 		}
-		hsBuf[iq] = sufHi
-		tempReal = lsBuf[iq]
-		if tempReal < sufLo {
-			sufLo = tempReal
-		}
-		lsBuf[iq] = sufLo
 	}
 	outHighStop[0] = hsPre
 	outLowStop[0] = lsPre
 	outIdx = 1
-	for today <= endIdx {
-		tempLT = inLow[today]
-		tempHT = inHigh[today]
-		tempCY = inClose[today-1]
-		greatest = tempHT - tempLT
-		val2 = math.Abs(tempCY - tempHT)
-		if val2 > greatest {
-			greatest = val2
-		}
-		val3 = math.Abs(tempCY - tempLT)
-		if val3 > greatest {
-			greatest = val3
-		}
-		prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
-		highest = hhPre
-		lowest = llPre
-		highest = selF(tempHT > highest, tempHT, highest)
-		lowest = selF(tempLT < lowest, tempLT, lowest)
-		if hhBuf_Idx == 0 {
-			highest = tempHT
-			lowest = tempLT
-		}
-		hhPre = highest
-		llPre = lowest
-		if hhBuf_Idx < lastP {
-			tempReal = hhBuf[hhBuf_Idx+1]
-			highest = selF(tempReal > highest, tempReal, highest)
-			tempReal = llBuf[hhBuf_Idx+1]
-			lowest = selF(tempReal < lowest, tempReal, lowest)
-		}
-		hhBuf[hhBuf_Idx] = tempHT
-		llBuf[hhBuf_Idx] = tempLT
-		hhBuf_Idx++
-		if hhBuf_Idx > maxIdx_hhBuf {
-			hhBuf_Idx = 0
-		}
-		band = float64(optInMultiplier * prevATR)
-		highStop = highest - band
-		lowStop = lowest + band
-		highest = hsPre
-		lowest = lsPre
-		highest = selF(highStop > highest, highStop, highest)
-		lowest = selF(lowStop < lowest, lowStop, lowest)
-		if hsBuf_Idx == 0 {
-			highest = highStop
-			lowest = lowStop
-		}
-		hsPre = highest
-		lsPre = lowest
-		if hsBuf_Idx < lastQ {
-			tempReal = hsBuf[hsBuf_Idx+1]
-			highest = selF(tempReal > highest, tempReal, highest)
-			tempReal = lsBuf[hsBuf_Idx+1]
-			lowest = selF(tempReal < lowest, tempReal, lowest)
-		}
-		hsBuf[hsBuf_Idx] = highStop
-		lsBuf[hsBuf_Idx] = lowStop
-		hsBuf_Idx++
-		if hsBuf_Idx > maxIdx_hsBuf {
-			hsBuf_Idx = 0
-		}
-		outHighStop[outIdx] = highest
-		outLowStop[outIdx] = lowest
-		if hhBuf_Idx == 0 {
-			sufHi = hhBuf[lastP]
-			sufLo = llBuf[lastP]
-			ip = lastP
-			for ip > 1 {
-				ip -= 1
-				tempReal = hhBuf[ip]
-				if tempReal > sufHi {
-					sufHi = tempReal
+	if _n19 := int(endIdx) - int(today) + 1; _n19 > 0 {
+		_r21 := inLow[today:][:_n19]
+		_r22 := inHigh[today:][:_n19]
+		_r23 := inClose[today-1:][:_n19]
+		_r24 := outHighStop[outIdx:][:_n19]
+		_r25 := outLowStop[outIdx:][:_n19]
+		for _k20 := range _r21 {
+			tempLT = _r21[_k20]
+			tempHT = _r22[_k20]
+			tempCY = _r23[_k20]
+			greatest = tempHT - tempLT
+			val2 = math.Abs(tempCY - tempHT)
+			if val2 > greatest {
+				greatest = val2
+			}
+			val3 = math.Abs(tempCY - tempLT)
+			if val3 > greatest {
+				greatest = val3
+			}
+			prevATR = math.FMA(wBeta, prevATR, float64(wAlpha*greatest))
+			highest = hhPre
+			lowest = llPre
+			highest = selF(tempHT > highest, tempHT, highest)
+			lowest = selF(tempLT < lowest, tempLT, lowest)
+			if hhBuf_Idx == 0 {
+				highest = tempHT
+				lowest = tempLT
+			}
+			hhPre = highest
+			llPre = lowest
+			if hhBuf_Idx < lastP {
+				tempReal = hhBuf[hhBuf_Idx+1]
+				highest = selF(tempReal > highest, tempReal, highest)
+				tempReal = llBuf[hhBuf_Idx+1]
+				lowest = selF(tempReal < lowest, tempReal, lowest)
+			}
+			hhBuf[hhBuf_Idx] = tempHT
+			llBuf[hhBuf_Idx] = tempLT
+			hhBuf_Idx++
+			if hhBuf_Idx > maxIdx_hhBuf {
+				hhBuf_Idx = 0
+			}
+			band = float64(optInMultiplier * prevATR)
+			highStop = highest - band
+			lowStop = lowest + band
+			highest = hsPre
+			lowest = lsPre
+			highest = selF(highStop > highest, highStop, highest)
+			lowest = selF(lowStop < lowest, lowStop, lowest)
+			if hsBuf_Idx == 0 {
+				highest = highStop
+				lowest = lowStop
+			}
+			hsPre = highest
+			lsPre = lowest
+			if hsBuf_Idx < lastQ {
+				tempReal = hsBuf[hsBuf_Idx+1]
+				highest = selF(tempReal > highest, tempReal, highest)
+				tempReal = lsBuf[hsBuf_Idx+1]
+				lowest = selF(tempReal < lowest, tempReal, lowest)
+			}
+			hsBuf[hsBuf_Idx] = highStop
+			lsBuf[hsBuf_Idx] = lowStop
+			hsBuf_Idx++
+			if hsBuf_Idx > maxIdx_hsBuf {
+				hsBuf_Idx = 0
+			}
+			_r24[_k20] = highest
+			_r25[_k20] = lowest
+			if hhBuf_Idx == 0 {
+				sufHi = hhBuf[lastP]
+				sufLo = llBuf[lastP]
+				ip = lastP
+				for ip > 1 {
+					ip -= 1
+					tempReal = hhBuf[ip]
+					if tempReal > sufHi {
+						sufHi = tempReal
+					}
+					hhBuf[ip] = sufHi
+					tempReal = llBuf[ip]
+					if tempReal < sufLo {
+						sufLo = tempReal
+					}
+					llBuf[ip] = sufLo
 				}
-				hhBuf[ip] = sufHi
-				tempReal = llBuf[ip]
-				if tempReal < sufLo {
-					sufLo = tempReal
+			}
+			if hsBuf_Idx == 0 {
+				sufHi = hsBuf[lastQ]
+				sufLo = lsBuf[lastQ]
+				iq = lastQ
+				for iq > 1 {
+					iq -= 1
+					tempReal = hsBuf[iq]
+					if tempReal > sufHi {
+						sufHi = tempReal
+					}
+					hsBuf[iq] = sufHi
+					tempReal = lsBuf[iq]
+					if tempReal < sufLo {
+						sufLo = tempReal
+					}
+					lsBuf[iq] = sufLo
 				}
-				llBuf[ip] = sufLo
 			}
 		}
-		if hsBuf_Idx == 0 {
-			sufHi = hsBuf[lastQ]
-			sufLo = lsBuf[lastQ]
-			iq = lastQ
-			for iq > 1 {
-				iq -= 1
-				tempReal = hsBuf[iq]
-				if tempReal > sufHi {
-					sufHi = tempReal
-				}
-				hsBuf[iq] = sufHi
-				tempReal = lsBuf[iq]
-				if tempReal < sufLo {
-					sufLo = tempReal
-				}
-				lsBuf[iq] = sufLo
-			}
-		}
-		outIdx += 1
-		today += 1
+		outIdx += int32(_n19)
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx

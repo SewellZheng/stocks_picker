@@ -342,15 +342,13 @@ func (c *Core) htTrendlineImpl(startIdx, endIdx int32, inReal []float64, outBegI
 			DCPeriodInt = 0
 		}
 		tempReal = 0.0
-		for i = 0; i < 50; i += 1 {
-			if i < DCPeriodInt {
-				tempReal += inReal[today-i]
-			}
+		for i = 0; i < min(50, DCPeriodInt); i += 1 {
+			tempReal += inReal[today-i]
 		}
 		if DCPeriodInt > 0 {
 			tempReal = tempReal / float64(DCPeriodInt)
 		}
-		tempReal2 = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+		tempReal2 = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 		iTrend3 = iTrend2
 		iTrend2 = iTrend1
 		iTrend1 = tempReal
@@ -694,21 +692,20 @@ func (sp *HT_TRENDLINEStream) Update(inReal float64) (float64, error) {
 	winCap_i = sp.winCap_i
 	winPos_i = sp.winPos_i
 	win_i_inReal = sp.win_i_inReal
-	for i = 0; i < 50; i += 1 {
-		if i < DCPeriodInt {
-			var _T3 int32
-			if winPos_i+winCap_i-i >= winCap_i {
-				_T3 = winPos_i + winCap_i - i - winCap_i
-			} else {
-				_T3 = winPos_i + winCap_i - i
-			}
-			tempReal += win_i_inReal[_T3]
+	for i = 0; i < min(50, DCPeriodInt); i += 1 {
+		var _T3 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T3 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T3 = winPos_i + winCap_i - i
 		}
+		tempReal += win_i_inReal[_T3]
 	}
+	i = 50
 	if DCPeriodInt > 0 {
 		tempReal = tempReal / float64(DCPeriodInt)
 	}
-	tempReal2 = (math.FMA(2.0, sp.iTrend2, math.FMA(4.0, tempReal, float64(3.0*sp.iTrend1))) + sp.iTrend3) / 10.0
+	tempReal2 = (float64(4.0*tempReal) + float64(3.0*sp.iTrend1) + float64(2.0*sp.iTrend2) + sp.iTrend3) / 10.0
 	sp.iTrend3 = sp.iTrend2
 	sp.iTrend2 = sp.iTrend1
 	sp.iTrend1 = tempReal
@@ -911,33 +908,32 @@ func (sp *HT_TRENDLINEStream) Peek(inReal float64) (float64, error) {
 	winCap_i = sp.winCap_i
 	winPos_i = sp.winPos_i
 	win_i_inReal = sp.win_i_inReal
-	for i = 0; i < 50; i += 1 {
-		if i < DCPeriodInt {
-			var _T0 int32
-			if winPos_i+winCap_i-i >= winCap_i {
-				_T0 = winPos_i + winCap_i - i - winCap_i
-			} else {
-				_T0 = winPos_i + winCap_i - i
-			}
-			var _T2 float64
-			if _T0 != pkSlot0 {
-				var _T1 int32
-				if winPos_i+winCap_i-i >= winCap_i {
-					_T1 = winPos_i + winCap_i - i - winCap_i
-				} else {
-					_T1 = winPos_i + winCap_i - i
-				}
-				_T2 = win_i_inReal[_T1]
-			} else {
-				_T2 = pkVal0
-			}
-			tempReal += _T2
+	for i = 0; i < min(50, DCPeriodInt); i += 1 {
+		var _T0 int32
+		if winPos_i+winCap_i-i >= winCap_i {
+			_T0 = winPos_i + winCap_i - i - winCap_i
+		} else {
+			_T0 = winPos_i + winCap_i - i
 		}
+		var _T2 float64
+		if _T0 != pkSlot0 {
+			var _T1 int32
+			if winPos_i+winCap_i-i >= winCap_i {
+				_T1 = winPos_i + winCap_i - i - winCap_i
+			} else {
+				_T1 = winPos_i + winCap_i - i
+			}
+			_T2 = win_i_inReal[_T1]
+		} else {
+			_T2 = pkVal0
+		}
+		tempReal += _T2
 	}
+	i = 50
 	if DCPeriodInt > 0 {
 		tempReal = tempReal / float64(DCPeriodInt)
 	}
-	tempReal2 = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+	tempReal2 = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 	iTrend3 = iTrend2
 	iTrend2 = iTrend1
 	iTrend1 = tempReal
@@ -1264,15 +1260,14 @@ func (c *Core) htTrendlineOpenImpl(sp *HT_TRENDLINEStream, inReal []float64, sta
 			DCPeriodInt = 0
 		}
 		tempReal = 0.0
-		for i = 0; i < 50; i += 1 {
-			if i < DCPeriodInt {
-				tempReal += inReal[today-i]
-			}
+		for i = 0; i < min(50, DCPeriodInt); i += 1 {
+			tempReal += inReal[today-i]
 		}
+		i = 50
 		if DCPeriodInt > 0 {
 			tempReal = tempReal / float64(DCPeriodInt)
 		}
-		tempReal2 = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+		tempReal2 = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 		iTrend3 = iTrend2
 		iTrend2 = iTrend1
 		iTrend1 = tempReal

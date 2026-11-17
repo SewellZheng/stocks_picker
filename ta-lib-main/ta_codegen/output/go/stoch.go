@@ -85,7 +85,6 @@ func (c *Core) stochImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float6
 	var lookbackDSlow int32
 	var trailingIdx int32
 	var today int32
-	var i int32
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -120,7 +119,6 @@ func (c *Core) stochImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float6
 	if sameStart(outSlowK, outSlowD) {
 		return BadParam
 	}
-	i = 0
 	lookbackK = optInFastK_Period - 1
 	lookbackKSlow = c.maLookback(optInSlowK_Period, optInSlowK_MAType)
 	lookbackDSlow = c.maLookback(optInSlowD_Period, optInSlowD_MAType)
@@ -145,75 +143,86 @@ func (c *Core) stochImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float6
 	} else {
 		tempBuffer = make([]float64, endIdx-today+1)
 	}
-	for today <= endIdx {
-		tmp = inLow[today]
-		if lowestIdx < trailingIdx {
-			lowestIdx = trailingIdx
-			lowest = inLow[lowestIdx]
-			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+	if today <= endIdx {
+		_x0 := inClose[:int(endIdx)+1]
+		_x1 := inHigh[:len(_x0)]
+		_x2 := inLow[:len(_x0)]
+		_s3 := int(today)
+		_i5 := int(highestIdx)
+		_i6 := int(lowestIdx)
+		_i7 := int(outIdx)
+		_i8 := int(trailingIdx)
+		for _t4 := _s3; _t4 < len(_x0); _t4++ {
+			tmp = _x2[_t4]
+			if _i6 < _i8 {
+				_i6 = _i8
+				lowest = _x2[_i6]
+				_j9 := _i6 + 1
+			L_j9:
+				if _j9 <= _t4 {
+					tmp = _x2[_j9]
+					if tmp < lowest {
+						_i6 = _j9
+						lowest = tmp
+						_j9++
+						goto L_j9
+					}
+					_j9++
+					goto L_j9
 				}
-				tmp = inLow[i]
-				if tmp < lowest {
-					lowestIdx = i
-					lowest = tmp
-				}
+			} else if tmp <= lowest {
+				_i6 = _t4
+				lowest = tmp
 			}
-		} else if tmp <= lowest {
-			lowestIdx = today
-			lowest = tmp
-		}
-		tmp = inHigh[today]
-		if highestIdx < trailingIdx {
-			highestIdx = trailingIdx
-			highest = inHigh[highestIdx]
-			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+			tmp = _x1[_t4]
+			if _i5 < _i8 {
+				_i5 = _i8
+				highest = _x1[_i5]
+				_j10 := _i5 + 1
+			L_j10:
+				if _j10 <= _t4 {
+					tmp = _x1[_j10]
+					if tmp > highest {
+						_i5 = _j10
+						highest = tmp
+						_j10++
+						goto L_j10
+					}
+					_j10++
+					goto L_j10
 				}
-				tmp = inHigh[i]
-				if tmp > highest {
-					highestIdx = i
-					highest = tmp
-				}
+			} else if tmp >= highest {
+				_i5 = _t4
+				highest = tmp
 			}
-		} else if tmp >= highest {
-			highestIdx = today
-			highest = tmp
+			if !isZeroScaled(highest-lowest, math.Abs(highest)+math.Abs(lowest)) {
+				tempBuffer[_i7] = float64((_x0[_t4] - lowest) / (highest - lowest) * 100.0)
+			} else {
+				tempBuffer[_i7] = 0.0
+			}
+			_i7++
+			_i8++
 		}
-		if !isZeroScaled(highest-lowest, math.Abs(highest)+math.Abs(lowest)) {
-			tempBuffer[outIdx] = float64((inClose[today] - lowest) / (highest - lowest) * 100.0)
-			outIdx++
-		} else {
-			tempBuffer[outIdx] = 0.0
-			outIdx++
-		}
-		trailingIdx += 1
-		today += 1
+		outIdx = int32(_i7)
 	}
-	_X0, _E0 := c.MA(0, int(outIdx-1), tempBuffer, int(optInSlowK_Period), MAType(optInSlowK_MAType), tempBuffer)
-	if _E0 != nil {
-		return _E0.(RetCode)
+	_X11, _E11 := c.MA(0, int(outIdx-1), tempBuffer, int(optInSlowK_Period), MAType(optInSlowK_MAType), tempBuffer)
+	if _E11 != nil {
+		return _E11.(RetCode)
 	}
-	*outBegIdx = int32(_X0.BegIdx)
-	*outNBElement = int32(_X0.NBElement)
+	*outBegIdx = int32(_X11.BegIdx)
+	*outNBElement = int32(_X11.NBElement)
 	retCode = Success
 	if *outNBElement == 0 {
 		*outBegIdx = 0
 		*outNBElement = 0
 		return retCode
 	}
-	_X1, _E1 := c.MA(0, int(*outNBElement-1), tempBuffer, int(optInSlowD_Period), MAType(optInSlowD_MAType), outSlowD)
-	if _E1 != nil {
-		return _E1.(RetCode)
+	_X12, _E12 := c.MA(0, int(*outNBElement-1), tempBuffer, int(optInSlowD_Period), MAType(optInSlowD_MAType), outSlowD)
+	if _E12 != nil {
+		return _E12.(RetCode)
 	}
-	*outBegIdx = int32(_X1.BegIdx)
-	*outNBElement = int32(_X1.NBElement)
+	*outBegIdx = int32(_X12.BegIdx)
+	*outNBElement = int32(_X12.NBElement)
 	retCode = Success
 	copy(outSlowK, tempBuffer[lookbackDSlow:lookbackDSlow+*outNBElement])
 	*outBegIdx = startIdx
@@ -422,16 +431,18 @@ func (sp *STOCHStream) Update(inHigh, inLow, inClose float64) (float64, float64,
 		sp.lowestIdx = sp.trailingIdx
 		sp.lowest = sp.x_inLow[sp.lowestIdx&sp.xMask]
 		sp.i = sp.lowestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
+		sp.i++
+	scan2:
+		if sp.i <= sp.today {
 			tmp = sp.x_inLow[sp.i&sp.xMask]
 			if tmp < sp.lowest {
 				sp.lowestIdx = sp.i
 				sp.lowest = tmp
+				sp.i++
+				goto scan2
 			}
+			sp.i++
+			goto scan2
 		}
 	} else if tmp <= sp.lowest {
 		sp.lowestIdx = sp.today
@@ -442,16 +453,18 @@ func (sp *STOCHStream) Update(inHigh, inLow, inClose float64) (float64, float64,
 		sp.highestIdx = sp.trailingIdx
 		sp.highest = sp.x_inHigh[sp.highestIdx&sp.xMask]
 		sp.i = sp.highestIdx
-		for {
-			sp.i++
-			if !(sp.i <= sp.today) {
-				break
-			}
+		sp.i++
+	scan3:
+		if sp.i <= sp.today {
 			tmp = sp.x_inHigh[sp.i&sp.xMask]
 			if tmp > sp.highest {
 				sp.highestIdx = sp.i
 				sp.highest = tmp
+				sp.i++
+				goto scan3
 			}
+			sp.i++
+			goto scan3
 		}
 	} else if tmp >= sp.highest {
 		sp.highestIdx = sp.today
@@ -531,11 +544,9 @@ func (sp *STOCHStream) Peek(inHigh, inLow, inClose float64) (float64, float64, e
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot1 {
 				_T2 = x_inLow[i&xMask]
@@ -546,7 +557,11 @@ func (sp *STOCHStream) Peek(inHigh, inLow, inClose float64) (float64, float64, e
 			if tmp < lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp <= lowest {
 		lowestIdx = sp.today
@@ -572,11 +587,9 @@ func (sp *STOCHStream) Peek(inHigh, inLow, inClose float64) (float64, float64, e
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T5 float64
 			if i&xMask != pkSlot0 {
 				_T5 = x_inHigh[i&xMask]
@@ -587,7 +600,11 @@ func (sp *STOCHStream) Peek(inHigh, inLow, inClose float64) (float64, float64, e
 			if tmp > highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmp >= highest {
 		highestIdx = sp.today
@@ -733,16 +750,18 @@ func (c *Core) stochOpenImpl(sp *STOCHStream, inHigh, inLow, inClose []float64, 
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmp = inLow[i]
 				if tmp < lowest {
 					lowestIdx = i
 					lowest = tmp
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmp <= lowest {
 			lowestIdx = today
@@ -753,16 +772,18 @@ func (c *Core) stochOpenImpl(sp *STOCHStream, inHigh, inLow, inClose []float64, 
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmp = inHigh[i]
 				if tmp > highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmp >= highest {
 			highestIdx = today

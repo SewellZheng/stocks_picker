@@ -102,14 +102,19 @@ func (c *Core) correlImpl(startIdx, endIdx int32, inReal0, inReal1 []float64, op
 	sumY = sumX2
 	sumX = sumY
 	sumXY = sumX
-	for j = trailingIdx; j < startIdx; j += 1 {
-		x = inReal0[j] - shiftX
-		sumX += x
-		sumX2 += float64(x * x)
-		y = inReal1[j] - shiftY
-		sumXY += float64(x * y)
-		sumY += y
-		sumY2 += float64(y * y)
+	j = trailingIdx
+	if _n0 := int(startIdx) - int(j); _n0 > 0 {
+		_r2 := inReal0[j:][:_n0]
+		_r3 := inReal1[j:][:_n0]
+		for _k1 := range _r2 {
+			x = _r2[_k1] - shiftX
+			sumX += x
+			sumX2 += float64(x * x)
+			y = _r3[_k1] - shiftY
+			sumXY += float64(x * y)
+			sumY += y
+			sumY2 += float64(y * y)
+		}
 	}
 	today = startIdx
 	outIdx = 0

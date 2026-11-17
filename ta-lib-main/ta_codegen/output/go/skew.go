@@ -101,12 +101,16 @@ func (c *Core) skewImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	total1 = 0.0
 	total2 = 0.0
 	total3 = 0.0
-	for j = trailingIdx; j < startIdx; j += 1 {
-		dev = inReal[j] - shift
-		dev2 = float64(dev * dev)
-		total1 += dev
-		total2 += dev2
-		total3 += float64(dev2 * dev)
+	j = trailingIdx
+	if _n0 := int(startIdx) - int(j); _n0 > 0 {
+		_r2 := inReal[j:][:_n0]
+		for _k1 := range _r2 {
+			dev = _r2[_k1] - shift
+			dev2 = float64(dev * dev)
+			total1 += dev
+			total2 += dev2
+			total3 += float64(dev2 * dev)
+		}
 	}
 	i = startIdx
 	outIdx = 0

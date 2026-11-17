@@ -134,12 +134,16 @@ func (c *Core) bbwImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		maTotal = 0.0
 		varTotal1 = 0.0
 		varTotal2 = 0.0
-		for _j = _trailingIdx; _j < startIdx; _j += 1 {
-			maTotal += inReal[_j]
-			_tempReal = inReal[_j] - shift
-			varTotal1 += _tempReal
-			_tempReal = float64(_tempReal * _tempReal)
-			varTotal2 += _tempReal
+		_j = _trailingIdx
+		if _n0 := int(startIdx) - int(_j); _n0 > 0 {
+			_r2 := inReal[_j:][:_n0]
+			for _k1 := range _r2 {
+				maTotal += _r2[_k1]
+				_tempReal = _r2[_k1] - shift
+				varTotal1 += _tempReal
+				_tempReal = float64(_tempReal * _tempReal)
+				varTotal2 += _tempReal
+			}
 		}
 		_i = startIdx
 		_outIdx = 0
@@ -158,13 +162,13 @@ func (c *Core) bbwImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 				varTotal1 += _tempReal
 				_tempReal = float64(_tempReal * _tempReal)
 				varTotal2 += _tempReal
-				var _T0 float64
+				var _T3 float64
 				if varTotal2 > _peakTotal2 {
-					_T0 = varTotal2
+					_T3 = varTotal2
 				} else {
-					_T0 = _peakTotal2
+					_T3 = _peakTotal2
 				}
-				_peakTotal2 = _T0
+				_peakTotal2 = _T3
 				meanValue1 = float64(varTotal1 * _invPeriod)
 				variance = float64(varTotal2*_invPeriod) - float64(meanValue1*meanValue1)
 				_mid[_outIdx-_tileBase] = maTotal / float64(optInTimePeriod)
@@ -223,25 +227,33 @@ func (c *Core) bbwImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 				}
 			}
 			if optInNbDevUp == optInNbDevDn {
-				for _k = 0; _k < _outIdx-_tileBase; _k += 1 {
-					middle = _mid[_k]
-					tempReal = float64(math.Sqrt(outReal[_tileBase+_k]) * optInNbDevUp)
-					upper = middle + tempReal
-					lower = middle - tempReal
-					outReal[_tileBase+_k] = float64((upper - lower) / middle * 100.0)
-					if middle == 0.0 {
-						outReal[_tileBase+_k] = 0.0
+				_k = 0
+				if _n4 := int(_outIdx-_tileBase) - int(_k); _n4 > 0 {
+					_r6 := outReal[_tileBase+_k:][:_n4]
+					for _k5 := range _r6 {
+						middle = _mid[_k+int32(_k5)]
+						tempReal = float64(math.Sqrt(_r6[_k5]) * optInNbDevUp)
+						upper = middle + tempReal
+						lower = middle - tempReal
+						_r6[_k5] = float64((upper - lower) / middle * 100.0)
+						if middle == 0.0 {
+							_r6[_k5] = 0.0
+						}
 					}
 				}
 			} else {
-				for _k = 0; _k < _outIdx-_tileBase; _k += 1 {
-					middle = _mid[_k]
-					deviation = math.Sqrt(outReal[_tileBase+_k])
-					upper = math.FMA(deviation, optInNbDevUp, middle)
-					lower = middle - float64(deviation*optInNbDevDn)
-					outReal[_tileBase+_k] = float64((upper - lower) / middle * 100.0)
-					if middle == 0.0 {
-						outReal[_tileBase+_k] = 0.0
+				_k = 0
+				if _n7 := int(_outIdx-_tileBase) - int(_k); _n7 > 0 {
+					_r9 := outReal[_tileBase+_k:][:_n7]
+					for _k8 := range _r9 {
+						middle = _mid[_k+int32(_k8)]
+						deviation = math.Sqrt(_r9[_k8])
+						upper = math.FMA(deviation, optInNbDevUp, middle)
+						lower = middle - float64(deviation*optInNbDevDn)
+						_r9[_k8] = float64((upper - lower) / middle * 100.0)
+						if middle == 0.0 {
+							_r9[_k8] = 0.0
+						}
 					}
 				}
 			}
@@ -259,39 +271,47 @@ func (c *Core) bbwImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		return Success
 	}
 	tempBuffer = make([]float64, endIdx-startIdx+1)
-	_X1, _E1 := c.MA(int(startIdx), int(endIdx), inReal, int(optInTimePeriod), MAType(optInMAType), tempBuffer)
-	if _E1 != nil {
-		return _E1.(RetCode)
+	_X10, _E10 := c.MA(int(startIdx), int(endIdx), inReal, int(optInTimePeriod), MAType(optInMAType), tempBuffer)
+	if _E10 != nil {
+		return _E10.(RetCode)
 	}
-	maBegIdx = int32(_X1.BegIdx)
-	maNbElement = int32(_X1.NBElement)
-	_X2, _E2 := c.VAR(int(maBegIdx), int(endIdx), inReal, int(optInTimePeriod), 1.0, outReal)
-	if _E2 != nil {
-		return _E2.(RetCode)
+	maBegIdx = int32(_X10.BegIdx)
+	maNbElement = int32(_X10.NBElement)
+	_X11, _E11 := c.VAR(int(maBegIdx), int(endIdx), inReal, int(optInTimePeriod), 1.0, outReal)
+	if _E11 != nil {
+		return _E11.(RetCode)
 	}
-	*outBegIdx = int32(_X2.BegIdx)
-	*outNBElement = int32(_X2.NBElement)
+	*outBegIdx = int32(_X11.BegIdx)
+	*outNBElement = int32(_X11.NBElement)
 	offset = maNbElement - *outNBElement
 	if optInNbDevUp == optInNbDevDn {
-		for i = 0; i < *outNBElement; i += 1 {
-			middle = tempBuffer[i+offset]
-			tempReal = float64(math.Sqrt(outReal[i]) * optInNbDevUp)
-			upper = middle + tempReal
-			lower = middle - tempReal
-			outReal[i] = float64((upper - lower) / middle * 100.0)
-			if middle == 0.0 {
-				outReal[i] = 0.0
+		i = 0
+		if _n12 := int(*outNBElement) - int(i); _n12 > 0 {
+			_r14 := outReal[i:][:_n12]
+			for _k13 := range _r14 {
+				middle = tempBuffer[i+int32(_k13)+offset]
+				tempReal = float64(math.Sqrt(_r14[_k13]) * optInNbDevUp)
+				upper = middle + tempReal
+				lower = middle - tempReal
+				_r14[_k13] = float64((upper - lower) / middle * 100.0)
+				if middle == 0.0 {
+					_r14[_k13] = 0.0
+				}
 			}
 		}
 	} else {
-		for i = 0; i < *outNBElement; i += 1 {
-			middle = tempBuffer[i+offset]
-			deviation = math.Sqrt(outReal[i])
-			upper = math.FMA(deviation, optInNbDevUp, middle)
-			lower = middle - float64(deviation*optInNbDevDn)
-			outReal[i] = float64((upper - lower) / middle * 100.0)
-			if middle == 0.0 {
-				outReal[i] = 0.0
+		i = 0
+		if _n15 := int(*outNBElement) - int(i); _n15 > 0 {
+			_r17 := outReal[i:][:_n15]
+			for _k16 := range _r17 {
+				middle = tempBuffer[i+int32(_k16)+offset]
+				deviation = math.Sqrt(_r17[_k16])
+				upper = math.FMA(deviation, optInNbDevUp, middle)
+				lower = middle - float64(deviation*optInNbDevDn)
+				_r17[_k16] = float64((upper - lower) / middle * 100.0)
+				if middle == 0.0 {
+					_r17[_k16] = 0.0
+				}
 			}
 		}
 	}

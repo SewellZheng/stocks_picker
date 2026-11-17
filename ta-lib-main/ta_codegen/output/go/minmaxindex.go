@@ -53,7 +53,6 @@ func (c *Core) minmaxindexImpl(startIdx, endIdx int32, inReal []float64, optInTi
 	var nbInitialElementNeeded int32
 	var trailingIdx int32
 	var today int32
-	var i int32
 	var highestIdx int32
 	var lowestIdx int32
 	if startIdx < 0 || startIdx > IndexMax {
@@ -86,52 +85,64 @@ func (c *Core) minmaxindexImpl(startIdx, endIdx int32, inReal []float64, optInTi
 	highest = 0.0
 	lowestIdx = -1
 	lowest = 0.0
-	for today <= endIdx {
-		tmpHigh = inReal[today]
-		tmpLow = tmpHigh
-		if highestIdx < trailingIdx {
-			highestIdx = trailingIdx
-			highest = inReal[highestIdx]
-			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+	if today <= endIdx {
+		_x0 := inReal[:int(endIdx)+1]
+		_s1 := int(today)
+		_r3 := outMaxIdx[outIdx:][:len(_x0)-_s1]
+		_r4 := outMinIdx[outIdx:][:len(_r3)]
+		_o5 := 0
+		_i6 := int(highestIdx)
+		_i7 := int(lowestIdx)
+		_i8 := int(trailingIdx)
+		for _t2 := _s1; _t2 < len(_x0); _t2++ {
+			tmpHigh = _x0[_t2]
+			tmpLow = tmpHigh
+			if _i6 < _i8 {
+				_i6 = _i8
+				highest = _x0[_i6]
+				_j9 := _i6 + 1
+			L_j9:
+				if _j9 <= _t2 {
+					tmpHigh = _x0[_j9]
+					if tmpHigh >= highest {
+						_i6 = _j9
+						highest = tmpHigh
+						_j9++
+						goto L_j9
+					}
+					_j9++
+					goto L_j9
 				}
-				tmpHigh = inReal[i]
-				if tmpHigh >= highest {
-					highestIdx = i
-					highest = tmpHigh
-				}
+			} else if tmpHigh >= highest {
+				_i6 = _t2
+				highest = tmpHigh
 			}
-		} else if tmpHigh >= highest {
-			highestIdx = today
-			highest = tmpHigh
-		}
-		if lowestIdx < trailingIdx {
-			lowestIdx = trailingIdx
-			lowest = inReal[lowestIdx]
-			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+			if _i7 < _i8 {
+				_i7 = _i8
+				lowest = _x0[_i7]
+				_j10 := _i7 + 1
+			L_j10:
+				if _j10 <= _t2 {
+					tmpLow = _x0[_j10]
+					if tmpLow <= lowest {
+						_i7 = _j10
+						lowest = tmpLow
+						_j10++
+						goto L_j10
+					}
+					_j10++
+					goto L_j10
 				}
-				tmpLow = inReal[i]
-				if tmpLow <= lowest {
-					lowestIdx = i
-					lowest = tmpLow
-				}
+			} else if tmpLow <= lowest {
+				_i7 = _t2
+				lowest = tmpLow
 			}
-		} else if tmpLow <= lowest {
-			lowestIdx = today
-			lowest = tmpLow
+			_r3[_o5] = int32(_i6)
+			_r4[_o5] = int32(_i7)
+			_i8++
+			_o5++
 		}
-		outMaxIdx[outIdx] = highestIdx
-		outMinIdx[outIdx] = lowestIdx
-		outIdx += 1
-		trailingIdx += 1
-		today += 1
+		outIdx += int32(len(_r3))
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -316,16 +327,18 @@ func (sp *MINMAXINDEXStream) Update(inReal float64) (int32, int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tmpHigh = x_inReal[i&xMask]
 			if tmpHigh >= highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -344,16 +357,18 @@ func (sp *MINMAXINDEXStream) Update(inReal float64) (int32, int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tmpLow = x_inReal[i&xMask]
 			if tmpLow <= lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -412,11 +427,9 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot0 {
 				_T2 = x_inReal[i&xMask]
@@ -427,7 +440,11 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 			if tmpHigh >= highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmpHigh >= highest {
 		highestIdx = sp.today
@@ -446,11 +463,9 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T4 float64
 			if i&xMask != pkSlot0 {
 				_T4 = x_inReal[i&xMask]
@@ -461,7 +476,11 @@ func (sp *MINMAXINDEXStream) Peek(inReal float64) (int32, int32, error) {
 			if tmpLow <= lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmpLow <= lowest {
 		lowestIdx = sp.today
@@ -536,16 +555,18 @@ func (c *Core) minmaxindexOpenImpl(sp *MINMAXINDEXStream, inReal []float64, star
 			highestIdx = trailingIdx
 			highest = inReal[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmpHigh = inReal[i]
 				if tmpHigh >= highest {
 					highestIdx = i
 					highest = tmpHigh
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmpHigh >= highest {
 			highestIdx = today
@@ -555,16 +576,18 @@ func (c *Core) minmaxindexOpenImpl(sp *MINMAXINDEXStream, inReal []float64, star
 			lowestIdx = trailingIdx
 			lowest = inReal[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmpLow = inReal[i]
 				if tmpLow <= lowest {
 					lowestIdx = i
 					lowest = tmpLow
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmpLow <= lowest {
 			lowestIdx = today

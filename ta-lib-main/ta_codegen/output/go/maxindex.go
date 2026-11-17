@@ -51,7 +51,6 @@ func (c *Core) maxindexImpl(startIdx, endIdx int32, inReal []float64, optInTimeP
 	var nbInitialElementNeeded int32
 	var trailingIdx int32
 	var today int32
-	var i int32
 	var highestIdx int32
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
@@ -78,31 +77,40 @@ func (c *Core) maxindexImpl(startIdx, endIdx int32, inReal []float64, optInTimeP
 	trailingIdx = startIdx - nbInitialElementNeeded
 	highestIdx = -1
 	highest = 0.0
-	for today <= endIdx {
-		tmp = inReal[today]
-		if highestIdx < trailingIdx {
-			highestIdx = trailingIdx
-			highest = inReal[highestIdx]
-			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+	if today <= endIdx {
+		_x0 := inReal[:int(endIdx)+1]
+		_s1 := int(today)
+		_r3 := outInteger[outIdx:][:len(_x0)-_s1]
+		_o4 := 0
+		_i5 := int(highestIdx)
+		_i6 := int(trailingIdx)
+		for _t2 := _s1; _t2 < len(_x0); _t2++ {
+			tmp = _x0[_t2]
+			if _i5 < _i6 {
+				_i5 = _i6
+				highest = _x0[_i5]
+				_j7 := _i5 + 1
+			L_j7:
+				if _j7 <= _t2 {
+					tmp = _x0[_j7]
+					if tmp >= highest {
+						_i5 = _j7
+						highest = tmp
+						_j7++
+						goto L_j7
+					}
+					_j7++
+					goto L_j7
 				}
-				tmp = inReal[i]
-				if tmp >= highest {
-					highestIdx = i
-					highest = tmp
-				}
+			} else if tmp >= highest {
+				_i5 = _t2
+				highest = tmp
 			}
-		} else if tmp >= highest {
-			highestIdx = today
-			highest = tmp
+			_r3[_o4] = int32(_i5)
+			_i6++
+			_o4++
 		}
-		outInteger[outIdx] = highestIdx
-		outIdx++
-		trailingIdx += 1
-		today += 1
+		outIdx += int32(len(_r3))
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -270,16 +278,18 @@ func (sp *MAXINDEXStream) Update(inReal float64) (int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			tmp = x_inReal[i&xMask]
 			if tmp >= highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -332,11 +342,9 @@ func (sp *MAXINDEXStream) Peek(inReal float64) (int32, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot0 {
 				_T2 = x_inReal[i&xMask]
@@ -347,7 +355,11 @@ func (sp *MAXINDEXStream) Peek(inReal float64) (int32, error) {
 			if tmp >= highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp >= highest {
 		highestIdx = sp.today
@@ -414,16 +426,18 @@ func (c *Core) maxindexOpenImpl(sp *MAXINDEXStream, inReal []float64, startIdx, 
 			highestIdx = trailingIdx
 			highest = inReal[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan2:
+			if i <= today {
 				tmp = inReal[i]
 				if tmp >= highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan2
 				}
+				i++
+				goto scan2
 			}
 		} else if tmp >= highest {
 			highestIdx = today

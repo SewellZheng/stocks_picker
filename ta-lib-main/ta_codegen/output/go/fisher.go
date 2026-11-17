@@ -145,19 +145,24 @@ func (c *Core) fisherImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 		lowest = highest
 		sufHighest[optInTimePeriod-1] = highest
 		sufLowest[optInTimePeriod-1] = lowest
-		for i > blockStart {
-			i -= 1
-			tempHigh = inHigh[i]
-			tempLow = inLow[i]
-			tempReal = (tempHigh + tempLow) / 2.0
-			if tempReal > highest {
-				highest = tempReal
+		if _n0 := int(i) - int(blockStart); _n0 > 0 {
+			_r2 := inHigh[i-int32(_n0):][:_n0]
+			_r3 := inLow[i-int32(_n0):][:_n0]
+			_r4 := sufHighest[i-blockStart-int32(_n0):][:_n0]
+			_r5 := sufLowest[i-blockStart-int32(_n0):][:_n0]
+			for _k1 := _n0 - 1; _k1 >= 0; _k1-- {
+				tempHigh = _r2[_k1]
+				tempLow = _r3[_k1]
+				tempReal = (tempHigh + tempLow) / 2.0
+				if tempReal > highest {
+					highest = tempReal
+				}
+				if tempReal < lowest {
+					lowest = tempReal
+				}
+				_r4[_k1] = highest
+				_r5[_k1] = lowest
 			}
-			if tempReal < lowest {
-				lowest = tempReal
-			}
-			sufHighest[i-blockStart] = highest
-			sufLowest[i-blockStart] = lowest
 		}
 		blockNext = blockStart + optInTimePeriod
 		nAvail = endIdx + 1 - blockNext
@@ -174,55 +179,67 @@ func (c *Core) fisherImpl(startIdx, endIdx int32, inHigh, inLow []float64, optIn
 			preHighest[1] = highest
 			preLowest[1] = lowest
 			i = 1
-			for i < nAvail {
-				tempHigh = inHigh[blockNext+i]
-				tempLow = inLow[blockNext+i]
-				tempReal = (tempHigh + tempLow) / 2.0
-				if tempReal > highest {
-					highest = tempReal
+			if _n6 := int(nAvail) - int(i); _n6 > 0 {
+				_r8 := inHigh[blockNext+i:][:_n6]
+				_r9 := inLow[blockNext+i:][:_n6]
+				_r10 := preHighest[i+1:][:_n6]
+				_r11 := preLowest[i+1:][:_n6]
+				for _k7 := range _r8 {
+					tempHigh = _r8[_k7]
+					tempLow = _r9[_k7]
+					tempReal = (tempHigh + tempLow) / 2.0
+					if tempReal > highest {
+						highest = tempReal
+					}
+					if tempReal < lowest {
+						lowest = tempReal
+					}
+					_r10[_k7] = highest
+					_r11[_k7] = lowest
 				}
-				if tempReal < lowest {
-					lowest = tempReal
-				}
-				preHighest[i+1] = highest
-				preLowest[i+1] = lowest
-				i += 1
 			}
 		}
 		m = 0
-		for m <= nAvail {
-			highest = sufHighest[m]
-			if preHighest[m] > highest {
-				highest = preHighest[m]
+		if _n12 := int(nAvail) - int(m) + 1; _n12 > 0 {
+			_r14 := sufHighest[m:][:_n12]
+			_r15 := preHighest[m:][:_n12]
+			_r16 := sufLowest[m:][:_n12]
+			_r17 := preLowest[m:][:_n12]
+			_r18 := inHigh[today+m:][:_n12]
+			_r19 := inLow[today+m:][:_n12]
+			for _k13 := range _r14 {
+				highest = _r14[_k13]
+				if _r15[_k13] > highest {
+					highest = _r15[_k13]
+				}
+				lowest = _r16[_k13]
+				if _r17[_k13] < lowest {
+					lowest = _r17[_k13]
+				}
+				tempHigh = _r18[_k13]
+				tempLow = _r19[_k13]
+				price = (tempHigh + tempLow) / 2.0
+				tempReal = highest - lowest
+				if !isZeroScaled(tempReal, math.Abs(highest)+math.Abs(lowest)) {
+					ratio = (price - lowest) / tempReal
+				} else {
+					ratio = 0.5
+				}
+				smoothed = math.FMA(0.67, smoothed, float64(float64(float64(0.33)*float64(2.0))*(ratio-0.5)))
+				if smoothed > 0.99 {
+					smoothed = 0.999
+				}
+				if smoothed < -0.99 {
+					smoothed = -0.999
+				}
+				fish = math.FMA(0.5, math.Log((1.0+smoothed)/(1.0-smoothed)), float64(0.5*prevFish))
+				if today+(m+int32(_k13)) >= startIdx {
+					outFisher[outIdx] = fish
+					outTrigger[outIdx] = prevFish
+					outIdx = outIdx + 1
+				}
+				prevFish = fish
 			}
-			lowest = sufLowest[m]
-			if preLowest[m] < lowest {
-				lowest = preLowest[m]
-			}
-			tempHigh = inHigh[today+m]
-			tempLow = inLow[today+m]
-			price = (tempHigh + tempLow) / 2.0
-			tempReal = highest - lowest
-			if !isZeroScaled(tempReal, math.Abs(highest)+math.Abs(lowest)) {
-				ratio = (price - lowest) / tempReal
-			} else {
-				ratio = 0.5
-			}
-			smoothed = math.FMA(0.67, smoothed, float64(float64(float64(0.33)*float64(2.0))*(ratio-0.5)))
-			if smoothed > 0.99 {
-				smoothed = 0.999
-			}
-			if smoothed < -0.99 {
-				smoothed = -0.999
-			}
-			fish = math.FMA(0.5, math.Log((1.0+smoothed)/(1.0-smoothed)), float64(0.5*prevFish))
-			if today+m >= startIdx {
-				outFisher[outIdx] = fish
-				outTrigger[outIdx] = prevFish
-				outIdx = outIdx + 1
-			}
-			prevFish = fish
-			m += 1
 		}
 		today = today + nAvail + 1
 		blockStart = blockNext
@@ -434,18 +451,20 @@ func (sp *FISHERStream) Update(inHigh, inLow float64) (float64, float64, error) 
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tempHigh = x_inHigh[i&xMask]
 			tempLow = x_inLow[i&xMask]
 			tempReal = (tempHigh + tempLow) / 2.0
 			if tempReal > highest {
 				highestIdx = i
 				highest = tempReal
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -467,18 +486,20 @@ func (sp *FISHERStream) Update(inHigh, inLow float64) (float64, float64, error) 
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tempHigh = x_inHigh[i&xMask]
 			tempLow = x_inLow[i&xMask]
 			tempReal = (tempHigh + tempLow) / 2.0
 			if tempReal < lowest {
 				lowestIdx = i
 				lowest = tempReal
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -576,11 +597,9 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T4 float64
 			if i&xMask != pkSlot0 {
 				_T4 = x_inHigh[i&xMask]
@@ -599,7 +618,11 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 			if tempReal > highest {
 				highestIdx = i
 				highest = tempReal
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if price >= highest {
 		highestIdx = sp.today
@@ -627,11 +650,9 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T8 float64
 			if i&xMask != pkSlot0 {
 				_T8 = x_inHigh[i&xMask]
@@ -650,7 +671,11 @@ func (sp *FISHERStream) Peek(inHigh, inLow float64) (float64, float64, error) {
 			if tempReal < lowest {
 				lowestIdx = i
 				lowest = tempReal
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if price <= lowest {
 		lowestIdx = sp.today
@@ -756,18 +781,20 @@ func (c *Core) fisherOpenImpl(sp *FISHERStream, inHigh, inLow []float64, startId
 			tempLow = inLow[highestIdx]
 			highest = (tempHigh + tempLow) / 2.0
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tempHigh = inHigh[i]
 				tempLow = inLow[i]
 				tempReal = (tempHigh + tempLow) / 2.0
 				if tempReal > highest {
 					highestIdx = i
 					highest = tempReal
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if price >= highest {
 			highestIdx = today
@@ -779,18 +806,20 @@ func (c *Core) fisherOpenImpl(sp *FISHERStream, inHigh, inLow []float64, startId
 			tempLow = inLow[lowestIdx]
 			lowest = (tempHigh + tempLow) / 2.0
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tempHigh = inHigh[i]
 				tempLow = inLow[i]
 				tempReal = (tempHigh + tempLow) / 2.0
 				if tempReal < lowest {
 					lowestIdx = i
 					lowest = tempReal
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if price <= lowest {
 			lowestIdx = today

@@ -395,17 +395,11 @@ func (c *Core) htTrendmodeImpl(startIdx, endIdx int32, inReal []float64, outBegI
 		if tempReal > 0.0 {
 			DCPhase = float64(math.Atan(realPart/imagPart) * rad2Deg)
 		} else if tempReal <= 0.01 {
-			if realPart < 0.0 {
-				DCPhase -= 90.0
-			} else if realPart > 0.0 {
-				DCPhase += 90.0
-			}
+			DCPhase = DCPhase - selF(realPart < 0.0, 90.0, 0.0) + selF(realPart > 0.0, 90.0, math.Float64frombits(1<<63))
 		}
 		DCPhase += 90.0
 		DCPhase += 360.0 / smoothPeriod
-		if imagPart < 0.0 {
-			DCPhase += 180.0
-		}
+		DCPhase = DCPhase + selF(imagPart < 0.0, 180.0, math.Float64frombits(1<<63))
 		if DCPhase > 315.0 {
 			DCPhase -= 360.0
 		}
@@ -420,15 +414,13 @@ func (c *Core) htTrendmodeImpl(startIdx, endIdx int32, inReal []float64, outBegI
 			DCPeriodInt = 0
 		}
 		tempReal = 0.0
-		for j = 0; j < 50; j += 1 {
-			if j < DCPeriodInt {
-				tempReal += inReal[today-j]
-			}
+		for j = 0; j < min(50, DCPeriodInt); j += 1 {
+			tempReal += inReal[today-j]
 		}
 		if DCPeriodInt > 0 {
 			tempReal = tempReal / float64(DCPeriodInt)
 		}
-		trendline = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+		trendline = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 		iTrend3 = iTrend2
 		iTrend2 = iTrend1
 		iTrend1 = tempReal
@@ -825,17 +817,11 @@ func (sp *HT_TRENDMODEStream) Update(inReal float64) (int32, error) {
 	if tempReal > 0.0 {
 		sp.DCPhase = float64(math.Atan(realPart/imagPart) * sp.rad2Deg)
 	} else if tempReal <= 0.01 {
-		if realPart < 0.0 {
-			sp.DCPhase -= 90.0
-		} else if realPart > 0.0 {
-			sp.DCPhase += 90.0
-		}
+		sp.DCPhase = sp.DCPhase - selF(realPart < 0.0, 90.0, 0.0) + selF(realPart > 0.0, 90.0, math.Float64frombits(1<<63))
 	}
 	sp.DCPhase += 90.0
 	sp.DCPhase += 360.0 / sp.smoothPeriod
-	if imagPart < 0.0 {
-		sp.DCPhase += 180.0
-	}
+	sp.DCPhase = sp.DCPhase + selF(imagPart < 0.0, 180.0, math.Float64frombits(1<<63))
 	if sp.DCPhase > 315.0 {
 		sp.DCPhase -= 360.0
 	}
@@ -853,21 +839,20 @@ func (sp *HT_TRENDMODEStream) Update(inReal float64) (int32, error) {
 	winCap_j = sp.winCap_j
 	winPos_j = sp.winPos_j
 	win_j_inReal = sp.win_j_inReal
-	for j = 0; j < 50; j += 1 {
-		if j < DCPeriodInt {
-			var _T5 int32
-			if winPos_j+winCap_j-j >= winCap_j {
-				_T5 = winPos_j + winCap_j - j - winCap_j
-			} else {
-				_T5 = winPos_j + winCap_j - j
-			}
-			tempReal += win_j_inReal[_T5]
+	for j = 0; j < min(50, DCPeriodInt); j += 1 {
+		var _T5 int32
+		if winPos_j+winCap_j-j >= winCap_j {
+			_T5 = winPos_j + winCap_j - j - winCap_j
+		} else {
+			_T5 = winPos_j + winCap_j - j
 		}
+		tempReal += win_j_inReal[_T5]
 	}
+	j = 50
 	if DCPeriodInt > 0 {
 		tempReal = tempReal / float64(DCPeriodInt)
 	}
-	trendline = (math.FMA(2.0, sp.iTrend2, math.FMA(4.0, tempReal, float64(3.0*sp.iTrend1))) + sp.iTrend3) / 10.0
+	trendline = (float64(4.0*tempReal) + float64(3.0*sp.iTrend1) + float64(2.0*sp.iTrend2) + sp.iTrend3) / 10.0
 	sp.iTrend3 = sp.iTrend2
 	sp.iTrend2 = sp.iTrend1
 	sp.iTrend1 = tempReal
@@ -1133,17 +1118,11 @@ func (sp *HT_TRENDMODEStream) Peek(inReal float64) (int32, error) {
 	if tempReal > 0.0 {
 		DCPhase = float64(math.Atan(realPart/imagPart) * sp.rad2Deg)
 	} else if tempReal <= 0.01 {
-		if realPart < 0.0 {
-			DCPhase -= 90.0
-		} else if realPart > 0.0 {
-			DCPhase += 90.0
-		}
+		DCPhase = DCPhase - selF(realPart < 0.0, 90.0, 0.0) + selF(realPart > 0.0, 90.0, math.Float64frombits(1<<63))
 	}
 	DCPhase += 90.0
 	DCPhase += 360.0 / smoothPeriod
-	if imagPart < 0.0 {
-		DCPhase += 180.0
-	}
+	DCPhase = DCPhase + selF(imagPart < 0.0, 180.0, math.Float64frombits(1<<63))
 	if DCPhase > 315.0 {
 		DCPhase -= 360.0
 	}
@@ -1161,33 +1140,32 @@ func (sp *HT_TRENDMODEStream) Peek(inReal float64) (int32, error) {
 	winCap_j = sp.winCap_j
 	winPos_j = sp.winPos_j
 	win_j_inReal = sp.win_j_inReal
-	for j = 0; j < 50; j += 1 {
-		if j < DCPeriodInt {
-			var _T1 int32
-			if winPos_j+winCap_j-j >= winCap_j {
-				_T1 = winPos_j + winCap_j - j - winCap_j
-			} else {
-				_T1 = winPos_j + winCap_j - j
-			}
-			var _T3 float64
-			if _T1 != pkSlot0 {
-				var _T2 int32
-				if winPos_j+winCap_j-j >= winCap_j {
-					_T2 = winPos_j + winCap_j - j - winCap_j
-				} else {
-					_T2 = winPos_j + winCap_j - j
-				}
-				_T3 = win_j_inReal[_T2]
-			} else {
-				_T3 = pkVal0
-			}
-			tempReal += _T3
+	for j = 0; j < min(50, DCPeriodInt); j += 1 {
+		var _T1 int32
+		if winPos_j+winCap_j-j >= winCap_j {
+			_T1 = winPos_j + winCap_j - j - winCap_j
+		} else {
+			_T1 = winPos_j + winCap_j - j
 		}
+		var _T3 float64
+		if _T1 != pkSlot0 {
+			var _T2 int32
+			if winPos_j+winCap_j-j >= winCap_j {
+				_T2 = winPos_j + winCap_j - j - winCap_j
+			} else {
+				_T2 = winPos_j + winCap_j - j
+			}
+			_T3 = win_j_inReal[_T2]
+		} else {
+			_T3 = pkVal0
+		}
+		tempReal += _T3
 	}
+	j = 50
 	if DCPeriodInt > 0 {
 		tempReal = tempReal / float64(DCPeriodInt)
 	}
-	trendline = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+	trendline = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 	iTrend3 = iTrend2
 	iTrend2 = iTrend1
 	iTrend1 = tempReal
@@ -1590,17 +1568,11 @@ func (c *Core) htTrendmodeOpenImpl(sp *HT_TRENDMODEStream, inReal []float64, sta
 		if tempReal > 0.0 {
 			DCPhase = float64(math.Atan(realPart/imagPart) * rad2Deg)
 		} else if tempReal <= 0.01 {
-			if realPart < 0.0 {
-				DCPhase -= 90.0
-			} else if realPart > 0.0 {
-				DCPhase += 90.0
-			}
+			DCPhase = DCPhase - selF(realPart < 0.0, 90.0, 0.0) + selF(realPart > 0.0, 90.0, math.Float64frombits(1<<63))
 		}
 		DCPhase += 90.0
 		DCPhase += 360.0 / smoothPeriod
-		if imagPart < 0.0 {
-			DCPhase += 180.0
-		}
+		DCPhase = DCPhase + selF(imagPart < 0.0, 180.0, math.Float64frombits(1<<63))
 		if DCPhase > 315.0 {
 			DCPhase -= 360.0
 		}
@@ -1615,15 +1587,14 @@ func (c *Core) htTrendmodeOpenImpl(sp *HT_TRENDMODEStream, inReal []float64, sta
 			DCPeriodInt = 0
 		}
 		tempReal = 0.0
-		for j = 0; j < 50; j += 1 {
-			if j < DCPeriodInt {
-				tempReal += inReal[today-j]
-			}
+		for j = 0; j < min(50, DCPeriodInt); j += 1 {
+			tempReal += inReal[today-j]
 		}
+		j = 50
 		if DCPeriodInt > 0 {
 			tempReal = tempReal / float64(DCPeriodInt)
 		}
-		trendline = (math.FMA(2.0, iTrend2, math.FMA(4.0, tempReal, float64(3.0*iTrend1))) + iTrend3) / 10.0
+		trendline = (float64(4.0*tempReal) + float64(3.0*iTrend1) + float64(2.0*iTrend2) + iTrend3) / 10.0
 		iTrend3 = iTrend2
 		iTrend2 = iTrend1
 		iTrend1 = tempReal

@@ -163,18 +163,23 @@ func (c *Core) psoImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 		lowest = inLow[i]
 		sufHighest[optInFastK_Period-1] = highest
 		sufLowest[optInFastK_Period-1] = lowest
-		for i > blockStart {
-			i -= 1
-			tmp = inHigh[i]
-			if tmp > highest {
-				highest = tmp
+		if _n0 := int(i) - int(blockStart); _n0 > 0 {
+			_r2 := inHigh[i-int32(_n0):][:_n0]
+			_r3 := inLow[i-int32(_n0):][:_n0]
+			_r4 := sufHighest[i-blockStart-int32(_n0):][:_n0]
+			_r5 := sufLowest[i-blockStart-int32(_n0):][:_n0]
+			for _k1 := _n0 - 1; _k1 >= 0; _k1-- {
+				tmp = _r2[_k1]
+				if tmp > highest {
+					highest = tmp
+				}
+				tmp = _r3[_k1]
+				if tmp < lowest {
+					lowest = tmp
+				}
+				_r4[_k1] = highest
+				_r5[_k1] = lowest
 			}
-			tmp = inLow[i]
-			if tmp < lowest {
-				lowest = tmp
-			}
-			sufHighest[i-blockStart] = highest
-			sufLowest[i-blockStart] = lowest
 		}
 		blockNext = blockStart + optInFastK_Period
 		nAvail = endIdx + 1 - blockNext
@@ -189,76 +194,88 @@ func (c *Core) psoImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 			lowest = inLow[blockNext]
 			preHighest[1] = highest
 			preLowest[1] = lowest
-			for i < nAvail {
-				tmp = inHigh[blockNext+i]
-				if tmp > highest {
-					highest = tmp
+			if _n6 := int(nAvail) - int(i); _n6 > 0 {
+				_r8 := inHigh[blockNext+i:][:_n6]
+				_r9 := inLow[blockNext+i:][:_n6]
+				_r10 := preHighest[i+1:][:_n6]
+				_r11 := preLowest[i+1:][:_n6]
+				for _k7 := range _r8 {
+					tmp = _r8[_k7]
+					if tmp > highest {
+						highest = tmp
+					}
+					tmp = _r9[_k7]
+					if tmp < lowest {
+						lowest = tmp
+					}
+					_r10[_k7] = highest
+					_r11[_k7] = lowest
 				}
-				tmp = inLow[blockNext+i]
-				if tmp < lowest {
-					lowest = tmp
-				}
-				preHighest[i+1] = highest
-				preLowest[i+1] = lowest
-				i += 1
 			}
 		}
 		nOut = 0
 		m = 0
-		for m <= nAvail {
-			highest = sufHighest[m]
-			if preHighest[m] > highest {
-				highest = preHighest[m]
-			}
-			lowest = sufLowest[m]
-			if preLowest[m] < lowest {
-				lowest = preLowest[m]
-			}
-			tempReal = highest - lowest
-			if !isZeroScaled(tempReal, math.Abs(highest)+math.Abs(lowest)) {
-				fastK = float64((inClose[today+m] - lowest) / tempReal * 100.0)
-			} else {
-				fastK = 50.0
-			}
-			nsk = float64(0.1 * (fastK - 50.0))
-			if nBar > warmBars {
-				ema1 = math.FMA(emaBeta, ema1, float64(emaK*nsk))
-				ema2 = math.FMA(emaBeta, ema2, float64(emaK*ema1))
-				outReal[outIdx+nOut] = float64(0.5 * ema2)
-				nOut = nOut + 1
-			} else {
-				if nBar < optInEMAPeriod {
-					sum1 = sum1 + nsk
-					if nBar == optInEMAPeriod-1 {
-						ema1 = sum1 / float64(optInEMAPeriod)
-					}
+		if _n12 := int(nAvail) - int(m) + 1; _n12 > 0 {
+			_r14 := sufHighest[m:][:_n12]
+			_r15 := preHighest[m:][:_n12]
+			_r16 := sufLowest[m:][:_n12]
+			_r17 := preLowest[m:][:_n12]
+			for _k13 := range _r14 {
+				highest = _r14[_k13]
+				if _r15[_k13] > highest {
+					highest = _r15[_k13]
+				}
+				lowest = _r16[_k13]
+				if _r17[_k13] < lowest {
+					lowest = _r17[_k13]
+				}
+				tempReal = highest - lowest
+				if !isZeroScaled(tempReal, math.Abs(highest)+math.Abs(lowest)) {
+					fastK = float64((inClose[today+(m+int32(_k13))] - lowest) / tempReal * 100.0)
 				} else {
+					fastK = 50.0
+				}
+				nsk = float64(0.1 * (fastK - 50.0))
+				if nBar+int32(_k13) > warmBars {
 					ema1 = math.FMA(emaBeta, ema1, float64(emaK*nsk))
-				}
-				if nBar >= lookbackEMA {
-					n2 = nBar - lookbackEMA
-					if n2 < optInEMAPeriod {
-						sum2 = sum2 + ema1
-						if n2 == optInEMAPeriod-1 {
-							ema2 = sum2 / float64(optInEMAPeriod)
-						}
-					} else {
-						ema2 = math.FMA(emaBeta, ema2, float64(emaK*ema1))
-					}
-				}
-				if nBar == warmBars {
+					ema2 = math.FMA(emaBeta, ema2, float64(emaK*ema1))
 					outReal[outIdx+nOut] = float64(0.5 * ema2)
 					nOut = nOut + 1
+				} else {
+					if nBar+int32(_k13) < optInEMAPeriod {
+						sum1 = sum1 + nsk
+						if nBar+int32(_k13) == optInEMAPeriod-1 {
+							ema1 = sum1 / float64(optInEMAPeriod)
+						}
+					} else {
+						ema1 = math.FMA(emaBeta, ema1, float64(emaK*nsk))
+					}
+					if nBar+int32(_k13) >= lookbackEMA {
+						n2 = nBar + int32(_k13) - lookbackEMA
+						if n2 < optInEMAPeriod {
+							sum2 = sum2 + ema1
+							if n2 == optInEMAPeriod-1 {
+								ema2 = sum2 / float64(optInEMAPeriod)
+							}
+						} else {
+							ema2 = math.FMA(emaBeta, ema2, float64(emaK*ema1))
+						}
+					}
+					if nBar+int32(_k13) == warmBars {
+						outReal[outIdx+nOut] = float64(0.5 * ema2)
+						nOut = nOut + 1
+					}
 				}
 			}
-			nBar = nBar + 1
-			m += 1
+			nBar += int32(_n12)
 		}
 		i = 0
-		for i < nOut {
-			outReal[outIdx] = math.Tanh(outReal[outIdx])
-			outIdx = outIdx + 1
-			i += 1
+		if _n18 := int(nOut) - int(i); _n18 > 0 {
+			_r20 := outReal[outIdx:][:_n18]
+			for _k19 := range _r20 {
+				_r20[_k19] = math.Tanh(_r20[_k19])
+			}
+			outIdx += int32(_n18)
 		}
 		today = today + nAvail + 1
 		blockStart = blockNext
@@ -473,16 +490,18 @@ func (sp *PSOStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tmp = x_inLow[i&xMask]
 			if tmp < lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -502,16 +521,18 @@ func (sp *PSOStream) Update(inHigh, inLow, inClose float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tmp = x_inHigh[i&xMask]
 			if tmp > highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -588,11 +609,9 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot1 {
 				_T2 = x_inLow[i&xMask]
@@ -603,7 +622,11 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 			if tmp < lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp <= lowest {
 		lowestIdx = sp.today
@@ -629,11 +652,9 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T5 float64
 			if i&xMask != pkSlot0 {
 				_T5 = x_inHigh[i&xMask]
@@ -644,7 +665,11 @@ func (sp *PSOStream) Peek(inHigh, inLow, inClose float64) (float64, error) {
 			if tmp > highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmp >= highest {
 		highestIdx = sp.today
@@ -761,16 +786,18 @@ func (c *Core) psoOpenImpl(sp *PSOStream, inHigh, inLow, inClose []float64, star
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmp = inLow[i]
 				if tmp < lowest {
 					lowestIdx = i
 					lowest = tmp
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmp <= lowest {
 			lowestIdx = today
@@ -781,16 +808,18 @@ func (c *Core) psoOpenImpl(sp *PSOStream, inHigh, inLow, inClose []float64, star
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmp = inHigh[i]
 				if tmp > highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmp >= highest {
 			highestIdx = today
@@ -833,16 +862,18 @@ func (c *Core) psoOpenImpl(sp *PSOStream, inHigh, inLow, inClose []float64, star
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan6:
+			if i <= today {
 				tmp = inLow[i]
 				if tmp < lowest {
 					lowestIdx = i
 					lowest = tmp
+					i++
+					goto scan6
 				}
+				i++
+				goto scan6
 			}
 		} else if tmp <= lowest {
 			lowestIdx = today
@@ -853,16 +884,18 @@ func (c *Core) psoOpenImpl(sp *PSOStream, inHigh, inLow, inClose []float64, star
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan7:
+			if i <= today {
 				tmp = inHigh[i]
 				if tmp > highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan7
 				}
+				i++
+				goto scan7
 			}
 		} else if tmp >= highest {
 			highestIdx = today

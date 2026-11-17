@@ -160,54 +160,58 @@ func (c *Core) framaImpl(startIdx, endIdx int32, inHigh, inLow []float64, optInT
 	}
 	preHigh = 0.0
 	preLow = 0.0
-	for today <= seedIdx {
-		tmpHigh = inHigh[today]
-		tmpLow = inLow[today]
-		if slot_Idx == 0 {
-			preHigh = tmpHigh
-			preLow = tmpLow
-		} else {
-			if tmpHigh > preHigh {
+	if _n0 := int(seedIdx) - int(today) + 1; _n0 > 0 {
+		_r2 := inHigh[today:][:_n0]
+		_r3 := inLow[today:][:_n0]
+		for _k1 := range _r2 {
+			tmpHigh = _r2[_k1]
+			tmpLow = _r3[_k1]
+			if slot_Idx == 0 {
 				preHigh = tmpHigh
-			}
-			if tmpLow < preLow {
 				preLow = tmpLow
+			} else {
+				if tmpHigh > preHigh {
+					preHigh = tmpHigh
+				}
+				if tmpLow < preLow {
+					preLow = tmpLow
+				}
 			}
-		}
-		if slot_Idx == lastSlot {
-			hi1 = preHigh
-			lo1 = preLow
-		} else {
-			hi1 = slot_sufHigh[slot_Idx+1]
-			if preHigh > hi1 {
+			if slot_Idx == lastSlot {
 				hi1 = preHigh
-			}
-			lo1 = slot_sufLow[slot_Idx+1]
-			if preLow < lo1 {
 				lo1 = preLow
-			}
-		}
-		slot_oldHigh[slot_Idx] = hi1
-		slot_oldLow[slot_Idx] = lo1
-		slot_sufHigh[slot_Idx] = tmpHigh
-		slot_sufLow[slot_Idx] = tmpLow
-		if slot_Idx == lastSlot {
-			i = lastSlot
-			for i > 0 {
-				i -= 1
-				if slot_sufHigh[i+1] > slot_sufHigh[i] {
-					slot_sufHigh[i] = slot_sufHigh[i+1]
+			} else {
+				hi1 = slot_sufHigh[slot_Idx+1]
+				if preHigh > hi1 {
+					hi1 = preHigh
 				}
-				if slot_sufLow[i+1] < slot_sufLow[i] {
-					slot_sufLow[i] = slot_sufLow[i+1]
+				lo1 = slot_sufLow[slot_Idx+1]
+				if preLow < lo1 {
+					lo1 = preLow
 				}
 			}
+			slot_oldHigh[slot_Idx] = hi1
+			slot_oldLow[slot_Idx] = lo1
+			slot_sufHigh[slot_Idx] = tmpHigh
+			slot_sufLow[slot_Idx] = tmpLow
+			if slot_Idx == lastSlot {
+				i = lastSlot
+				for i > 0 {
+					i -= 1
+					if slot_sufHigh[i+1] > slot_sufHigh[i] {
+						slot_sufHigh[i] = slot_sufHigh[i+1]
+					}
+					if slot_sufLow[i+1] < slot_sufLow[i] {
+						slot_sufLow[i] = slot_sufLow[i+1]
+					}
+				}
+			}
+			slot_Idx++
+			if slot_Idx > maxIdx_slot {
+				slot_Idx = 0
+			}
 		}
-		slot_Idx++
-		if slot_Idx > maxIdx_slot {
-			slot_Idx = 0
-		}
-		today += 1
+		today += int32(_n0)
 	}
 	prevFRAMA = (inHigh[seedIdx] + inLow[seedIdx]) / 2.0
 	outIdx = 0

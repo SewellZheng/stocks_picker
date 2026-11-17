@@ -95,11 +95,15 @@ func (c *Core) varImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 	shift = inReal[trailingIdx]
 	periodTotal1 = 0.0
 	periodTotal2 = 0.0
-	for j = trailingIdx; j < startIdx; j += 1 {
-		tempReal = inReal[j] - shift
-		periodTotal1 += tempReal
-		tempReal = float64(tempReal * tempReal)
-		periodTotal2 += tempReal
+	j = trailingIdx
+	if _n0 := int(startIdx) - int(j); _n0 > 0 {
+		_r2 := inReal[j:][:_n0]
+		for _k1 := range _r2 {
+			tempReal = _r2[_k1] - shift
+			periodTotal1 += tempReal
+			tempReal = float64(tempReal * tempReal)
+			periodTotal2 += tempReal
+		}
 	}
 	i = startIdx
 	outIdx = 0

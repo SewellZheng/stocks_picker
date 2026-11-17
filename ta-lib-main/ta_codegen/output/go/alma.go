@@ -112,9 +112,28 @@ func (c *Core) almaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		*outBegIdx = startIdx
 		*outNBElement = endIdx - startIdx + 1
 		i = startIdx
-		for outIdx = 0; outIdx < *outNBElement; outIdx += 1 {
-			outReal[outIdx] = inReal[i]
-			i++
+		outIdx = 0
+		if _n0 := int(*outNBElement) - int(outIdx); _n0 > 0 {
+			_r2 := inReal[i:][:_n0:_n0]
+			_r3 := outReal[outIdx:][:_n0:_n0]
+			_k1 := 0
+			for ; _k1+8 <= _n0; _k1 += 8 {
+				_g4 := _r2[_k1 : _k1+8 : _k1+8]
+				_g5 := _r3[_k1 : _k1+8 : _k1+8]
+				_g5[0] = _g4[0]
+				_g5[1] = _g4[1]
+				_g5[2] = _g4[2]
+				_g5[3] = _g4[3]
+				_g5[4] = _g4[4]
+				_g5[5] = _g4[5]
+				_g5[6] = _g4[6]
+				_g5[7] = _g4[7]
+			}
+			_t6 := _r2[_k1:]
+			_t7 := _r3[_k1:][:len(_t6)]
+			for _j8 := range _t6 {
+				_t7[_j8] = _t6[_j8]
+			}
 		}
 		return Success
 	}
@@ -130,13 +149,34 @@ func (c *Core) almaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	s = float64(optInTimePeriod) / optInSigma
 	twoSSq = float64(float64(2.0*s) * s)
 	norm = 0.0
-	for j = 0; j < optInTimePeriod; j += 1 {
-		d = float64(j - m)
-		weights[j] = math.Exp(-float64(d*d) / twoSSq)
-		norm += weights[j]
+	j = 0
+	if _n9 := int(optInTimePeriod) - int(j); _n9 > 0 {
+		_r11 := weights[j:][:_n9]
+		for _k10 := range _r11 {
+			d = float64(j + int32(_k10) - m)
+			_r11[_k10] = math.Exp(-float64(d*d) / twoSSq)
+			norm += _r11[_k10]
+		}
 	}
-	for j = 0; j < optInTimePeriod; j += 1 {
-		weights[j] = weights[j] / norm
+	j = 0
+	if _n12 := int(optInTimePeriod) - int(j); _n12 > 0 {
+		_r14 := weights[j:][:_n12:_n12]
+		_k13 := 0
+		for ; _k13+8 <= _n12; _k13 += 8 {
+			_g15 := _r14[_k13 : _k13+8 : _k13+8]
+			_g15[0] = _g15[0] / norm
+			_g15[1] = _g15[1] / norm
+			_g15[2] = _g15[2] / norm
+			_g15[3] = _g15[3] / norm
+			_g15[4] = _g15[4] / norm
+			_g15[5] = _g15[5] / norm
+			_g15[6] = _g15[6] / norm
+			_g15[7] = _g15[7] / norm
+		}
+		_t16 := _r14[_k13:]
+		for _j17 := range _t16 {
+			_t16[_j17] = _t16[_j17] / norm
+		}
 	}
 	outIdx = 0
 	i = startIdx
@@ -146,13 +186,20 @@ func (c *Core) almaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		s2 = 0.0
 		s3 = 0.0
 		b = i - lookbackTotal
-		for j = 0; j < optInTimePeriod; j += 1 {
-			wj = weights[j]
-			s0 += float64(wj * inReal[b])
-			s1 += float64(wj * inReal[b+1])
-			s2 += float64(wj * inReal[b+2])
-			s3 += float64(wj * inReal[b+3])
-			b += 1
+		j = 0
+		if _n18 := int(optInTimePeriod) - int(j); _n18 > 0 {
+			_r20 := weights[j:][:_n18]
+			_r21 := inReal[b:][:_n18]
+			_r22 := inReal[b+1:][:_n18]
+			_r23 := inReal[b+2:][:_n18]
+			_r24 := inReal[b+3:][:_n18]
+			for _k19 := range _r20 {
+				wj = _r20[_k19]
+				s0 += float64(wj * _r21[_k19])
+				s1 += float64(wj * _r22[_k19])
+				s2 += float64(wj * _r23[_k19])
+				s3 += float64(wj * _r24[_k19])
+			}
 		}
 		outReal[outIdx] = s0
 		outReal[outIdx+1] = s1
@@ -161,16 +208,18 @@ func (c *Core) almaImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 		outIdx += 4
 		i += 4
 	}
-	for i <= endIdx {
-		sum = 0.0
-		w = 0
-		for j = i - lookbackTotal; j <= i; j += 1 {
-			sum += float64(weights[w] * inReal[j])
-			w += 1
+	if _n25 := int(endIdx) - int(i) + 1; _n25 > 0 {
+		_r27 := outReal[outIdx:][:_n25]
+		for _k26 := range _r27 {
+			sum = 0.0
+			w = 0
+			for j = i + int32(_k26) - lookbackTotal; j <= i+int32(_k26); j += 1 {
+				sum += float64(weights[w] * inReal[j])
+				w += 1
+			}
+			_r27[_k26] = sum
 		}
-		outReal[outIdx] = sum
-		outIdx += 1
-		i += 1
+		outIdx += int32(_n25)
 	}
 	*outNBElement = outIdx
 	*outBegIdx = startIdx

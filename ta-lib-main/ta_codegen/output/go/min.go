@@ -103,13 +103,16 @@ func (c *Core) minImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		i = blockStart + optInTimePeriod - 1
 		lowest = inReal[i]
 		sufLowest[optInTimePeriod-1] = lowest
-		for i > blockStart {
-			i -= 1
-			tmp = inReal[i]
-			if tmp < lowest {
-				lowest = tmp
+		if _n0 := int(i) - int(blockStart); _n0 > 0 {
+			_r2 := inReal[i-int32(_n0):][:_n0]
+			_r3 := sufLowest[i-blockStart-int32(_n0):][:_n0]
+			for _k1 := _n0 - 1; _k1 >= 0; _k1-- {
+				tmp = _r2[_k1]
+				if tmp < lowest {
+					lowest = tmp
+				}
+				_r3[_k1] = lowest
 			}
-			sufLowest[i-blockStart] = lowest
 		}
 		lowest = sufLowest[0]
 		outReal[outIdx] = lowest
@@ -126,23 +129,30 @@ func (c *Core) minImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 			lowest = inReal[blockStart+optInTimePeriod]
 			preLowest[0] = lowest
 			i = 1
-			for i < nAvail {
-				tmp = inReal[blockStart+optInTimePeriod+i]
-				if tmp < lowest {
-					lowest = tmp
+			if _n4 := int(nAvail) - int(i); _n4 > 0 {
+				_r6 := inReal[blockStart+optInTimePeriod+i:][:_n4]
+				_r7 := preLowest[i:][:_n4]
+				for _k5 := range _r6 {
+					tmp = _r6[_k5]
+					if tmp < lowest {
+						lowest = tmp
+					}
+					_r7[_k5] = lowest
 				}
-				preLowest[i] = lowest
-				i += 1
 			}
 			m = 1
-			for m <= nAvail {
-				lowest = sufLowest[m]
-				if preLowest[m-1] < lowest {
-					lowest = preLowest[m-1]
+			if _n8 := int(nAvail) - int(m) + 1; _n8 > 0 {
+				_r10 := sufLowest[m:][:_n8]
+				_r11 := preLowest[m-1:][:_n8]
+				_r12 := outReal[outIdx:][:_n8]
+				for _k9 := range _r10 {
+					lowest = _r10[_k9]
+					if _r11[_k9] < lowest {
+						lowest = _r11[_k9]
+					}
+					_r12[_k9] = lowest
 				}
-				outReal[outIdx] = lowest
-				outIdx++
-				m += 1
+				outIdx += int32(_n8)
 			}
 			trailingIdx = trailingIdx + nAvail
 			today = today + nAvail
@@ -319,16 +329,18 @@ func (sp *MINStream) Update(inReal float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			tmp = x_inReal[i&xMask]
 			if tmp < lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -381,11 +393,9 @@ func (sp *MINStream) Peek(inReal float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inReal = sp.x_inReal
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot0 {
 				_T2 = x_inReal[i&xMask]
@@ -396,7 +406,11 @@ func (sp *MINStream) Peek(inReal float64) (float64, error) {
 			if tmp < lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp <= lowest {
 		lowestIdx = sp.today
@@ -463,16 +477,18 @@ func (c *Core) minOpenImpl(sp *MINStream, inReal []float64, startIdx, optInTimeP
 			lowestIdx = trailingIdx
 			lowest = inReal[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan2:
+			if i <= today {
 				tmp = inReal[i]
 				if tmp < lowest {
 					lowestIdx = i
 					lowest = tmp
+					i++
+					goto scan2
 				}
+				i++
+				goto scan2
 			}
 		} else if tmp <= lowest {
 			lowestIdx = today

@@ -162,6 +162,7 @@ pub fn generate(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &Reg
     let _ = file_stem(&func.name);
     let svc = Services { enums, registry, helpers };
 
+    BOUND_NAMES.with(|n| n.set(0));
     let mut body = String::new();
     body.push_str(&gen_lookback(func, &svc));
     if func.has_explicit_private {
@@ -174,7 +175,7 @@ pub fn generate(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &Reg
     if super::go_stream::emits_stream(func, registry) {
         body.push_str(&super::go_stream::generate(func, &svc));
     }
-    let body = super::go_prune::prune(&body);
+    let body = super::go_prune::prune(&body).replace(&format!("\t{LABEL_DEDENT}"), "");
 
     let mut out = file_head();
     if body.contains("math.") {
@@ -205,6 +206,10 @@ impl Scope {
         self.pre.is_empty() && self.post.is_empty()
     }
 }
+
+/// Leads a label's line: the tab before it is dropped once the file is
+/// pruned, which reads every line's indentation as its scope.
+const LABEL_DEDENT: char = '\u{1}';
 
 pub(super) fn indented(lines: &[String]) -> impl Iterator<Item = String> + '_ {
     lines.iter().map(|l| format!("\t{l}"))
@@ -245,6 +250,9 @@ pub(super) struct Ctx<'a> {
     pub(super) float_selects: Cell<bool>,
     /// A stream Update frame, as against a Peek.
     pub(super) update_frame: Cell<bool>,
+    /// A stream frame or open body: its update scans take their own back edge,
+    /// labelled from this counter, by [`Ctx::back_edge_scan`].
+    pub(super) back_edges: Option<&'a Cell<usize>>,
     /// A batch or open body: a real pick in an outermost loop may take no
     /// branch, by the rule in [`super::go_select`].
     pub(super) loop_selects: Cell<bool>,
@@ -263,6 +271,70 @@ pub(super) struct Ctx<'a> {
     /// Batch circular buffers kept in a stack array up to their static size,
     /// as C keeps them: the id and that size.
     pub(super) stack_circ: std::cell::RefCell<HashMap<String, i64>>,
+    /// A batch body: its lockstep counted loops render over re-slices of its
+    /// contract arrays, by [`super::go_lockstep::plan`].
+    lockstep: Cell<bool>,
+    contract: std::cell::RefCell<HashMap<String, super::go_lockstep::Contract>>,
+    end_fixed: Cell<bool>,
+    /// The re-sliced loop being rendered.
+    lock: std::cell::RefCell<Option<std::rc::Rc<Lock>>>,
+    /// What each loop of a batch body leaves live, by its address. A loop
+    /// missing from it keeps every last value.
+    live_after: std::cell::RefCell<HashMap<usize, BTreeSet<String>>>,
+    /// The batch body's [`super::go_lockstep::branched_loops`].
+    branched: std::cell::RefCell<HashSet<usize>>,
+    /// The loop being rendered, by address, and the stores and `return` that
+    /// follow it, when nothing else does.
+    epilogue: std::cell::RefCell<Option<(usize, Vec<Statement>)>>,
+    /// The expressions bound to a local over the statements being rendered.
+    bound: std::cell::RefCell<Vec<Bound>>,
+    /// Rendering an expression as it reads unbound.
+    unbound: Cell<bool>,
+}
+
+thread_local! {
+    /// Numbers the bound locals apart from the other temps, unique in a file.
+    static BOUND_NAMES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// A [`super::go_cse::Span`] as it renders: the local, the list by address,
+/// its rendering, and the uses taken so far and by the end of its first
+/// statement.
+struct Bound {
+    span: super::go_cse::Span,
+    name: String,
+    list: usize,
+    text: String,
+    uses: Cell<usize>,
+    first_uses: Cell<usize>,
+}
+
+/// A lockstep loop as it renders: the pass count, the counter, a name per
+/// lane, and the statement of the pass being rendered.
+struct Lock {
+    plan: super::go_lockstep::Plan,
+    count: String,
+    pass: std::cell::RefCell<String>,
+    lanes: std::cell::RefCell<Vec<String>>,
+    at: Cell<usize>,
+    /// Rendering the stores ahead of the loop.
+    exit: Cell<bool>,
+    scan: Option<ScanNames>,
+}
+
+/// A [`super::go_lockstep::Scan`] as it renders.
+struct ScanNames {
+    /// Each index's `int`: the bar cursor for the counter, and a rescan's
+    /// fresh counter while its loop renders.
+    ints: std::cell::RefCell<HashMap<String, String>>,
+    /// Each input's cut.
+    inputs: HashMap<String, String>,
+    /// The output lanes' index, stepped once a pass.
+    out: String,
+    /// The start the rescan about to render was given.
+    start: std::cell::RefCell<Option<Expr>>,
+    /// Rescan counters read after the loop.
+    keep: BTreeSet<String>,
 }
 
 const RETCODE_NAMES: &[(&str, &str)] = &[
@@ -275,6 +347,15 @@ const RETCODE_NAMES: &[(&str, &str)] = &[
     ("OutOfRangeEndIndex", "OutOfRangeEndIndex"),
     ("OutOfRangeStartIndex", "OutOfRangeStartIndex"),
 ];
+
+/// The stores to the out-parameters and the `return` that make up `tail`.
+fn epilogue(tail: &[Statement]) -> Option<Vec<Statement>> {
+    let code: Vec<&Statement> = tail.iter().filter(|s| !matches!(s, Statement::Comment(_))).collect();
+    let (ret, stores) = code.split_last()?;
+    let out = |t: &Expr| matches!(t, Expr::Var(n) | Expr::PointerDeref(n) if n == "outBegIdx" || n == "outNBElement");
+    let ok = matches!(ret, Statement::Return { .. }) && stores.iter().all(|s| matches!(s, Statement::Assign { target, compound: false, .. } if out(target)));
+    ok.then(|| code.into_iter().cloned().collect())
+}
 
 fn retcode_name(name: &str) -> Option<&'static str> {
     RETCODE_NAMES.iter().find(|(c, _)| *c == name).map(|(_, g)| *g)
@@ -397,6 +478,7 @@ impl<'a> Ctx<'a> {
             colour_selects: Cell::new(false),
             float_selects: Cell::new(false),
             update_frame: Cell::new(false),
+            back_edges: None,
             loop_selects: Cell::new(false),
             loop_depth: Cell::new(0),
             loop_out: Cell::new(false),
@@ -406,6 +488,15 @@ impl<'a> Ctx<'a> {
             stmt_depth: Cell::new(0),
             cur_stmt: Cell::new(0),
             stack_circ: std::cell::RefCell::new(HashMap::new()),
+            lockstep: Cell::new(false),
+            contract: std::cell::RefCell::new(HashMap::new()),
+            end_fixed: Cell::new(false),
+            lock: std::cell::RefCell::new(None),
+            live_after: std::cell::RefCell::new(HashMap::new()),
+            branched: std::cell::RefCell::new(HashSet::new()),
+            epilogue: std::cell::RefCell::new(None),
+            bound: std::cell::RefCell::new(Vec::new()),
+            unbound: Cell::new(false),
         }
     }
 
@@ -438,6 +529,7 @@ impl<'a> Ctx<'a> {
             colour_selects: Cell::new(false),
             float_selects: Cell::new(false),
             update_frame: Cell::new(false),
+            back_edges: None,
             loop_selects: Cell::new(false),
             loop_depth: Cell::new(0),
             loop_out: Cell::new(false),
@@ -447,6 +539,15 @@ impl<'a> Ctx<'a> {
             stmt_depth: Cell::new(0),
             cur_stmt: Cell::new(0),
             stack_circ: std::cell::RefCell::new(HashMap::new()),
+            lockstep: Cell::new(false),
+            contract: std::cell::RefCell::new(HashMap::new()),
+            end_fixed: Cell::new(false),
+            lock: std::cell::RefCell::new(None),
+            live_after: std::cell::RefCell::new(HashMap::new()),
+            branched: std::cell::RefCell::new(HashSet::new()),
+            epilogue: std::cell::RefCell::new(None),
+            bound: std::cell::RefCell::new(Vec::new()),
+            unbound: Cell::new(false),
         }
     }
 
@@ -618,17 +719,23 @@ impl<'a> Ctx<'a> {
 
     #[allow(clippy::too_many_lines)]
     pub(super) fn lower(&self, e: &Expr, sc: &mut Scope) -> (GExpr, CType) {
+        if let Some(name) = self.bound_use(e) {
+            return (GExpr::name(name), CType::Real);
+        }
         match e {
             Expr::Literal(f) => (real_lit(*f), CType::Real),
             Expr::IntLiteral(i) => (int_lit(*i), CType::Int32),
-            Expr::Var(name) => self.var(name),
+            Expr::Var(name) => self.lock_var(name).unwrap_or_else(|| self.var(name)),
             Expr::ArrayAccess(name, idx) => {
-                let i = self.lower_as(idx, CType::Int32, sc);
                 let t = match self.env.lookup(name) {
                     Some(CType::RealPtr) => CType::Real,
                     Some(CType::IntPtr) => CType::Int32,
                     other => self.fail(&format!("`{name}` is indexed but is {other:?}")),
                 };
+                if let Some(g) = self.lock_lane(name, idx) {
+                    return (g, t);
+                }
+                let i = self.lower_as(idx, CType::Int32, sc);
                 (GExpr::index(GExpr::name(go_ident(name)), i), t)
             }
             Expr::PointerDeref(name) => {
@@ -710,7 +817,10 @@ impl<'a> Ctx<'a> {
     fn binop(&self, l: &Expr, op: &BinOp, r: &Expr, sc: &mut Scope) -> (GExpr, CType) {
         if fma::EMIT_FMA {
             if let Some(fs) = self.fma_sets() {
-                if let Some(operands) = fma::fuse_operands(l, op, r, &fs.view()) {
+                // Decline the site and nothing else: re-asking the predicate
+                // without the exact product fuses the other product of
+                // `a*b + c*d`, where C's does not.
+                if let Some(operands) = fma::fuse_operands(l, op, r, &fs.view()).filter(|(a, b, _)| !exact_factor(a) && !exact_factor(b)) {
                     let args = [operands.0, operands.1, operands.2].iter().map(|x| self.lower_as(x, CType::Real, sc)).collect();
                     return (GExpr::call("math.FMA", args), CType::Real);
                 }
@@ -718,6 +828,9 @@ impl<'a> Ctx<'a> {
         }
         if matches!(op, BinOp::And | BinOp::Or) {
             return (self.logical(l, op, r, sc), CType::Bool);
+        }
+        if let Some(g) = self.scan_compare(l, op, r) {
+            return (g, CType::Bool);
         }
         let (lg, lt) = self.lower(l, sc);
         let (rg, rt) = self.lower(r, sc);
@@ -1107,13 +1220,85 @@ impl<'a> Ctx<'a> {
             *self.scan.borrow_mut() = super::go_select::scan(body);
         }
         self.stmt_depth.set(self.stmt_depth.get() + 1);
-        for s in body {
-            self.stmt(s, out);
+        for at in 0..body.len() {
+            self.bind(body, at, out);
+            self.stmt_at(body, at, out);
+            self.unbind(body, at);
         }
         self.stmt_depth.set(self.stmt_depth.get() - 1);
         if self.float_selects.get() && self.stmt_depth.get() == 0 {
             self.scan.take();
         }
+    }
+
+    /// Binds what `list[at]` computes with a neighbour, by [`super::go_cse`]:
+    /// inside a loop or in a stream frame, never in setup code that runs once.
+    fn bind(&self, list: &[Statement], at: usize, out: &mut Vec<String>) {
+        if !(self.float_selects.get() || self.loop_depth.get() > 0) {
+            return;
+        }
+        let taken: Vec<Expr> = self.bound.borrow().iter().map(|b| b.span.expr.clone()).collect();
+        for span in super::go_cse::spans(list, at, &self.env, self.fma_sets(), &taken) {
+            let text = self.unbound_text(&span.expr);
+            let name = BOUND_NAMES.with(|n| {
+                n.set(n.get() + 1);
+                format!("_e{}", n.get())
+            });
+            out.push(format!("{name} := {text}"));
+            let list = list.as_ptr() as usize;
+            self.bound.borrow_mut().push(Bound { span, name, list, text, uses: Cell::new(0), first_uses: Cell::new(0) });
+        }
+    }
+
+    /// Closes the bindings `list[at]` ends, each read by both its statements.
+    fn unbind(&self, list: &[Statement], at: usize) {
+        let addr = list.as_ptr() as usize;
+        let mut bound = self.bound.borrow_mut();
+        for b in bound.iter().filter(|b| b.list == addr) {
+            if b.span.first == at {
+                b.first_uses.set(b.uses.get());
+            }
+            if b.span.last == at && (b.first_uses.get() == 0 || b.uses.get() == b.first_uses.get()) {
+                self.fail(&format!("`{}` is not read by both statements it was bound for", b.text));
+            }
+        }
+        bound.retain(|b| !(b.list == addr && b.span.last == at));
+    }
+
+    fn unbound_text(&self, e: &Expr) -> String {
+        let outer = self.unbound.replace(true);
+        let mut sc = Scope::default();
+        let (g, _) = self.lower(e, &mut sc);
+        self.unbound.set(outer);
+        if !sc.is_empty() {
+            self.fail(&format!("a bound expression needs statements: {e:?}"));
+        }
+        strip_paren(g).render()
+    }
+
+    /// The local bound to `e`, which must render as it does unbound.
+    fn bound_use(&self, e: &Expr) -> Option<String> {
+        if self.unbound.get() {
+            return None;
+        }
+        let (name, text) = self.bound.borrow().iter().find(|b| b.span.expr == *e).map(|b| {
+            b.uses.set(b.uses.get() + 1);
+            (b.name.clone(), b.text.clone())
+        })?;
+        if self.unbound_text(e) != text {
+            self.fail(&format!("`{text}` renders differently where it is read"));
+        }
+        Some(name)
+    }
+
+    /// Statement `at` of `list`, a loop knowing what follows it.
+    fn stmt_at(&self, list: &[Statement], at: usize, out: &mut Vec<String>) {
+        let s = &list[at];
+        if matches!(s, Statement::While { .. } | Statement::ForC { .. }) {
+            *self.epilogue.borrow_mut() = epilogue(&list[at + 1..]).map(|t| (super::go_select::addr(s), t));
+        }
+        self.stmt(s, out);
+        *self.epilogue.borrow_mut() = None;
     }
 
     pub(super) fn block(&self, body: &[Statement]) -> Vec<String> {
@@ -1197,8 +1382,10 @@ impl<'a> Ctx<'a> {
                     out.extend(sc.post);
                 }
             }
+            Statement::While { condition, body } if self.back_edge_scan(condition, body, out) => {}
             Statement::Assign { target, value, compound } => self.assign(target, value, *compound, out),
             Statement::Expr(e) => self.expr_stmt(e, out),
+            Statement::While { condition, body } if self.lockstep_loop(s, None, condition, body, None, out) || self.scan_rescan(condition, body, out) => {}
             Statement::While { condition, body } => {
                 self.check_steps(&[condition]);
                 let mut sc = Scope::default();
@@ -1246,7 +1433,7 @@ impl<'a> Ctx<'a> {
                 out.extend(indented(&self.block(body)));
                 out.push("}".to_string());
             }
-            Statement::ForC { init, condition, update, body } => self.for_c(init, condition, update, body, out),
+            Statement::ForC { init, condition, update, body } => self.for_c(s, init, condition, update, body, out),
             Statement::If { condition, then_body, else_body, .. } => self.if_stmt(condition, then_body, else_body, out),
             Statement::Return { value } => self.return_stmt(value.as_ref(), out),
             Statement::Break => out.push("break".to_string()),
@@ -1299,8 +1486,11 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn for_c(&self, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], out: &mut Vec<String>) {
-        if self.shift_copy(init, condition, update, body, out) {
+    fn for_c(&self, s: &Statement, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], out: &mut Vec<String>) {
+        if self.shift_copy(init, condition, update, body, out)
+            || self.capped_loop(s, init, condition, update, body, out)
+            || self.lockstep_loop(s, Some(init), condition, body, Some(update), out)
+        {
             return;
         }
         let init_lines = self.block(std::slice::from_ref(init));
@@ -1326,6 +1516,527 @@ impl<'a> Ctx<'a> {
             out.extend(indented(&b));
         }
         out.push("}".to_string());
+    }
+
+    /// An index of the re-sliced loop being rendered, read in its pass:
+    /// `v + int32(k)`, plus the steps the pass took before the read; in a
+    /// [`super::go_lockstep::Scan`], its `int`; in a store ahead of the loop,
+    /// its value after it.
+    fn lock_var(&self, name: &str) -> Option<(GExpr, CType)> {
+        let lock = self.lock.borrow();
+        let lock = lock.as_ref()?;
+        if let Some(sc) = &lock.scan {
+            let n = sc.ints.borrow().get(name).cloned()?;
+            return Some((GExpr::call("int32", vec![GExpr::name(n)]), CType::Int32));
+        }
+        let d = *lock.plan.steps.get(name)?;
+        let sign = if d > 0 { GOp::Add } else { GOp::Sub };
+        if lock.exit.get() {
+            return Some((GExpr::bin(GExpr::name(go_ident(name)), sign, GExpr::call("int32", vec![GExpr::name(lock.count.clone())])), CType::Int32));
+        }
+        let taken = lock.plan.before[lock.at.get()].get(name).copied().unwrap_or(0);
+        let mut k = GExpr::name(lock.pass.borrow().clone());
+        if lock.plan.down {
+            k = GExpr::bin(GExpr::bin(GExpr::name(lock.count.clone()), GOp::Sub, GExpr::name("1")), GOp::Sub, k);
+        }
+        let k = GExpr::call("int32", vec![k]);
+        let mut g = GExpr::bin(GExpr::name(go_ident(name)), sign, k);
+        if taken != 0 {
+            g = GExpr::bin(g, if taken > 0 { GOp::Add } else { GOp::Sub }, GExpr::name(taken.unsigned_abs().to_string()));
+        }
+        Some((g, CType::Int32))
+    }
+
+    /// `array[idx]` as its lane's element at the pass counter; in a scan, an
+    /// input's cut or any array at an index expression, in `int`s.
+    fn lock_lane(&self, array: &str, idx: &Expr) -> Option<GExpr> {
+        let lock = self.lock.borrow().clone()?;
+        let j = lock.plan.lane_of(lock.at.get(), array, idx);
+        let Some(sc) = &lock.scan else {
+            return Some(GExpr::index(GExpr::name(lock.lanes.borrow()[j?].clone()), GExpr::name(lock.pass.borrow().clone())));
+        };
+        if let Some(x) = sc.inputs.get(array) {
+            return Some(GExpr::index(GExpr::name(x.clone()), self.scan_int(idx)?));
+        }
+        if let Some(lane) = j.map(|j| lock.lanes.borrow()[j].clone()).filter(|l| !l.is_empty()) {
+            return Some(GExpr::index(GExpr::name(lane), GExpr::name(sc.out.clone())));
+        }
+        Some(GExpr::index(GExpr::name(go_ident(array)), self.scan_int(idx)?))
+    }
+
+    /// An index expression of a scan in its `int`s.
+    fn scan_int(&self, e: &Expr) -> Option<GExpr> {
+        fn go(e: &Expr, ints: &HashMap<String, String>) -> Option<GExpr> {
+            match e {
+                Expr::IntLiteral(n) => Some(int_lit(*n)),
+                Expr::Var(n) => ints.get(n).map(|g| GExpr::name(g.clone())),
+                Expr::BinOp(l, op @ (BinOp::Add | BinOp::Sub), r) => Some(GExpr::bin(go(l, ints)?, if *op == BinOp::Add { GOp::Add } else { GOp::Sub }, go(r, ints)?)),
+                _ => None,
+            }
+        }
+        let lock = self.lock.borrow().clone()?;
+        let sc = lock.scan.as_ref()?;
+        let ints = sc.ints.borrow();
+        go(e, &ints)
+    }
+
+    /// A comparison of two index expressions of a scan, in its `int`s.
+    fn scan_compare(&self, l: &Expr, op: &BinOp, r: &Expr) -> Option<GExpr> {
+        let gop = match op {
+            BinOp::Less => GOp::Lt,
+            BinOp::LessEq => GOp::Le,
+            BinOp::Greater => GOp::Gt,
+            BinOp::GreaterEq => GOp::Ge,
+            BinOp::Eq => GOp::Eq,
+            BinOp::NotEq => GOp::Ne,
+            _ => return None,
+        };
+        Some(GExpr::bin(self.scan_int(l)?, gop, self.scan_int(r)?))
+    }
+
+    /// A store to an index of a scan: to its `int`, or for a rescan counter,
+    /// the rescan's start, which its loop renders.
+    fn scan_assign(&self, target: &Expr, value: &Expr) -> Option<Vec<String>> {
+        let lock = self.lock.borrow().clone()?;
+        let sc = lock.scan.as_ref()?;
+        let Expr::Var(t) = target else { return None };
+        if lock.plan.scan.as_ref().is_some_and(|p| p.rescans.contains(t)) {
+            *sc.start.borrow_mut() = Some(value.clone());
+            return Some(Vec::new());
+        }
+        let n = sc.ints.borrow().get(t).cloned()?;
+        let v = self.scan_int(value).unwrap_or_else(|| GExpr::call("int", vec![strip_paren(self.pure(value, Some(CType::Int32)))]));
+        Some(vec![format!("{n} = {}", strip_paren(v).render())])
+    }
+
+    /// A scan's rescan `while( ++c <= b )` after `c = a`: a fresh counter
+    /// from `a + 1` through `b`, and `c` its last value where read later. A
+    /// body ending in an `if` without `else`, with no `break` or `continue`,
+    /// loops through a label, each path taking its own back edge.
+    fn scan_rescan(&self, condition: &Expr, body: &[Statement], out: &mut Vec<String>) -> bool {
+        let Some(lock) = self.lock.borrow().clone() else { return false };
+        let Some(sc) = &lock.scan else { return false };
+        let Some((c, bound)) = super::go_lockstep::rescan_of(condition) else { return false };
+        let Some(start) = sc.start.take() else { self.fail("a rescan without its start") };
+        let (Some(a), Some(b)) = (self.scan_int(&start), self.scan_int(bound)) else { self.fail("a rescan bound outside the scan's indices") };
+        let j = self.temp("j");
+        let first = GExpr::bin(a, GOp::Add, GExpr::name("1"));
+        sc.ints.borrow_mut().insert(c.to_string(), j.clone());
+        let mut lines = self.block(body);
+        sc.ints.borrow_mut().remove(c);
+        let keep = sc.keep.contains(c);
+        let ends_in_if = matches!(body.iter().rfind(|s| !matches!(s, Statement::Comment(_))), Some(Statement::If { else_body, .. }) if else_body.is_empty()) && !jumps(body);
+        let opener = lines.iter().rposition(|l| !l.starts_with('\t') && l != "}");
+        if ends_in_if && lines.last().is_some_and(|l| l == "}") && opener.is_some_and(|k| lines[k].starts_with("if ")) {
+            // gc sets a loop's merge block up from its first predecessor in
+            // layout, in a `for` the rare update branch, so every element
+            // pays its register moves. The no-update path's own back edge
+            // avoids them; a `continue` or a negated `if` does not.
+            let label = format!("L{j}");
+            let back = [format!("{j}++"), format!("goto {label}")];
+            let close = lines.pop().expect("the if closes");
+            lines.extend(back.iter().map(|l| format!("\t{l}")));
+            lines.push(close);
+            lines.extend(back);
+            out.push(format!("{j} := {}", first.render()));
+            out.push(format!("{LABEL_DEDENT}{label}:"));
+            out.push(format!("if {j} <= {} {{", b.render()));
+        } else if keep {
+            out.push(format!("{j} := {}", first.render()));
+            out.push(format!("for ; {j} <= {}; {j}++ {{", b.render()));
+        } else {
+            out.push(format!("for {j} := {}; {j} <= {}; {j}++ {{", first.render(), b.render()));
+        }
+        out.extend(indented(&lines));
+        out.push("}".to_string());
+        if keep {
+            out.push(format!("{} = int32({j})", go_ident(c)));
+        }
+        true
+    }
+
+    /// What [`super::go_lockstep::plan`] needs to know of this body.
+    fn with_lockstep_env<R>(&self, branched: bool, f: impl FnOnce(&super::go_lockstep::Env) -> R) -> R {
+        let int_local = |n: &str| self.env.lookup(n) == Some(CType::Int32) && retcode_name(n).is_none() && !self.arrays.contains(n);
+        let contract = |n: &str| self.contract.borrow().get(n).copied();
+        let fixed_end = |e: &Expr| self.end_fixed.get() && matches!(e, Expr::Var(n) if n == "endIdx");
+        let reg = self.svc.registry;
+        let cross_call = |n: &str| reg.contains(n) && MathFn::from_name(n).is_none();
+        let int_expr = |e: &Expr| self.env.type_of(e).numeric() == CType::Int32;
+        let fused = |e: &Expr| {
+            let Expr::BinOp(l, op, r) = e else { return false };
+            fma::EMIT_FMA && self.fma_sets().is_some_and(|fs| fma::fuse_operands(l, op, r, &fs.view()).is_some_and(|(a, b, _)| !exact_factor(a) && !exact_factor(b)))
+        };
+        f(&super::go_lockstep::Env {
+            int_local: &int_local,
+            contract: &contract,
+            fixed_end: &fixed_end,
+            cross_call: &cross_call,
+            int_expr: &int_expr,
+            fused: &fused,
+            branched,
+            nested: self.loop_depth.get() > 1,
+        })
+    }
+
+    /// The stores and `return` that follow loop `s` when, with each index at
+    /// its value after the loop, they read nothing the loop writes: rendered
+    /// ahead of a loop that calls out, so no value they read stays live
+    /// across its calls.
+    fn early_epilogue(&self, s: &Statement, plan: &super::go_lockstep::Plan) -> Option<Vec<Statement>> {
+        let tail = self.epilogue.borrow().as_ref().filter(|(at, _)| *at == super::go_select::addr(s)).map(|(_, t)| t.clone())?;
+        if !plan.calls_out || plan.scan.is_some() {
+            return None;
+        }
+        let fixed = |e: &Expr| {
+            let mut ok = true;
+            crate::streaming::walk_expr(e, &mut |x| match x {
+                Expr::Var(n) | Expr::PointerDeref(n) => ok &= plan.steps.contains_key(n) || !plan.facts.assigned.contains(n),
+                Expr::IntLiteral(_) | Expr::BinOp(..) | Expr::Cast(..) => {}
+                _ => ok = false,
+            });
+            ok
+        };
+        let mut read = BTreeSet::new();
+        for st in &plan.pass {
+            crate::streaming::walk_stmt_exprs(st, &mut |e| crate::streaming::walk_expr(e, &mut |x| {
+                if let Expr::Var(n) | Expr::PointerDeref(n) = x {
+                    read.insert(n.clone());
+                }
+            }));
+        }
+        let ok = tail.iter().all(|st| match st {
+            Statement::Assign { target: Expr::Var(t) | Expr::PointerDeref(t), value, compound: false } => !read.contains(t) && !plan.facts.assigned.contains(t) && fixed(value),
+            Statement::Return { value } => value.as_ref().is_none_or(fixed),
+            _ => false,
+        });
+        ok.then_some(tail)
+    }
+
+    /// The loop by [`super::go_lockstep::plan`] in a batch body: the pass
+    /// count once as an `int`, one re-slice per lane, a fresh counter ranging
+    /// over the first, and after it each index read later takes its last
+    /// value. `false` renders the loop as written.
+    #[allow(clippy::too_many_lines)]
+    fn lockstep_loop(&self, s: &Statement, init: Option<&Statement>, condition: &Expr, body: &[Statement], update: Option<&Statement>, out: &mut Vec<String>) -> bool {
+        use super::go_lockstep::{plan, Trip};
+        if !self.lockstep.get() || self.lock.borrow().is_some() {
+            return false;
+        }
+        let branched = self.branched.borrow().contains(&super::go_select::addr(s));
+        let Ok(plan) = self.with_lockstep_env(branched, |env| plan(condition, body, update, env)) else {
+            return false;
+        };
+        if plan.scan.is_some() {
+            return self.scan_loop(s, init, condition, plan, out);
+        }
+        let pure = |e: &Expr| {
+            let mut sc = Scope::default();
+            let g = self.lower_as(e, CType::Int32, &mut sc);
+            sc.is_empty().then_some(g)
+        };
+        let as_int = |g: GExpr| GExpr::call("int", vec![strip_paren(g)]);
+        let counter = GExpr::call("int", vec![GExpr::name(go_ident(&plan.counter))]);
+        let count = match &plan.trip {
+            Trip::Up { bound, inclusive } => {
+                let Some(b) = pure(bound) else { return false };
+                let span = GExpr::bin(as_int(b), GOp::Sub, counter);
+                if *inclusive {
+                    GExpr::bin(span, GOp::Add, GExpr::name("1"))
+                } else {
+                    span
+                }
+            }
+            Trip::Down { bound: None } => counter,
+            Trip::Down { bound: Some(bound) } => {
+                let Some(b) = pure(bound) else { return false };
+                GExpr::bin(counter, GOp::Sub, as_int(b))
+            }
+        };
+        let mut starts = Vec::new();
+        for lane in &plan.lanes {
+            let Some(g) = pure(&lane.start) else { return false };
+            starts.push(g);
+        }
+        let epilogue = self.early_epilogue(s, &plan);
+        if let Some(init) = init {
+            out.extend(self.block(std::slice::from_ref(init)));
+        }
+        let n = self.temp("n");
+        let k = self.temp("k");
+        let lane_names: Vec<String> = plan.lanes.iter().map(|_| self.temp("r")).collect();
+        let unroll = plan.unroll;
+        // An unrolled group's cut is proved against the capacity, so the cap
+        // is the count too.
+        let to = if unroll.is_some() { format!("[:{n}:{n}]") } else { format!("[:{n}]") };
+        let mut cuts = Vec::new();
+        for ((lane, name), start) in plan.lanes.iter().zip(&lane_names).zip(starts) {
+            let lo = if plan.down { GExpr::bin(start, GOp::Sub, GExpr::call("int32", vec![GExpr::name(n.clone())])) } else { strip_paren(start) };
+            cuts.push(format!("\t{name} := {}{to}", GExpr::slice(GExpr::name(go_ident(&lane.array)), Some(lo), None).render()));
+        }
+        let lock = std::rc::Rc::new(Lock {
+            plan,
+            count: n.clone(),
+            pass: std::cell::RefCell::new(k.clone()),
+            lanes: std::cell::RefCell::new(lane_names.clone()),
+            at: Cell::new(0),
+            exit: Cell::new(false),
+            scan: None,
+        });
+        let outermost = self.loop_selects.get() && self.loop_depth.get() == 1;
+        let outer_scan = outermost.then(|| {
+            self.loop_out.set(super::go_select::stores_output(&lock.plan.pass));
+            self.scan.replace(super::go_select::scan_loop(&lock.plan.pass))
+        });
+        let live = self.live_after.borrow().get(&super::go_select::addr(s)).cloned();
+        // Keyed by the addresses of the pass's own statements, so they go with it.
+        let mut inner = HashMap::new();
+        if let Some(after) = &live {
+            super::go_lockstep::live_after_pass_loops(condition, &lock.plan.pass, after, &mut inner);
+        }
+        let inner_keys: Vec<usize> = inner.keys().copied().collect();
+        self.live_after.borrow_mut().extend(inner);
+        *self.lock.borrow_mut() = Some(lock.clone());
+        out.push(format!("if {n} := {}; {n} > 0 {{", count.render()));
+        let (stores, ret) = match &epilogue {
+            Some(tail) => (&tail[..tail.len() - 1], tail.last()),
+            None => (&[][..], None),
+        };
+        lock.exit.set(true);
+        let mut early = Vec::new();
+        for st in stores {
+            self.stmt(st, &mut early);
+        }
+        lock.exit.set(false);
+        out.extend(indented(&early));
+        out.extend(cuts);
+        let pass_lines = |pass: String, lanes: Vec<String>| {
+            *lock.pass.borrow_mut() = pass;
+            *lock.lanes.borrow_mut() = lanes;
+            let mut lines = Vec::new();
+            self.stmt_depth.set(self.stmt_depth.get() + 1);
+            for (at, st) in lock.plan.pass.iter().enumerate() {
+                if lock.plan.is_step(st) {
+                    continue;
+                }
+                lock.at.set(at);
+                self.bind(&lock.plan.pass, at, &mut lines);
+                self.stmt(st, &mut lines);
+                self.unbind(&lock.plan.pass, at);
+            }
+            self.stmt_depth.set(self.stmt_depth.get() - 1);
+            lines
+        };
+        if let Some(width) = unroll {
+            let groups: Vec<String> = lane_names.iter().map(|_| self.temp("g")).collect();
+            out.push(format!("\t{k} := 0"));
+            out.push(format!("\tfor ; {k}+{width} <= {n}; {k} += {width} {{"));
+            for (g, r) in groups.iter().zip(&lane_names) {
+                out.push(format!("\t\t{g} := {r}[{k} : {k}+{width} : {k}+{width}]"));
+            }
+            for e in 0..width {
+                out.extend(pass_lines(e.to_string(), groups.clone()).into_iter().map(|l| format!("\t\t{l}")));
+            }
+            out.push("\t}".to_string());
+            let tails: Vec<String> = lane_names.iter().map(|_| self.temp("t")).collect();
+            for (i, (t, r)) in tails.iter().zip(&lane_names).enumerate() {
+                out.push(if i == 0 { format!("\t{t} := {r}[{k}:]") } else { format!("\t{t} := {r}[{k}:][:len({})]", tails[0]) });
+            }
+            let j = self.temp("j");
+            out.push(format!("\tfor {j} := range {} {{", tails[0]));
+            out.extend(pass_lines(j, tails).into_iter().map(|l| format!("\t\t{l}")));
+            out.push("\t}".to_string());
+        } else {
+            if lock.plan.down {
+                out.push(format!("\tfor {k} := {n} - 1; {k} >= 0; {k}-- {{"));
+            } else {
+                out.push(format!("\tfor {k} := range {} {{", lane_names[0]));
+            }
+            out.extend(pass_lines(k.clone(), lane_names.clone()).into_iter().map(|l| format!("\t\t{l}")));
+            out.push("\t}".to_string());
+        }
+        *self.lock.borrow_mut() = None;
+        for key in inner_keys {
+            self.live_after.borrow_mut().remove(&key);
+        }
+        if let Some(sc) = outer_scan {
+            *self.scan.borrow_mut() = sc;
+        }
+        if let Some(ret) = ret {
+            out.extend(indented(&self.block(std::slice::from_ref(ret))));
+        } else {
+            for (v, d) in &lock.plan.steps {
+                if live.as_ref().is_none_or(|l| l.contains(v)) {
+                    out.push(format!("\t{} {}= int32({n})", go_ident(v), if *d > 0 { "+" } else { "-" }));
+                }
+            }
+        }
+        out.push("}".to_string());
+        true
+    }
+
+    /// The loop by [`super::go_lockstep::plan`] with a
+    /// [`super::go_lockstep::Scan`]: each input cut once to `endIdx + 1`,
+    /// the bar cursor an `int` bounded by that length, each index an `int`, a
+    /// lane of an output indexed by the bars since entry, and after it each
+    /// index read later takes its last value.
+    #[allow(clippy::too_many_lines)]
+    fn scan_loop(&self, s: &Statement, init: Option<&Statement>, condition: &Expr, plan: super::go_lockstep::Plan, out: &mut Vec<String>) -> bool {
+        use super::go_lockstep::Trip;
+        let pure = |e: &Expr| {
+            let mut sc = Scope::default();
+            let g = self.lower_as(e, CType::Int32, &mut sc);
+            sc.is_empty().then_some(g)
+        };
+        let Trip::Up { bound, .. } = &plan.trip else { return false };
+        let Some(end) = pure(bound).map(|b| GExpr::call("int", vec![strip_paren(b)])) else { return false };
+        let mut sc = Scope::default();
+        let guard = self.cond(condition, &mut sc);
+        if !sc.is_empty() {
+            return false;
+        }
+        let Some(scan) = plan.scan.as_ref() else { return false };
+        let mut starts = Vec::new();
+        for lane in &plan.lanes {
+            let laned = (self.contract.borrow().get(&lane.array) != Some(&super::go_lockstep::Contract::Input)) && !scan.ints.contains(&lane.var);
+            match laned.then(|| pure(&lane.start)) {
+                Some(None) => return false,
+                other => starts.push(other.flatten()),
+            }
+        }
+        if let Some(init) = init {
+            out.extend(self.block(std::slice::from_ref(init)));
+        }
+        let live = self.live_after.borrow().get(&super::go_select::addr(s)).cloned();
+        let read_later = |v: &str| live.as_ref().is_none_or(|l| l.contains(v));
+        let counter = go_ident(&plan.counter);
+        out.push(format!("if {} {{", strip_paren(guard).render()));
+        let mut inputs = HashMap::new();
+        let mut first = None::<String>;
+        for a in &scan.inputs {
+            let x = self.temp("x");
+            match &first {
+                None => out.push(format!("\t{x} := {}", GExpr::slice(GExpr::name(go_ident(a)), None, Some(GExpr::bin(end.clone(), GOp::Add, GExpr::name("1")))).render())),
+                Some(f) => out.push(format!("\t{x} := {}[:len({f})]", go_ident(a))),
+            }
+            first.get_or_insert(x.clone());
+            inputs.insert(a.clone(), x);
+        }
+        let Some(len) = first.map(|f| format!("len({f})")) else { self.fail("a scan that reads no input") };
+        let entry = self.temp("s");
+        let cursor = self.temp("t");
+        out.push(format!("\t{entry} := int({counter})"));
+        let mut lanes = Vec::new();
+        let mut first_lane = None::<String>;
+        for (lane, start) in plan.lanes.iter().zip(starts) {
+            let Some(start) = start else {
+                lanes.push(String::new());
+                continue;
+            };
+            let o = self.temp("r");
+            let cut = GExpr::slice(GExpr::name(go_ident(&lane.array)), Some(strip_paren(start)), None).render();
+            match &first_lane {
+                None => out.push(format!("\t{o} := {cut}[:{len}-{entry}]")),
+                Some(f) => out.push(format!("\t{o} := {cut}[:len({f})]")),
+            }
+            first_lane.get_or_insert(o.clone());
+            lanes.push(o);
+        }
+        let out_idx = first_lane.as_ref().map_or_else(String::new, |_| self.temp("o"));
+        if first_lane.is_some() {
+            out.push(format!("\t{out_idx} := 0"));
+        }
+        let mut ints = HashMap::new();
+        ints.insert(plan.counter.clone(), cursor.clone());
+        for v in scan.ints.iter().filter(|v| **v != plan.counter) {
+            let i = self.temp("i");
+            out.push(format!("\t{i} := int({})", go_ident(v)));
+            ints.insert(v.clone(), i);
+        }
+        let keep: BTreeSet<String> = scan.rescans.iter().filter(|c| read_later(c)).cloned().collect();
+        let shadows: Vec<(String, String)> = scan.ints.iter().filter(|v| **v != plan.counter).map(|v| (v.clone(), ints[v].clone())).collect();
+        let lock = std::rc::Rc::new(Lock {
+            plan,
+            count: String::new(),
+            pass: std::cell::RefCell::new(String::new()),
+            lanes: std::cell::RefCell::new(lanes),
+            at: Cell::new(0),
+            exit: Cell::new(false),
+            scan: Some(ScanNames { ints: std::cell::RefCell::new(ints), inputs, out: out_idx.clone(), start: std::cell::RefCell::new(None), keep }),
+        });
+        let mut inner = HashMap::new();
+        if let Some(after) = &live {
+            super::go_lockstep::live_after_pass_loops(condition, &lock.plan.pass, after, &mut inner);
+        }
+        let inner_keys: Vec<usize> = inner.keys().copied().collect();
+        self.live_after.borrow_mut().extend(inner);
+        *self.lock.borrow_mut() = Some(lock.clone());
+        out.push(format!("\tfor {cursor} := {entry}; {cursor} < {len}; {cursor}++ {{"));
+        let mut rendered = Vec::new();
+        self.stmt_depth.set(self.stmt_depth.get() + 1);
+        for (at, st) in lock.plan.pass.iter().enumerate() {
+            lock.at.set(at);
+            if lock.plan.is_step(st) {
+                let Some((v, d)) = super::lockstep::as_step(st) else { continue };
+                if let Some(i) = shadows.iter().find(|(name, _)| name == v).map(|(_, i)| i) {
+                    rendered.push(format!("{i}{}", if d > 0 { "++" } else { "--" }));
+                }
+                continue;
+            }
+            self.bind(&lock.plan.pass, at, &mut rendered);
+            self.stmt(st, &mut rendered);
+            self.unbind(&lock.plan.pass, at);
+        }
+        self.stmt_depth.set(self.stmt_depth.get() - 1);
+        *self.lock.borrow_mut() = None;
+        for key in inner_keys {
+            self.live_after.borrow_mut().remove(&key);
+        }
+        if first_lane.is_some() {
+            rendered.push(format!("{out_idx}++"));
+        }
+        out.extend(rendered.into_iter().map(|l| format!("\t\t{l}")));
+        out.push("\t}".to_string());
+        let passes = first_lane.map_or_else(|| format!("{len} - {entry}"), |f| format!("len({f})"));
+        for (v, d) in &lock.plan.steps {
+            if read_later(v) && !shadows.iter().any(|(name, _)| name == v) {
+                out.push(format!("\t{} {}= int32({passes})", go_ident(v), if *d > 0 { "+" } else { "-" }));
+            }
+        }
+        for (v, i) in &shadows {
+            if read_later(v) {
+                out.push(format!("\t{} = int32({i})", go_ident(v)));
+            }
+        }
+        out.push("}".to_string());
+        true
+    }
+
+    /// The loop by [`super::go_lockstep::capped`], in any tier: capped at
+    /// `min(K, B)` passes, and the variable left at `K` where read later.
+    fn capped_loop(&self, s: &Statement, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], out: &mut Vec<String>) -> bool {
+        let int_expr = |e: &Expr| self.env.type_of(e).numeric() == CType::Int32;
+        let Some(c) = super::go_lockstep::capped(init, condition, update, body, &int_expr) else { return false };
+        let mut sc = Scope::default();
+        let b = self.lower_as(c.bound, CType::Int32, &mut sc);
+        if !sc.is_empty() {
+            return false;
+        }
+        let header_init = match self.block(std::slice::from_ref(init)).as_slice() {
+            [one] if is_simple_stmt(one) => one.clone(),
+            _ => return false,
+        };
+        let post = self.for_post(update);
+        let v = GExpr::name(go_ident(&c.var));
+        let test = GExpr::bin(v.clone(), GOp::Lt, GExpr::call("min", vec![int_lit(c.cap), strip_paren(b)]));
+        out.push(format!("for {header_init}; {}; {post} {{", test.render()));
+        out.extend(indented(&self.block(c.body)));
+        out.push("}".to_string());
+        let live = self.live_after.borrow().get(&super::go_select::addr(s)).is_none_or(|l| l.contains(&c.var));
+        if live {
+            out.push(format!("{} = {}", v.render(), c.cap));
+        }
+        true
     }
 
     /// A loop that only moves a run of one array by one slot, toward the end
@@ -1439,7 +2150,7 @@ impl<'a> Ctx<'a> {
         }
         let (condition, _) = super::builtins::strip_unlikely(condition);
         self.check_steps(&[condition]);
-        if self.if_as_select(condition, then_body, else_body, out) {
+        if self.if_as_select(condition, then_body, else_body, out) || self.if_as_accrual(condition, then_body, else_body, out) {
             return;
         }
         let (condition, hoisted) = self.hoist(condition);
@@ -1526,6 +2237,57 @@ impl<'a> Ctx<'a> {
         true
     }
 
+    /// `if c1 { acc += a } [else if c2 { acc -= b }]` over a real `acc` as
+    /// `acc = acc + selF(c1, a, -0.0) - selF(c2, b, 0.0)`, by the rule in
+    /// [`super::go_select`].
+    fn if_as_accrual(&self, condition: &Expr, then_body: &[Statement], else_body: &[Statement], out: &mut Vec<String>) -> bool {
+        let frame = self.float_selects.get() && self.loop_depth.get() == 0;
+        let bar_loop = self.loop_selects.get() && self.loop_depth.get() == 1 && self.loop_out.get();
+        if !(frame || bar_loop) {
+            return false;
+        }
+        let Some((acc, arms)) = super::go_select::accrual(condition, then_body, else_body) else { return false };
+        let real = |e: &Expr| self.env.type_of(e) == CType::Real;
+        let real_ops = |c: &Expr| matches!(c, Expr::BinOp(l, _, r) if arith(self.env.type_of(l), self.env.type_of(r)) == CType::Real);
+        let int_div = |v: &Expr| {
+            let mut found = false;
+            crate::streaming::walk_expr(v, &mut |x| found |= matches!(x, Expr::BinOp(_, BinOp::Div, _)) && !real(x));
+            found
+        };
+        if self.env.lookup(acc) != Some(CType::Real) || !arms.iter().all(|(c, _, v)| real_ops(c) && !int_div(v)) {
+            return false;
+        }
+        if !self.scan.borrow().around.get(&self.cur_stmt.get()).is_some_and(|a| a.accrual_free(acc, &arms)) {
+            return false;
+        }
+        let saved = self.counter().get();
+        let mut sc = Scope::default();
+        let (t, _) = self.target(&Expr::Var(acc.to_string()), &mut sc);
+        let mut sum = t.clone();
+        for (c, op, v) in arms {
+            let (c, hoisted) = self.hoist(c);
+            if !hoisted.is_empty() {
+                self.counter().set(saved);
+                return false;
+            }
+            let c = self.cond(&c, &mut sc);
+            let (v, vt) = self.lower(v, &mut sc);
+            let v = self.conv(v, vt, CType::Real);
+            // A Go constant `-0.0` is +0.0: the negative zero is spelled by its bits.
+            let (gop, zero) = match op {
+                BinOp::Add => (GOp::Add, GExpr::call("math.Float64frombits", vec![GExpr::bin(GExpr::name("1"), GOp::Shl, GExpr::name("63"))])),
+                _ => (GOp::Sub, GExpr::name("0.0")),
+            };
+            sum = GExpr::bin(sum, gop, GExpr::call("selF", vec![strip_paren(c), v, zero]));
+        }
+        if !sc.is_empty() {
+            self.counter().set(saved);
+            return false;
+        }
+        out.push(format!("{} = {}", t.render(), sum.render()));
+        true
+    }
+
     fn return_stmt(&self, value: Option<&Expr>, out: &mut Vec<String>) {
         let Some(e) = value else {
             out.push(if self.ret == Ret::Fallible { "return nil" } else { "return" }.to_string());
@@ -1594,6 +2356,10 @@ impl<'a> Ctx<'a> {
     }
 
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, out: &mut Vec<String>) {
+        if let Some(lines) = self.scan_assign(target, value) {
+            out.extend(lines);
+            return;
+        }
         if let Expr::FuncCall(fname, args) = value {
             if self.svc.registry.contains(fname) && self.cross_call(fname, args, out) {
                 let mut sc = Scope::default();
@@ -1857,11 +2623,36 @@ impl Ctx<'_> {
     /// range-type copies.
     pub(super) fn body_stmts(&self, body: &[Statement], func: &FuncDef, out: &mut Vec<String>) {
         let top = |stmts: &[Statement], out: &mut Vec<String>| {
-            for s in stmts.iter().filter(|s| !matches!(s, Statement::VarDecl { .. })) {
-                self.stmt(s, out);
+            for (at, s) in stmts.iter().enumerate() {
+                if !matches!(s, Statement::VarDecl { .. }) {
+                    self.bind(stmts, at, out);
+                    self.stmt_at(stmts, at, out);
+                    self.unbind(stmts, at);
+                }
             }
         };
-        let Some(copies) = range_type_copies(body, func) else { return top(body, out) };
+        let copies = range_type_copies(body, func);
+        if self.lockstep.get() {
+            let mut map = self.live_after.borrow_mut();
+            let mut branched = HashSet::new();
+            match &copies {
+                None => {
+                    super::go_lockstep::live_after_loops(body, BTreeSet::new(), &mut map);
+                    self.with_lockstep_env(false, |env| super::go_lockstep::branched_loops(body, env, &mut branched));
+                }
+                Some(c) => {
+                    let mut tail = BTreeSet::new();
+                    for arm in &c.arms {
+                        tail.extend(super::go_lockstep::live_after_loops(&arm.body, BTreeSet::new(), &mut map));
+                        self.with_lockstep_env(false, |env| super::go_lockstep::branched_loops(&arm.body, env, &mut branched));
+                    }
+                    super::go_lockstep::live_after_loops(&c.head, tail, &mut map);
+                    self.with_lockstep_env(false, |env| super::go_lockstep::branched_loops(&c.head, env, &mut branched));
+                }
+            }
+            *self.branched.borrow_mut() = branched;
+        }
+        let Some(copies) = copies else { return top(body, out) };
         top(&copies.head, out);
         for (k, arm) in copies.arms.iter().enumerate() {
             let guard = arm.guard.as_ref().map(|g| {
@@ -1924,6 +2715,18 @@ fn math_name(mf: MathFn) -> &'static str {
         MathFn::Log10 => "Log10",
         MathFn::Abs => "Abs",
         MathFn::Max | MathFn::Min => unreachable!("rendered as a select"),
+    }
+}
+
+/// A literal `±2^k`, `k >= 1`: its product rounds nothing short of overflow,
+/// so the plain multiply-add returns the fused bits without `math.FMA`'s
+/// per-call CPU test at GOAMD64=v1. Not `2^-k`: that product rounds a
+/// subnormal.
+pub(super) fn exact_factor(e: &Expr) -> bool {
+    match e {
+        Expr::Literal(v) => v.is_finite() && v.abs() >= 2.0 && v.abs().to_bits() & ((1u64 << 52) - 1) == 0,
+        Expr::Neg(x) => exact_factor(x),
+        _ => false,
     }
 }
 
@@ -2007,6 +2810,17 @@ fn strip_trailing_break(body: &[Statement]) -> &[Statement] {
         Some(Statement::Break) => &body[..body.len() - 1],
         _ => body,
     }
+}
+
+/// Whether `body` holds a `break` or `continue` at any depth.
+fn jumps(body: &[Statement]) -> bool {
+    body.iter().any(|s| match s {
+        Statement::Break | Statement::Continue => true,
+        Statement::If { then_body: a, else_body: b, .. } => jumps(a) || jumps(b),
+        Statement::Block { body } | Statement::While { body, .. } | Statement::DoWhile { body, .. } | Statement::For { body, .. } | Statement::ForC { body, .. } => jumps(body),
+        Statement::Switch { cases, default, .. } => cases.iter().any(|(_, b)| jumps(b)) || jumps(default),
+        _ => false,
+    })
 }
 
 /// Whether `body` holds a `continue` for the loop it is the body of.
@@ -2293,6 +3107,21 @@ fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
     ctx.env.seed_signature(func);
     ctx.colour_selects.set(true);
     ctx.loop_selects.set(true);
+    if !private {
+        let stored = super::go_lockstep::stored(body);
+        let mut contract = ctx.contract.borrow_mut();
+        for i in func.inputs.iter().filter(|i| !stored.contains(&i.name)) {
+            contract.insert(i.name.clone(), super::go_lockstep::Contract::Input);
+        }
+        for o in func.outputs.iter().filter(|o| !stored.contains(&o.name)) {
+            contract.insert(o.name.clone(), super::go_lockstep::Contract::Output);
+        }
+        for a in super::go_lockstep::scratch(body).into_iter().filter(|a| !stored.contains(a)) {
+            contract.insert(a, super::go_lockstep::Contract::Scratch);
+        }
+        ctx.end_fixed.set(!stored.contains("endIdx"));
+        ctx.lockstep.set(true);
+    }
 
     let mut params = vec![("startIdx".to_string(), "int32".to_string()), ("endIdx".to_string(), "int32".to_string())];
     for i in &func.inputs {

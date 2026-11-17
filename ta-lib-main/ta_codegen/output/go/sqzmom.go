@@ -180,47 +180,55 @@ func (c *Core) sqzmomImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float
 		return _E1.(RetCode)
 	}
 	kcmNb = int32(_X1.NBElement)
-	for i = 0; i < stageLen; i += 1 {
-		tempDev[i] = inClose[*outBegIdx+i] - (tempDev[i]+tempKCM[i])/2.0
+	i = 0
+	if _n2 := int(stageLen) - int(i); _n2 > 0 {
+		_r4 := inClose[*outBegIdx+i:][:_n2]
+		for _k3 := range _r4 {
+			tempDev[i+int32(_k3)] = _r4[_k3] - (tempDev[i+int32(_k3)]+tempKCM[i+int32(_k3)])/2.0
+		}
 	}
-	_, _E2 := c.TRANGE(int(stageIdx), int(endIdx), inHigh, inLow, inClose, tempWork)
-	if _E2 != nil {
-		return _E2.(RetCode)
-	}
-	_, _E3 := c.SMA(0, int(stageLen-1), tempWork, int(optInKCPeriod), tempWork)
-	if _E3 != nil {
-		return _E3.(RetCode)
-	}
-	_, _E4 := c.SMA(int(startIdx), int(endIdx), inClose, int(optInBBPeriod), tempMid)
-	if _E4 != nil {
-		return _E4.(RetCode)
-	}
-	_X5, _E5 := c.STDDEV(int(startIdx), int(endIdx), inClose, int(optInBBPeriod), 1.0, tempSD)
+	_, _E5 := c.TRANGE(int(stageIdx), int(endIdx), inHigh, inLow, inClose, tempWork)
 	if _E5 != nil {
 		return _E5.(RetCode)
 	}
-	sdNb = int32(_X5.NBElement)
-	kcmShift = kcmNb - sdNb
-	_, _E6 := c.LINEARREG(0, int(stageLen-1), tempDev, int(optInKCPeriod), outMomentum)
+	_, _E6 := c.SMA(0, int(stageLen-1), tempWork, int(optInKCPeriod), tempWork)
 	if _E6 != nil {
 		return _E6.(RetCode)
 	}
-	for i = 0; i < n; i += 1 {
-		dev = float64(tempSD[i] * optInNbDev)
-		up = tempMid[i] + dev
-		lo = tempMid[i] - dev
-		centre = tempKCM[i+kcmShift]
-		band = tempWork[i]
-		if lo > centre-float64(optInFactorNarrow*band) && up < centre+float64(optInFactorNarrow*band) {
-			outSqueeze[i] = 3
-		} else if lo > centre-float64(optInFactorNormal*band) && up < centre+float64(optInFactorNormal*band) {
-			outSqueeze[i] = 2
-		} else if lo > centre-float64(optInFactorWide*band) && up < centre+float64(optInFactorWide*band) {
-			outSqueeze[i] = 1
-		} else if lo < centre-float64(optInFactorWide*band) && up > centre+float64(optInFactorWide*band) {
-			outSqueeze[i] = -1
-		} else {
-			outSqueeze[i] = 0
+	_, _E7 := c.SMA(int(startIdx), int(endIdx), inClose, int(optInBBPeriod), tempMid)
+	if _E7 != nil {
+		return _E7.(RetCode)
+	}
+	_X8, _E8 := c.STDDEV(int(startIdx), int(endIdx), inClose, int(optInBBPeriod), 1.0, tempSD)
+	if _E8 != nil {
+		return _E8.(RetCode)
+	}
+	sdNb = int32(_X8.NBElement)
+	kcmShift = kcmNb - sdNb
+	_, _E9 := c.LINEARREG(0, int(stageLen-1), tempDev, int(optInKCPeriod), outMomentum)
+	if _E9 != nil {
+		return _E9.(RetCode)
+	}
+	i = 0
+	if _n10 := int(n) - int(i); _n10 > 0 {
+		_r12 := outSqueeze[i:][:_n10]
+		for _k11 := range _r12 {
+			dev = float64(tempSD[i+int32(_k11)] * optInNbDev)
+			up = tempMid[i+int32(_k11)] + dev
+			lo = tempMid[i+int32(_k11)] - dev
+			centre = tempKCM[i+int32(_k11)+kcmShift]
+			band = tempWork[i+int32(_k11)]
+			if lo > centre-float64(optInFactorNarrow*band) && up < centre+float64(optInFactorNarrow*band) {
+				_r12[_k11] = 3
+			} else if lo > centre-float64(optInFactorNormal*band) && up < centre+float64(optInFactorNormal*band) {
+				_r12[_k11] = 2
+			} else if lo > centre-float64(optInFactorWide*band) && up < centre+float64(optInFactorWide*band) {
+				_r12[_k11] = 1
+			} else if lo < centre-float64(optInFactorWide*band) && up > centre+float64(optInFactorWide*band) {
+				_r12[_k11] = -1
+			} else {
+				_r12[_k11] = 0
+			}
 		}
 	}
 	*outBegIdx = startIdx

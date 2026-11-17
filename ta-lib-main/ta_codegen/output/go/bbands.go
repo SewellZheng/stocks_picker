@@ -157,12 +157,16 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 		maTotal = 0.0
 		varTotal1 = 0.0
 		varTotal2 = 0.0
-		for _j = _trailingIdx; _j < startIdx; _j += 1 {
-			maTotal += inReal[_j]
-			_tempReal = inReal[_j] - shift
-			varTotal1 += _tempReal
-			_tempReal = float64(_tempReal * _tempReal)
-			varTotal2 += _tempReal
+		_j = _trailingIdx
+		if _n0 := int(startIdx) - int(_j); _n0 > 0 {
+			_r2 := inReal[_j:][:_n0]
+			for _k1 := range _r2 {
+				maTotal += _r2[_k1]
+				_tempReal = _r2[_k1] - shift
+				varTotal1 += _tempReal
+				_tempReal = float64(_tempReal * _tempReal)
+				varTotal2 += _tempReal
+			}
 		}
 		_i = startIdx
 		_outIdx = 0
@@ -174,13 +178,13 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 			varTotal1 += _tempReal
 			_tempReal = float64(_tempReal * _tempReal)
 			varTotal2 += _tempReal
-			var _T0 float64
+			var _T3 float64
 			if varTotal2 > _peakTotal2 {
-				_T0 = varTotal2
+				_T3 = varTotal2
 			} else {
-				_T0 = _peakTotal2
+				_T3 = _peakTotal2
 			}
-			_peakTotal2 = _T0
+			_peakTotal2 = _T3
 			meanValue1 = float64(varTotal1 * _invPeriod)
 			variance = float64(varTotal2*_invPeriod) - float64(meanValue1*meanValue1)
 			tempBuffer1[_outIdx] = maTotal / float64(optInTimePeriod)
@@ -231,13 +235,13 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 				_tempReal = float64(_tempReal * _tempReal)
 				varTotal2 -= _tempReal
 			}
-			var _T1 float64
+			var _T4 float64
 			if variance != 0.0 {
-				_T1 = math.Sqrt(variance)
+				_T4 = math.Sqrt(variance)
 			} else {
-				_T1 = 0.0
+				_T4 = 0.0
 			}
-			tempBuffer2[_outIdx] = _T1
+			tempBuffer2[_outIdx] = _T4
 			_outIdx += 1
 			_i += 1
 			if !(_i <= endIdx) {
@@ -250,18 +254,28 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 			copy(outRealMiddleBand, tempBuffer1[:*outNBElement])
 		}
 		if optInNbDevUp == optInNbDevDn {
-			for i = 0; i < *outNBElement; i += 1 {
-				tempReal = float64(tempBuffer2[i] * optInNbDevUp)
-				tempReal2 = outRealMiddleBand[i]
-				outRealUpperBand[i] = tempReal2 + tempReal
-				outRealLowerBand[i] = tempReal2 - tempReal
+			i = 0
+			if _n5 := int(*outNBElement) - int(i); _n5 > 0 {
+				_r7 := outRealUpperBand[i:][:_n5]
+				_r8 := outRealLowerBand[i:][:_n5]
+				for _k6 := range _r7 {
+					tempReal = float64(tempBuffer2[i+int32(_k6)] * optInNbDevUp)
+					tempReal2 = outRealMiddleBand[i+int32(_k6)]
+					_r7[_k6] = tempReal2 + tempReal
+					_r8[_k6] = tempReal2 - tempReal
+				}
 			}
 		} else {
-			for i = 0; i < *outNBElement; i += 1 {
-				tempReal = tempBuffer2[i]
-				tempReal2 = outRealMiddleBand[i]
-				outRealUpperBand[i] = math.FMA(tempReal, optInNbDevUp, tempReal2)
-				outRealLowerBand[i] = tempReal2 - float64(tempReal*optInNbDevDn)
+			i = 0
+			if _n9 := int(*outNBElement) - int(i); _n9 > 0 {
+				_r11 := outRealUpperBand[i:][:_n9]
+				_r12 := outRealLowerBand[i:][:_n9]
+				for _k10 := range _r11 {
+					tempReal = tempBuffer2[i+int32(_k10)]
+					tempReal2 = outRealMiddleBand[i+int32(_k10)]
+					_r11[_k10] = math.FMA(tempReal, optInNbDevUp, tempReal2)
+					_r12[_k10] = tempReal2 - float64(tempReal*optInNbDevDn)
+				}
 			}
 		}
 		return Success
@@ -273,24 +287,24 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 	}
 	tempBuffer1 = make([]float64, endIdx-startIdx+1)
 	tempBuffer2 = make([]float64, endIdx-startIdx+1)
-	_X2, _E2 := c.MA(int(startIdx), int(endIdx), inReal, int(optInTimePeriod), MAType(optInMAType), tempBuffer1)
-	if _E2 != nil {
-		return _E2.(RetCode)
+	_X13, _E13 := c.MA(int(startIdx), int(endIdx), inReal, int(optInTimePeriod), MAType(optInMAType), tempBuffer1)
+	if _E13 != nil {
+		return _E13.(RetCode)
 	}
-	*outBegIdx = int32(_X2.BegIdx)
-	*outNBElement = int32(_X2.NBElement)
+	*outBegIdx = int32(_X13.BegIdx)
+	*outNBElement = int32(_X13.NBElement)
 	retCode = Success
 	if *outNBElement == 0 {
 		*outNBElement = 0
 		return retCode
 	}
 	maBegIdx = *outBegIdx
-	_X3, _E3 := c.STDDEV(int(*outBegIdx), int(endIdx), inReal, int(optInTimePeriod), 1.0, tempBuffer2)
-	if _E3 != nil {
-		return _E3.(RetCode)
+	_X14, _E14 := c.STDDEV(int(*outBegIdx), int(endIdx), inReal, int(optInTimePeriod), 1.0, tempBuffer2)
+	if _E14 != nil {
+		return _E14.(RetCode)
 	}
-	*outBegIdx = int32(_X3.BegIdx)
-	*outNBElement = int32(_X3.NBElement)
+	*outBegIdx = int32(_X14.BegIdx)
+	*outNBElement = int32(_X14.NBElement)
 	retCode = Success
 	if *outBegIdx > maBegIdx {
 		shiftIdx = *outBegIdx - maBegIdx
@@ -299,17 +313,27 @@ func (c *Core) bbandsImpl(startIdx, endIdx int32, inReal []float64, optInTimePer
 	}
 	copy(outRealMiddleBand, tempBuffer1[shiftIdx:shiftIdx+*outNBElement])
 	if optInNbDevUp == optInNbDevDn {
-		for i = 0; i < *outNBElement; i += 1 {
-			tempReal = float64(tempBuffer2[i] * optInNbDevUp)
-			tempReal2 = outRealMiddleBand[i]
-			outRealUpperBand[i] = tempReal2 + tempReal
-			outRealLowerBand[i] = tempReal2 - tempReal
+		i = 0
+		if _n15 := int(*outNBElement) - int(i); _n15 > 0 {
+			_r17 := outRealUpperBand[i:][:_n15]
+			_r18 := outRealLowerBand[i:][:_n15]
+			for _k16 := range _r17 {
+				tempReal = float64(tempBuffer2[i+int32(_k16)] * optInNbDevUp)
+				tempReal2 = outRealMiddleBand[i+int32(_k16)]
+				_r17[_k16] = tempReal2 + tempReal
+				_r18[_k16] = tempReal2 - tempReal
+			}
 		}
 	} else {
-		for i = 0; i < *outNBElement; i += 1 {
-			tempReal2 = outRealMiddleBand[i]
-			outRealUpperBand[i] = math.FMA(tempBuffer2[i], optInNbDevUp, tempReal2)
-			outRealLowerBand[i] = tempReal2 - float64(tempBuffer2[i]*optInNbDevDn)
+		i = 0
+		if _n19 := int(*outNBElement) - int(i); _n19 > 0 {
+			_r21 := outRealUpperBand[i:][:_n19]
+			_r22 := outRealLowerBand[i:][:_n19]
+			for _k20 := range _r21 {
+				tempReal2 = outRealMiddleBand[i+int32(_k20)]
+				_r21[_k20] = math.FMA(tempBuffer2[i+int32(_k20)], optInNbDevUp, tempReal2)
+				_r22[_k20] = tempReal2 - float64(tempBuffer2[i+int32(_k20)]*optInNbDevDn)
+			}
 		}
 	}
 	return Success

@@ -71,17 +71,18 @@ func (c *Core) rocr100Impl(startIdx, endIdx int32, inReal []float64, optInTimePe
 	outIdx = 0
 	inIdx = startIdx
 	trailingIdx = startIdx - optInTimePeriod
-	for inIdx <= endIdx {
-		tempReal = inReal[trailingIdx]
-		trailingIdx++
-		if tempReal != 0.0 {
-			outReal[outIdx] = float64(inReal[inIdx] / tempReal * 100.0)
-			outIdx++
-		} else {
-			outReal[outIdx] = 0.0
-			outIdx++
+	if _n0 := int(endIdx) - int(inIdx) + 1; _n0 > 0 {
+		_r2 := inReal[trailingIdx:][:_n0]
+		_r3 := outReal[outIdx:][:_n0]
+		for _k1 := range _r2 {
+			tempReal = _r2[_k1]
+			if tempReal != 0.0 {
+				_r3[_k1] = float64(inReal[inIdx+int32(_k1)] / tempReal * 100.0)
+			} else {
+				_r3[_k1] = 0.0
+			}
 		}
-		inIdx += 1
+		outIdx += int32(_n0)
 	}
 	*outNBElement = outIdx
 	*outBegIdx = startIdx

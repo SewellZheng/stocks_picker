@@ -55,7 +55,6 @@ func (c *Core) donchianImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 	var lowestIdx int32
 	var highestIdx int32
 	var today int32
-	var i int32
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -86,53 +85,67 @@ func (c *Core) donchianImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 	highest = 0.0
 	lowestIdx = -1
 	lowest = 0.0
-	for today <= endIdx {
-		tmpHigh = inHigh[today]
-		tmpLow = inLow[today]
-		if highestIdx < trailingIdx {
-			highestIdx = trailingIdx
-			highest = inHigh[highestIdx]
-			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+	if today <= endIdx {
+		_x0 := inHigh[:int(endIdx)+1]
+		_x1 := inLow[:len(_x0)]
+		_s2 := int(today)
+		_r4 := outRealUpperBand[outIdx:][:len(_x0)-_s2]
+		_r5 := outRealLowerBand[outIdx:][:len(_r4)]
+		_r6 := outRealMiddleBand[outIdx:][:len(_r4)]
+		_o7 := 0
+		_i8 := int(highestIdx)
+		_i9 := int(lowestIdx)
+		_i10 := int(trailingIdx)
+		for _t3 := _s2; _t3 < len(_x0); _t3++ {
+			tmpHigh = _x0[_t3]
+			tmpLow = _x1[_t3]
+			if _i8 < _i10 {
+				_i8 = _i10
+				highest = _x0[_i8]
+				_j11 := _i8 + 1
+			L_j11:
+				if _j11 <= _t3 {
+					tmpHigh = _x0[_j11]
+					if tmpHigh > highest {
+						_i8 = _j11
+						highest = tmpHigh
+						_j11++
+						goto L_j11
+					}
+					_j11++
+					goto L_j11
 				}
-				tmpHigh = inHigh[i]
-				if tmpHigh > highest {
-					highestIdx = i
-					highest = tmpHigh
-				}
+			} else if tmpHigh >= highest {
+				_i8 = _t3
+				highest = tmpHigh
 			}
-		} else if tmpHigh >= highest {
-			highestIdx = today
-			highest = tmpHigh
-		}
-		if lowestIdx < trailingIdx {
-			lowestIdx = trailingIdx
-			lowest = inLow[lowestIdx]
-			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+			if _i9 < _i10 {
+				_i9 = _i10
+				lowest = _x1[_i9]
+				_j12 := _i9 + 1
+			L_j12:
+				if _j12 <= _t3 {
+					tmpLow = _x1[_j12]
+					if tmpLow < lowest {
+						_i9 = _j12
+						lowest = tmpLow
+						_j12++
+						goto L_j12
+					}
+					_j12++
+					goto L_j12
 				}
-				tmpLow = inLow[i]
-				if tmpLow < lowest {
-					lowestIdx = i
-					lowest = tmpLow
-				}
+			} else if tmpLow <= lowest {
+				_i9 = _t3
+				lowest = tmpLow
 			}
-		} else if tmpLow <= lowest {
-			lowestIdx = today
-			lowest = tmpLow
+			_r4[_o7] = highest
+			_r5[_o7] = lowest
+			_r6[_o7] = (highest + lowest) / 2.0
+			_i10++
+			_o7++
 		}
-		outRealUpperBand[outIdx] = highest
-		outRealLowerBand[outIdx] = lowest
-		outRealMiddleBand[outIdx] = (highest + lowest) / 2.0
-		outIdx += 1
-		trailingIdx += 1
-		today += 1
+		outIdx += int32(len(_r4))
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -333,16 +346,18 @@ func (sp *DONCHIANStream) Update(inHigh, inLow float64) (float64, float64, float
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tmpHigh = x_inHigh[i&xMask]
 			if tmpHigh > highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -361,16 +376,18 @@ func (sp *DONCHIANStream) Update(inHigh, inLow float64) (float64, float64, float
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tmpLow = x_inLow[i&xMask]
 			if tmpLow < lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -442,11 +459,9 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T3 float64
 			if i&xMask != pkSlot0 {
 				_T3 = x_inHigh[i&xMask]
@@ -457,7 +472,11 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 			if tmpHigh > highest {
 				highestIdx = i
 				highest = tmpHigh
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmpHigh >= highest {
 		highestIdx = sp.today
@@ -476,11 +495,9 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T5 float64
 			if i&xMask != pkSlot1 {
 				_T5 = x_inLow[i&xMask]
@@ -491,7 +508,11 @@ func (sp *DONCHIANStream) Peek(inHigh, inLow float64) (float64, float64, float64
 			if tmpLow < lowest {
 				lowestIdx = i
 				lowest = tmpLow
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmpLow <= lowest {
 		lowestIdx = sp.today
@@ -571,16 +592,18 @@ func (c *Core) donchianOpenImpl(sp *DONCHIANStream, inHigh, inLow []float64, sta
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmpHigh = inHigh[i]
 				if tmpHigh > highest {
 					highestIdx = i
 					highest = tmpHigh
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmpHigh >= highest {
 			highestIdx = today
@@ -590,16 +613,18 @@ func (c *Core) donchianOpenImpl(sp *DONCHIANStream, inHigh, inLow []float64, sta
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmpLow = inLow[i]
 				if tmpLow < lowest {
 					lowestIdx = i
 					lowest = tmpLow
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmpLow <= lowest {
 			lowestIdx = today

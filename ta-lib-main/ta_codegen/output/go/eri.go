@@ -83,14 +83,53 @@ func (c *Core) eriImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 	if optInTimePeriod == 1 {
 		outIdx = 0
 		today = startIdx
-		for today <= endIdx {
-			tempHT = inHigh[today]
-			tempLT = inLow[today]
-			tempReal = inClose[today]
-			outBullPower[outIdx] = tempHT - tempReal
-			outBearPower[outIdx] = tempLT - tempReal
-			outIdx += 1
-			today += 1
+		if _n0 := int(endIdx) - int(today) + 1; _n0 > 0 {
+			_r2 := inHigh[today:][:_n0:_n0]
+			_r3 := inLow[today:][:_n0:_n0]
+			_r4 := inClose[today:][:_n0:_n0]
+			_r5 := outBullPower[outIdx:][:_n0:_n0]
+			_r6 := outBearPower[outIdx:][:_n0:_n0]
+			_k1 := 0
+			for ; _k1+4 <= _n0; _k1 += 4 {
+				_g7 := _r2[_k1 : _k1+4 : _k1+4]
+				_g8 := _r3[_k1 : _k1+4 : _k1+4]
+				_g9 := _r4[_k1 : _k1+4 : _k1+4]
+				_g10 := _r5[_k1 : _k1+4 : _k1+4]
+				_g11 := _r6[_k1 : _k1+4 : _k1+4]
+				tempHT = _g7[0]
+				tempLT = _g8[0]
+				tempReal = _g9[0]
+				_g10[0] = tempHT - tempReal
+				_g11[0] = tempLT - tempReal
+				tempHT = _g7[1]
+				tempLT = _g8[1]
+				tempReal = _g9[1]
+				_g10[1] = tempHT - tempReal
+				_g11[1] = tempLT - tempReal
+				tempHT = _g7[2]
+				tempLT = _g8[2]
+				tempReal = _g9[2]
+				_g10[2] = tempHT - tempReal
+				_g11[2] = tempLT - tempReal
+				tempHT = _g7[3]
+				tempLT = _g8[3]
+				tempReal = _g9[3]
+				_g10[3] = tempHT - tempReal
+				_g11[3] = tempLT - tempReal
+			}
+			_t12 := _r2[_k1:]
+			_t13 := _r3[_k1:][:len(_t12)]
+			_t14 := _r4[_k1:][:len(_t12)]
+			_t15 := _r5[_k1:][:len(_t12)]
+			_t16 := _r6[_k1:][:len(_t12)]
+			for _j17 := range _t12 {
+				tempHT = _t12[_j17]
+				tempLT = _t13[_j17]
+				tempReal = _t14[_j17]
+				_t15[_j17] = tempHT - tempReal
+				_t16[_j17] = tempLT - tempReal
+			}
+			outIdx += int32(_n0)
 		}
 		*outBegIdx = startIdx
 		*outNBElement = outIdx
@@ -105,32 +144,41 @@ func (c *Core) eriImpl(startIdx, endIdx int32, inHigh, inLow, inClose []float64,
 	i = optInTimePeriod
 	tempReal = 0.0
 	for {
-		_C0 := i > 0
+		_C18 := i > 0
 		i--
-		if !_C0 {
+		if !_C18 {
 			break
 		}
 		tempReal += inClose[today]
 		today++
 	}
 	prevMA = tempReal / float64(optInTimePeriod)
-	for today <= startIdx {
-		prevMA = math.FMA(beta, prevMA, float64(k*inClose[today]))
-		today++
+	if _n19 := int(startIdx) - int(today) + 1; _n19 > 0 {
+		_r21 := inClose[today:][:_n19]
+		for _k20 := range _r21 {
+			prevMA = math.FMA(beta, prevMA, float64(k*_r21[_k20]))
+		}
+		today += int32(_n19)
 	}
 	tempHT = inHigh[startIdx]
 	tempLT = inLow[startIdx]
 	outBullPower[0] = tempHT - prevMA
 	outBearPower[0] = tempLT - prevMA
 	outIdx = 1
-	for today <= endIdx {
-		prevMA = math.FMA(beta, prevMA, float64(k*inClose[today]))
-		tempHT = inHigh[today]
-		tempLT = inLow[today]
-		outBullPower[outIdx] = tempHT - prevMA
-		outBearPower[outIdx] = tempLT - prevMA
-		outIdx += 1
-		today += 1
+	if _n22 := int(endIdx) - int(today) + 1; _n22 > 0 {
+		_r24 := inClose[today:][:_n22]
+		_r25 := inHigh[today:][:_n22]
+		_r26 := inLow[today:][:_n22]
+		_r27 := outBullPower[outIdx:][:_n22]
+		_r28 := outBearPower[outIdx:][:_n22]
+		for _k23 := range _r24 {
+			prevMA = math.FMA(beta, prevMA, float64(k*_r24[_k23]))
+			tempHT = _r25[_k23]
+			tempLT = _r26[_k23]
+			_r27[_k23] = tempHT - prevMA
+			_r28[_k23] = tempLT - prevMA
+		}
+		outIdx += int32(_n22)
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx

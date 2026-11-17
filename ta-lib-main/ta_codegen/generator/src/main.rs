@@ -821,14 +821,14 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     }
 
     // The TS library: per-indicator modules need no `--func` guard (one file
-    // each), but the barrel, the enums, the metadata registry and the package
+    // each), but the barrel, the enums, the abstract registry and the package
     // manifest are whole-corpus, so they render `all_funcs`.
     if backends_to_run.contains(&"ts") {
         let ts_lib = root.join("ta_codegen/output/ts/library");
         std::fs::create_dir_all(ts_lib.join("src")).unwrap();
         backends::ts_enums::generate(all_funcs, &enums, &ts_lib.join("src/enums.ts"));
         backends::ts::generate_package_files(all_funcs, &root, &ts_lib);
-        backends::ts_metadata::generate(all_funcs, &enums, &ts_lib.join("src/metadata"));
+        backends::ts_abstract::generate(all_funcs, &enums, &ts_lib.join("src/abstract"));
         backends::ts_doc::write_example_tests(all_funcs, &enums, &ts_lib.join("test/gen"));
         backends::ts_engine::generate(all_funcs, &enums, &registry, &root, &ts_lib);
         backends::ts_engine::generate_parity_test(all_funcs, &enums, &ts_lib.join("test"));
@@ -836,14 +836,14 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     }
 
     // The Go module's whole-corpus files: the manifest, the enums, the examples
-    // and the metadata package.
+    // and the abstract package.
     if backends_to_run.contains(&"go") {
         let go_dir = out_base.join("go");
         std::fs::create_dir_all(&go_dir).unwrap();
         write_if_changed(go_dir.join("go.mod"), backends::go::GO_MOD).unwrap();
         backends::go_enums::generate(all_funcs, &enums, &go_dir.join("enums.go"));
         backends::go_examples::write(all_funcs, &enums, &go_dir.join("example_test.go"));
-        backends::go_metadata::generate(all_funcs, &enums, &go_dir.join("metadata"));
+        backends::go_abstract::generate(all_funcs, &enums, &go_dir.join("abstract"));
     }
 
     // Whole-corpus, like the Rust probe above: a `--func=X` run must not shrink it.

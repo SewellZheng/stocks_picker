@@ -83,9 +83,28 @@ func (c *Core) wmaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 		*outBegIdx = startIdx
 		*outNBElement = endIdx - startIdx + 1
 		inIdx = startIdx
-		for i = 0; i < *outNBElement; i += 1 {
-			outReal[i] = inReal[inIdx]
-			inIdx++
+		i = 0
+		if _n0 := int(*outNBElement) - int(i); _n0 > 0 {
+			_r2 := inReal[inIdx:][:_n0:_n0]
+			_r3 := outReal[i:][:_n0:_n0]
+			_k1 := 0
+			for ; _k1+8 <= _n0; _k1 += 8 {
+				_g4 := _r2[_k1 : _k1+8 : _k1+8]
+				_g5 := _r3[_k1 : _k1+8 : _k1+8]
+				_g5[0] = _g4[0]
+				_g5[1] = _g4[1]
+				_g5[2] = _g4[2]
+				_g5[3] = _g4[3]
+				_g5[4] = _g4[4]
+				_g5[5] = _g4[5]
+				_g5[6] = _g4[6]
+				_g5[7] = _g4[7]
+			}
+			_t6 := _r2[_k1:]
+			_t7 := _r3[_k1:][:len(_t6)]
+			for _j8 := range _t6 {
+				_t7[_j8] = _t6[_j8]
+			}
 		}
 		return Success
 	}
@@ -97,39 +116,44 @@ func (c *Core) wmaImpl(startIdx, endIdx int32, inReal []float64, optInTimePeriod
 	periodSum = periodSub
 	inIdx = trailingIdx
 	i = 1
-	for inIdx < startIdx {
-		tempReal = inReal[inIdx]
-		inIdx += 1
-		periodSub += tempReal
-		periodSum += float64(tempReal * float64(i))
-		i += 1
+	if _n9 := int(startIdx) - int(inIdx); _n9 > 0 {
+		_r11 := inReal[inIdx:][:_n9]
+		for _k10 := range _r11 {
+			tempReal = _r11[_k10]
+			periodSub += tempReal
+			periodSum += float64(tempReal * float64(i+int32(_k10)))
+		}
+		inIdx += int32(_n9)
 	}
 	barsSinceReseed = 8 * optInTimePeriod
 	trailingValue = 0.0
-	for inIdx <= endIdx {
-		tempReal = inReal[inIdx]
-		periodSub += tempReal
-		periodSub -= trailingValue
-		periodSum += float64(tempReal * float64(optInTimePeriod))
-		barsSinceReseed -= 1
-		if barsSinceReseed <= 0 {
-			barsSinceReseed = 8 * optInTimePeriod
-			periodSub = 0.0
-			periodSum = 0.0
-			rw = 1
-			for j = inIdx - lookbackWin; j <= inIdx; j += 1 {
-				tempReal = inReal[j]
-				periodSub += tempReal
-				periodSum += float64(tempReal * float64(rw))
-				rw += 1
+	if _n12 := int(endIdx) - int(inIdx) + 1; _n12 > 0 {
+		_r14 := inReal[inIdx:][:_n12]
+		_r15 := inReal[trailingIdx:][:_n12]
+		_r16 := outReal[outIdx:][:_n12]
+		for _k13 := range _r14 {
+			tempReal = _r14[_k13]
+			periodSub += tempReal
+			periodSub -= trailingValue
+			periodSum += float64(tempReal * float64(optInTimePeriod))
+			barsSinceReseed -= 1
+			if barsSinceReseed <= 0 {
+				barsSinceReseed = 8 * optInTimePeriod
+				periodSub = 0.0
+				periodSum = 0.0
+				rw = 1
+				for j = inIdx + int32(_k13) - lookbackWin; j <= inIdx+int32(_k13); j += 1 {
+					tempReal = inReal[j]
+					periodSub += tempReal
+					periodSum += float64(tempReal * float64(rw))
+					rw += 1
+				}
 			}
+			trailingValue = _r15[_k13]
+			_r16[_k13] = periodSum / divider
+			periodSum -= periodSub
 		}
-		trailingValue = inReal[trailingIdx]
-		trailingIdx += 1
-		outReal[outIdx] = periodSum / divider
-		outIdx++
-		periodSum -= periodSub
-		inIdx += 1
+		outIdx += int32(_n12)
 	}
 	*outNBElement = outIdx
 	*outBegIdx = startIdx

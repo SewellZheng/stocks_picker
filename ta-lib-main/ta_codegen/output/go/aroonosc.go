@@ -55,7 +55,6 @@ func (c *Core) aroonoscImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 	var lowestIdx int32
 	var highestIdx int32
 	var today int32
-	var i int32
 	if startIdx < 0 || startIdx > IndexMax {
 		return OutOfRangeStartIndex
 	}
@@ -83,52 +82,64 @@ func (c *Core) aroonoscImpl(startIdx, endIdx int32, inHigh, inLow []float64, opt
 	lowest = 0.0
 	highest = 0.0
 	factor = 100.0 / float64(optInTimePeriod)
-	for today <= endIdx {
-		tmp = inLow[today]
-		if lowestIdx < trailingIdx {
-			lowestIdx = trailingIdx
-			lowest = inLow[lowestIdx]
-			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+	if today <= endIdx {
+		_x0 := inHigh[:int(endIdx)+1]
+		_x1 := inLow[:len(_x0)]
+		_s2 := int(today)
+		_r4 := outReal[outIdx:][:len(_x0)-_s2]
+		_o5 := 0
+		_i6 := int(highestIdx)
+		_i7 := int(lowestIdx)
+		_i8 := int(trailingIdx)
+		for _t3 := _s2; _t3 < len(_x0); _t3++ {
+			tmp = _x1[_t3]
+			if _i7 < _i8 {
+				_i7 = _i8
+				lowest = _x1[_i7]
+				_j9 := _i7 + 1
+			L_j9:
+				if _j9 <= _t3 {
+					tmp = _x1[_j9]
+					if tmp <= lowest {
+						_i7 = _j9
+						lowest = tmp
+						_j9++
+						goto L_j9
+					}
+					_j9++
+					goto L_j9
 				}
-				tmp = inLow[i]
-				if tmp <= lowest {
-					lowestIdx = i
-					lowest = tmp
-				}
+			} else if tmp <= lowest {
+				_i7 = _t3
+				lowest = tmp
 			}
-		} else if tmp <= lowest {
-			lowestIdx = today
-			lowest = tmp
-		}
-		tmp = inHigh[today]
-		if highestIdx < trailingIdx {
-			highestIdx = trailingIdx
-			highest = inHigh[highestIdx]
-			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
+			tmp = _x0[_t3]
+			if _i6 < _i8 {
+				_i6 = _i8
+				highest = _x0[_i6]
+				_j10 := _i6 + 1
+			L_j10:
+				if _j10 <= _t3 {
+					tmp = _x0[_j10]
+					if tmp >= highest {
+						_i6 = _j10
+						highest = tmp
+						_j10++
+						goto L_j10
+					}
+					_j10++
+					goto L_j10
 				}
-				tmp = inHigh[i]
-				if tmp >= highest {
-					highestIdx = i
-					highest = tmp
-				}
+			} else if tmp >= highest {
+				_i6 = _t3
+				highest = tmp
 			}
-		} else if tmp >= highest {
-			highestIdx = today
-			highest = tmp
+			aroon = float64(factor * float64(int32(_i6)-int32(_i7)))
+			_r4[_o5] = aroon
+			_i8++
+			_o5++
 		}
-		aroon = float64(factor * float64(highestIdx-lowestIdx))
-		outReal[outIdx] = aroon
-		outIdx += 1
-		trailingIdx += 1
-		today += 1
+		outIdx += int32(len(_r4))
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -317,16 +328,18 @@ func (sp *AROONOSCStream) Update(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan2:
+		if i <= today {
 			tmp = x_inLow[i&xMask]
 			if tmp <= lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan2
 			}
+			i++
+			goto scan2
 		}
 		sp.i = i
 		sp.lowest = lowest
@@ -346,16 +359,18 @@ func (sp *AROONOSCStream) Update(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan3:
+		if i <= today {
 			tmp = x_inHigh[i&xMask]
 			if tmp >= highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan3
 			}
+			i++
+			goto scan3
 		}
 		sp.highest = highest
 		sp.highestIdx = highestIdx
@@ -417,11 +432,9 @@ func (sp *AROONOSCStream) Peek(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inLow = sp.x_inLow
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan0:
+		if i <= today {
 			var _T2 float64
 			if i&xMask != pkSlot1 {
 				_T2 = x_inLow[i&xMask]
@@ -432,7 +445,11 @@ func (sp *AROONOSCStream) Peek(inHigh, inLow float64) (float64, error) {
 			if tmp <= lowest {
 				lowestIdx = i
 				lowest = tmp
+				i++
+				goto scan0
 			}
+			i++
+			goto scan0
 		}
 	} else if tmp <= lowest {
 		lowestIdx = sp.today
@@ -458,11 +475,9 @@ func (sp *AROONOSCStream) Peek(inHigh, inLow float64) (float64, error) {
 		today = sp.today
 		xMask = sp.xMask
 		x_inHigh = sp.x_inHigh
-		for {
-			i++
-			if !(i <= today) {
-				break
-			}
+		i++
+	scan1:
+		if i <= today {
 			var _T5 float64
 			if i&xMask != pkSlot0 {
 				_T5 = x_inHigh[i&xMask]
@@ -473,7 +488,11 @@ func (sp *AROONOSCStream) Peek(inHigh, inLow float64) (float64, error) {
 			if tmp >= highest {
 				highestIdx = i
 				highest = tmp
+				i++
+				goto scan1
 			}
+			i++
+			goto scan1
 		}
 	} else if tmp >= highest {
 		highestIdx = sp.today
@@ -550,16 +569,18 @@ func (c *Core) aroonoscOpenImpl(sp *AROONOSCStream, inHigh, inLow []float64, sta
 			lowestIdx = trailingIdx
 			lowest = inLow[lowestIdx]
 			i = lowestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan4:
+			if i <= today {
 				tmp = inLow[i]
 				if tmp <= lowest {
 					lowestIdx = i
 					lowest = tmp
+					i++
+					goto scan4
 				}
+				i++
+				goto scan4
 			}
 		} else if tmp <= lowest {
 			lowestIdx = today
@@ -570,16 +591,18 @@ func (c *Core) aroonoscOpenImpl(sp *AROONOSCStream, inHigh, inLow []float64, sta
 			highestIdx = trailingIdx
 			highest = inHigh[highestIdx]
 			i = highestIdx
-			for {
-				i++
-				if !(i <= today) {
-					break
-				}
+			i++
+		scan5:
+			if i <= today {
 				tmp = inHigh[i]
 				if tmp >= highest {
 					highestIdx = i
 					highest = tmp
+					i++
+					goto scan5
 				}
+				i++
+				goto scan5
 			}
 		} else if tmp >= highest {
 			highestIdx = today

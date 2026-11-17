@@ -89,16 +89,21 @@ func (c *Core) cmouImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	upSum = 0.0
 	downSum = 0.0
 	nullRun = 0
-	for i = 0; i < optInTimePeriod; i += 1 {
-		today += 1
-		tempReal = inReal[today]
-		diff = tempReal - prevValue
-		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum += up
-		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
+	i = 0
+	if _n0 := int(optInTimePeriod) - int(i); _n0 > 0 {
+		_r2 := inReal[today+1:][:_n0]
+		for _k1 := range _r2 {
+			tempReal = _r2[_k1]
+			diff = tempReal - prevValue
+			prevValue = tempReal
+			_e1 := math.Abs(diff)
+			up = float64((diff + _e1) * 0.5)
+			upSum += up
+			downSum += up - diff
+			live = b2i(!(_e1 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+		}
+		today += int32(_n0)
 	}
 	outIdx = 0
 	sum = upSum + downSum
@@ -117,39 +122,41 @@ func (c *Core) cmouImpl(startIdx, endIdx int32, inReal []float64, optInTimePerio
 	upSum -= up
 	downSum -= up - diff
 	today += 1
-	for today <= endIdx {
-		tempReal = inReal[today]
-		diff = tempReal - prevValue
-		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum += up
-		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
-		nullRun = (nullRun + 1) & (live - 1)
-		if nullRun >= optInTimePeriod {
-			nullRun = optInTimePeriod
-			upSum = 0.0
-			downSum = 0.0
-			outReal[outIdx] = 0.0
-			outIdx++
-		} else {
-			sum = upSum + downSum
-			if sum > 0.0 {
-				outReal[outIdx] = float64(100.0*(upSum-downSum)) / sum
-				outIdx++
+	if _n3 := int(endIdx) - int(today) + 1; _n3 > 0 {
+		_r5 := inReal[today:][:_n3]
+		_r6 := outReal[outIdx:][:_n3]
+		_r7 := inReal[trailingIdx:][:_n3]
+		for _k4 := range _r5 {
+			tempReal = _r5[_k4]
+			diff = tempReal - prevValue
+			prevValue = tempReal
+			_e2 := math.Abs(diff)
+			up = float64((diff + _e2) * 0.5)
+			upSum += up
+			downSum += up - diff
+			live = b2i(!(_e2 <= 0.0))
+			nullRun = (nullRun + 1) & (live - 1)
+			if nullRun >= optInTimePeriod {
+				nullRun = optInTimePeriod
+				upSum = 0.0
+				downSum = 0.0
+				_r6[_k4] = 0.0
 			} else {
-				outReal[outIdx] = 0.0
-				outIdx++
+				sum = upSum + downSum
+				if sum > 0.0 {
+					_r6[_k4] = float64(100.0*(upSum-downSum)) / sum
+				} else {
+					_r6[_k4] = 0.0
+				}
 			}
+			tempReal = _r7[_k4]
+			diff = tempReal - trailingValue
+			trailingValue = tempReal
+			up = float64((diff + math.Abs(diff)) * 0.5)
+			upSum -= up
+			downSum -= up - diff
 		}
-		tempReal = inReal[trailingIdx]
-		diff = tempReal - trailingValue
-		trailingValue = tempReal
-		trailingIdx += 1
-		up = float64((diff + math.Abs(diff)) * 0.5)
-		upSum -= up
-		downSum -= up - diff
-		today += 1
+		outIdx += int32(_n3)
 	}
 	*outBegIdx = startIdx
 	*outNBElement = outIdx
@@ -314,10 +321,11 @@ func (sp *CMOUStream) Update(inReal float64) (float64, error) {
 	tempReal = inReal
 	diff = tempReal - sp.prevValue
 	sp.prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e4 := math.Abs(diff)
+	up = float64((diff + _e4) * 0.5)
 	sp.upSum += up
 	sp.downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e4 <= 0.0))
 	sp.nullRun = (sp.nullRun + 1) & (live - 1)
 	if sp.nullRun >= sp.optInTimePeriod {
 		sp.nullRun = sp.optInTimePeriod
@@ -368,10 +376,11 @@ func (sp *CMOUStream) Peek(inReal float64) (float64, error) {
 	tempReal = inReal
 	diff = tempReal - prevValue
 	prevValue = tempReal
-	up = float64((diff + math.Abs(diff)) * 0.5)
+	_e3 := math.Abs(diff)
+	up = float64((diff + _e3) * 0.5)
 	upSum += up
 	downSum += up - diff
-	live = b2i(!(math.Abs(diff) <= 0.0))
+	live = b2i(!(_e3 <= 0.0))
 	nullRun = (nullRun + 1) & (live - 1)
 	if nullRun >= sp.optInTimePeriod {
 		nullRun = sp.optInTimePeriod
@@ -454,10 +463,11 @@ func (c *Core) cmouOpenImpl(sp *CMOUStream, inReal []float64, startIdx, optInTim
 		tempReal = inReal[today]
 		diff = tempReal - prevValue
 		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
+		_e5 := math.Abs(diff)
+		up = float64((diff + _e5) * 0.5)
 		upSum += up
 		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
+		live = b2i(!(_e5 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 	}
 	outIdx = 0
@@ -481,10 +491,11 @@ func (c *Core) cmouOpenImpl(sp *CMOUStream, inReal []float64, startIdx, optInTim
 		tempReal = inReal[today]
 		diff = tempReal - prevValue
 		prevValue = tempReal
-		up = float64((diff + math.Abs(diff)) * 0.5)
+		_e6 := math.Abs(diff)
+		up = float64((diff + _e6) * 0.5)
 		upSum += up
 		downSum += up - diff
-		live = b2i(!(math.Abs(diff) <= 0.0))
+		live = b2i(!(_e6 <= 0.0))
 		nullRun = (nullRun + 1) & (live - 1)
 		if nullRun >= optInTimePeriod {
 			nullRun = optInTimePeriod
