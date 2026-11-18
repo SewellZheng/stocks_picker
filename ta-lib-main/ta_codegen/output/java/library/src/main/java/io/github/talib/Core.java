@@ -16359,12 +16359,15 @@ public final class Core {
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  AB       Anatoliy Belsky
+ *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  090812 AB     Initial Version
+ *  111726 MF,CC  Bind the window mean once per bar, before the deviation loop.
  */
 
    /**
@@ -16448,15 +16451,17 @@ public final class Core {
       outIdx = 0;
       while( today <= endIdx ) {
          double todaySum;
+         double todayMean;
          double todayDev;
          int i;
          todaySum = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
             todaySum += inReal[today - i];
          }
+         todayMean = todaySum / optInTimePeriod;
          todayDev = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
-            todayDev += Math.abs(inReal[today - i] - todaySum / optInTimePeriod);
+            todayDev += Math.abs(inReal[today - i] - todayMean);
          }
          outReal[outIdx] = todayDev / optInTimePeriod;
          outIdx += 1;
@@ -16501,15 +16506,17 @@ public final class Core {
       outIdx = 0;
       while( today <= endIdx ) {
          double todaySum;
+         double todayMean;
          double todayDev;
          int i;
          todaySum = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
             todaySum += (double)inReal[today - i];
          }
+         todayMean = todaySum / optInTimePeriod;
          todayDev = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
-            todayDev += Math.abs((double)inReal[today - i] - todaySum / optInTimePeriod);
+            todayDev += Math.abs((double)inReal[today - i] - todayMean);
          }
          outReal[outIdx] = todayDev / optInTimePeriod;
          outIdx += 1;
@@ -16751,6 +16758,7 @@ public final class Core {
             throw nonFiniteBar("AVGDEV peek", "inReal");
          AvgdevStream sp = this;
          double todaySum = 0.0;
+         double todayMean = 0.0;
          double todayDev = 0.0;
          int i = 0;
          double cur_outReal = 0.0;
@@ -16762,9 +16770,10 @@ public final class Core {
          for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
             todaySum += (((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0;
          }
+         todayMean = todaySum / sp.optInTimePeriod;
          todayDev = 0.0;
          for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
-            todayDev += Math.abs(((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0) - todaySum / sp.optInTimePeriod);
+            todayDev += Math.abs(((((sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i) != pkSlot0) ? sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] : pkVal0) - todayMean);
          }
          cur_outReal = todayDev / sp.optInTimePeriod;
          return cur_outReal;
@@ -16799,6 +16808,7 @@ public final class Core {
    private void avgdevStepImpl( AvgdevStream sp, double inReal )
    {
       double todaySum = 0.0;
+      double todayMean = 0.0;
       double todayDev = 0.0;
       int i = 0;
       sp.win_i_inReal[sp.winPos_i] = inReal;
@@ -16806,9 +16816,10 @@ public final class Core {
       for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
          todaySum += sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
       }
+      todayMean = todaySum / sp.optInTimePeriod;
       todayDev = 0.0;
       for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
-         todayDev += Math.abs(sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] - todaySum / sp.optInTimePeriod);
+         todayDev += Math.abs(sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] - todayMean);
       }
       sp.cur_outReal = todayDev / sp.optInTimePeriod;
       sp.winPos_i = sp.winPos_i + 1;
@@ -16852,15 +16863,17 @@ public final class Core {
       outIdx = 0;
       while( today <= endIdx ) {
          double todaySum;
+         double todayMean;
          double todayDev;
          int i;
          todaySum = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
             todaySum += inReal[today - i];
          }
+         todayMean = todaySum / optInTimePeriod;
          todayDev = 0.0;
          for( i = 0; i < optInTimePeriod; i += 1 ) {
-            todayDev += Math.abs(inReal[today - i] - todaySum / optInTimePeriod);
+            todayDev += Math.abs(inReal[today - i] - todayMean);
          }
          outReal[outIdx * outStride] = todayDev / optInTimePeriod;
          outIdx += 1;
@@ -197989,6 +198002,8 @@ public final class Core {
  *  092826 MF,CC #466 Drop the period-1 copy-through; the range starts at 2.
  *  093026 MF,CC #480 Answer the neutral 50 instead of 0 when neither a gain nor
  *               a loss has been seen; 0 read as extremely oversold.
+ *  111726 MF,CC #573 Compute the gain select ahead of the stores to prevValue and
+ *               the carried sums.
  */
 
    /**
@@ -198097,8 +198112,8 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
-         prevValue = tempValue1;
          gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         prevValue = tempValue1;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -198109,6 +198124,9 @@ public final class Core {
        *     both unconditionally: gainDelta - tempValue2 is the exact loss delta
        *     for every finite tempValue2, so no branch on a 50/50 predicate.
        *  3) Scale by 1/'period'.
+       * Keep the gain select ahead of every store to the carried state: a stream
+       * step that reads a sum back after the select pays a store-to-load round
+       * trip per bar.
        */
       prevLoss *= invPeriod;
       prevGain *= invPeriod;
@@ -198146,10 +198164,10 @@ public final class Core {
          while( today < startIdx ) {
             tempValue1 = (double)inReal[today];
             tempValue2 = tempValue1 - prevValue;
+            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -198164,10 +198182,10 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
+         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;
@@ -198235,8 +198253,8 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
-         prevValue = tempValue1;
          gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         prevValue = tempValue1;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -198255,10 +198273,10 @@ public final class Core {
          while( today < startIdx ) {
             tempValue1 = (double)inReal[today];
             tempValue2 = tempValue1 - prevValue;
+            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -198270,10 +198288,10 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
+         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;
@@ -198540,10 +198558,10 @@ public final class Core {
          double prevValue = sp.prevValue;
          tempValue1 = (double)inReal;
          tempValue2 = tempValue1 - prevValue;
+         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevValue = tempValue1;
          prevLoss *= (double)(sp.optInTimePeriod - 1);
          prevGain *= (double)(sp.optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= sp.invPeriod;
@@ -198590,10 +198608,10 @@ public final class Core {
       double tempValue2 = 0.0;
       tempValue1 = (double)inReal;
       tempValue2 = tempValue1 - sp.prevValue;
+      gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
       sp.prevValue = tempValue1;
       sp.prevLoss *= (double)(sp.optInTimePeriod - 1);
       sp.prevGain *= (double)(sp.optInTimePeriod - 1);
-      gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
       sp.prevGain += gainDelta;
       sp.prevLoss += gainDelta - tempValue2;
       sp.prevLoss *= sp.invPeriod;
@@ -198663,8 +198681,8 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
-         prevValue = tempValue1;
          gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
+         prevValue = tempValue1;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
       }
@@ -198675,6 +198693,9 @@ public final class Core {
        *     both unconditionally: gainDelta - tempValue2 is the exact loss delta
        *     for every finite tempValue2, so no branch on a 50/50 predicate.
        *  3) Scale by 1/'period'.
+       * Keep the gain select ahead of every store to the carried state: a stream
+       * step that reads a sum back after the select pays a store-to-load round
+       * trip per bar.
        */
       prevLoss *= invPeriod;
       prevGain *= invPeriod;
@@ -198712,10 +198733,10 @@ public final class Core {
          while( today < startIdx ) {
             tempValue1 = (double)inReal[today];
             tempValue2 = tempValue1 - prevValue;
+            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevValue = tempValue1;
             prevLoss *= (double)(optInTimePeriod - 1);
             prevGain *= (double)(optInTimePeriod - 1);
-            gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
             prevGain += gainDelta;
             prevLoss += gainDelta - tempValue2;
             prevLoss *= invPeriod;
@@ -198730,10 +198751,10 @@ public final class Core {
          tempValue1 = (double)inReal[today];
          today = today + 1;
          tempValue2 = tempValue1 - prevValue;
+         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevValue = tempValue1;
          prevLoss *= (double)(optInTimePeriod - 1);
          prevGain *= (double)(optInTimePeriod - 1);
-         gainDelta = (tempValue2 > 0.0) ? tempValue2 : 0.0;
          prevGain += gainDelta;
          prevLoss += gainDelta - tempValue2;
          prevLoss *= invPeriod;

@@ -817,10 +817,7 @@ impl<'a> Ctx<'a> {
     fn binop(&self, l: &Expr, op: &BinOp, r: &Expr, sc: &mut Scope) -> (GExpr, CType) {
         if fma::EMIT_FMA {
             if let Some(fs) = self.fma_sets() {
-                // Decline the site and nothing else: re-asking the predicate
-                // without the exact product fuses the other product of
-                // `a*b + c*d`, where C's does not.
-                if let Some(operands) = fma::fuse_operands(l, op, r, &fs.view()).filter(|(a, b, _)| !exact_factor(a) && !exact_factor(b)) {
+                if let Some(operands) = fma::fuse_inexact_operands(l, op, r, &fs.view()) {
                     let args = [operands.0, operands.1, operands.2].iter().map(|x| self.lower_as(x, CType::Real, sc)).collect();
                     return (GExpr::call("math.FMA", args), CType::Real);
                 }
@@ -1665,7 +1662,7 @@ impl<'a> Ctx<'a> {
         let int_expr = |e: &Expr| self.env.type_of(e).numeric() == CType::Int32;
         let fused = |e: &Expr| {
             let Expr::BinOp(l, op, r) = e else { return false };
-            fma::EMIT_FMA && self.fma_sets().is_some_and(|fs| fma::fuse_operands(l, op, r, &fs.view()).is_some_and(|(a, b, _)| !exact_factor(a) && !exact_factor(b)))
+            fma::EMIT_FMA && self.fma_sets().is_some_and(|fs| fma::fuse_inexact_operands(l, op, r, &fs.view()).is_some())
         };
         f(&super::go_lockstep::Env {
             int_local: &int_local,
@@ -2718,18 +2715,6 @@ fn math_name(mf: MathFn) -> &'static str {
     }
 }
 
-/// A literal `±2^k`, `k >= 1`: its product rounds nothing short of overflow,
-/// so the plain multiply-add returns the fused bits without `math.FMA`'s
-/// per-call CPU test at GOAMD64=v1. Not `2^-k`: that product rounds a
-/// subnormal.
-pub(super) fn exact_factor(e: &Expr) -> bool {
-    match e {
-        Expr::Literal(v) => v.is_finite() && v.abs() >= 2.0 && v.abs().to_bits() & ((1u64 << 52) - 1) == 0,
-        Expr::Neg(x) => exact_factor(x),
-        _ => false,
-    }
-}
-
 pub(super) fn copy_call(d: GExpr, doff: GExpr, s: GExpr, soff: GExpr, n: GExpr) -> GExpr {
     let dst = if doff.is_name("0") { d } else { GExpr::slice(d, Some(doff), None) };
     let hi = if soff.is_name("0") { n } else { GExpr::bin(soff.clone(), GOp::Add, n) };
@@ -2740,9 +2725,10 @@ pub(super) fn copy_call(d: GExpr, doff: GExpr, s: GExpr, soff: GExpr, n: GExpr) 
 /// The batch body's circular buffers that may live in a stack array of their
 /// static size, as C's `CIRCBUF_PROLOG` keeps them, and that size. A fresh
 /// array is zero like `make`'s only on the first initialisation, so a buffer
-/// initialised more than once, or inside a loop, stays on `make`; one named
-/// in a call stays there too, since a slice that escapes would move the array
-/// to the heap on every call.
+/// initialised more than once, or inside a loop, stays on `make`; one handed
+/// to a call, whole or by an element's address, stays there too, since a slice
+/// that escapes would move the array to the heap on every call. An element
+/// read in an argument hands the callee a value, not the buffer.
 fn stack_circbufs(body: &[Statement]) -> HashMap<String, i64> {
     fn walk(list: &[Statement], in_loop: bool, inits: &mut HashMap<String, (usize, bool)>, called: &mut HashSet<String>) {
         for st in list {
@@ -2755,10 +2741,16 @@ fn stack_circbufs(body: &[Statement]) -> HashMap<String, i64> {
                 crate::streaming::walk_expr(top, &mut |e| {
                     if let Expr::FuncCall(_, args) = e {
                         for a in args {
-                            crate::streaming::walk_expr(a, &mut |x| {
-                                if let Expr::Var(v) | Expr::ArrayAccess(v, _) = x {
+                            crate::streaming::walk_expr(a, &mut |x| match x {
+                                Expr::Var(v) => {
                                     called.insert(v.clone());
                                 }
+                                Expr::AddressOf(inner) => {
+                                    if let Expr::ArrayAccess(v, _) = &**inner {
+                                        called.insert(v.clone());
+                                    }
+                                }
+                                _ => {}
                             });
                         }
                     }

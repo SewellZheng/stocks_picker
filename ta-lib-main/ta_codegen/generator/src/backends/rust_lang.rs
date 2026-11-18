@@ -163,8 +163,10 @@ pub struct RustRenderCtx {
     /// the ring's own check. A batch CIRCBUF absent here has no cursor.
     pub circbuf_len_of: std::collections::HashMap<String, String>,
     /// The body advances or peeks a stream by one bar, where a candle's colour
-    /// bound keeps the `if` form.
+    /// bound keeps the `if` form and an exact product is not fused.
     pub stream_step: bool,
+    /// An open frame kept on one path (no FMA dispatch): an exact product is not fused.
+    pub one_path_open: bool,
 }
 
 /// Locals that carry an enum value, mapped to their Rust type.
@@ -287,6 +289,7 @@ impl RustRenderCtx {
             circbuf_hybrid_static: std::collections::HashMap::new(),
             circbuf_len_of: std::collections::HashMap::new(),
             stream_step: false,
+            one_path_open: false,
         }
     }
 
@@ -700,6 +703,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         circbuf_hybrid_static: collect_circbuf_static(&func.body),
         circbuf_len_of: collect_circbuf_len_of(&func.body),
         stream_step: false,
+        one_path_open: false,
     };
 
     // `_private` holds the algorithm for the functions that declare one (Rust has
@@ -1134,6 +1138,7 @@ fn gen_guarded_func(
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
             circbuf_len_of: collect_circbuf_len_of(&func.body),
             stream_step: false,
+            one_path_open: false,
         };
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
         let g_var_inits: std::collections::HashMap<String, &Expr> = func
@@ -1240,6 +1245,7 @@ fn gen_guarded_func(
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
             circbuf_len_of: collect_circbuf_len_of(&func.body),
             stream_step: false,
+            one_path_open: false,
         };
 
         // Use the same full rendering as the `_private` body
@@ -4592,7 +4598,7 @@ fn wrap_cast(operand: &str, ty: &str) -> String {
 }
 
 /// Render an `Expr::BinOp` to Rust, including the FMA fusion (via the shared
-/// [`fma::fuse_operands`] detector, gated by [`fma::EMIT_FMA`]), pointer-identity
+/// [`fma`] detector, gated by [`fma::EMIT_FMA`]), pointer-identity
 /// buffer comparisons, and the operand int/usize/f64 cast inference. Delegated to
 /// by [`RustExpr::binop`].
 #[allow(clippy::cognitive_complexity, clippy::too_many_lines)]
@@ -4606,9 +4612,7 @@ fn render_binop(
     helpers: &HelperRegistry,
 ) -> String {
     // Fused multiply-add: (a * b) + c → fmadd!(a as f64, b, c). Emits ARM
-    // fmadd (1 FP op) vs fmul+fadd (2 FP ops), IEEE-754 correctly-rounded so it
-    // matches the C `fma()` / Java `Math.fma` the other backends emit at the same
-    // sites (site selection lives in `fma::fuse_operands`, shared by all backends).
+    // fmadd (1 FP op) vs fmul+fadd (2 FP ops).
     // Never in a lookback body: C, Java and C# all pass `fma: None` there
     // ("pure integer index arithmetic", c.rs), so fusing only in Rust would
     // give one backend a different lookback — an outBegIdx/length divergence,
@@ -4616,7 +4620,8 @@ fn render_binop(
     // `real_vars` was too and the detector could never fire; populating it is
     // what made this reachable.
     if fma::EMIT_FMA && !ctx.is_lookback {
-        if let Some((a, b, c)) = fma::fuse_operands(left, op, right, &ctx.fma_view()) {
+        let fuse = if ctx.stream_step || ctx.one_path_open { fma::fuse_inexact_operands } else { fma::fuse_operands };
+        if let Some((a, b, c)) = fuse(left, op, right, &ctx.fma_view()) {
             let a_str = render_expr(a, ctx, opt_real_params, registry, helpers);
             let b_str = render_expr(b, ctx, opt_real_params, registry, helpers);
             let c_str = render_expr(c, ctx, opt_real_params, registry, helpers);

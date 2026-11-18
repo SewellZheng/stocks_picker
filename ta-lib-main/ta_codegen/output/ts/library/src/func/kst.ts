@@ -423,7 +423,7 @@ export function kstImpl(
     total4 -= ring4[ring4_Idx];
     let _fma0: number;
     {
-      const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+      const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
       const _p = _a * _b;
       let _t = 134217729 * _a;
       const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -437,37 +437,7 @@ export function kstImpl(
         : _w && _v2 !== (_th + _v2) - _th ? _th + _v
         : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
     }
-    let _fma1: number;
-    {
-      const _a: number = 3.0, _b: number = rcma3, _c: number = _fma0;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma1 = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    {
-      const _a: number = 4.0, _b: number = rcma4, _c: number = _fma1;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      kst = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
+    kst = _fma0 + 4.0 * rcma4;
     sigTotal += kst;
     sigRing[sigRing_Idx] = kst;
     sigRing_Idx++;
@@ -522,9 +492,9 @@ export function kstImpl(
       ring4_Idx = 0;
     }
     total4 -= ring4[ring4_Idx];
-    let _fma3: number;
+    let _fma1: number;
     {
-      const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+      const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
       const _p = _a * _b;
       let _t = 134217729 * _a;
       const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -534,41 +504,11 @@ export function kstImpl(
       const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
       const _v = _tl + _pl, _v2 = _v + _v;
       const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma3 = _w && (_pl === 0 || _v === 0) ? _th
+      _fma1 = _w && (_pl === 0 || _v === 0) ? _th
         : _w && _v2 !== (_th + _v2) - _th ? _th + _v
         : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
     }
-    let _fma4: number;
-    {
-      const _a: number = 3.0, _b: number = rcma3, _c: number = _fma3;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma4 = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    {
-      const _a: number = 4.0, _b: number = rcma4, _c: number = _fma4;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      kst = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
+    kst = _fma1 + 4.0 * rcma4;
     sigTotal += kst;
     sig = sigTotal / optInSignalPeriod;
     sigRing[sigRing_Idx] = kst;
@@ -1181,7 +1121,7 @@ export class KstStream {
     total4 -= (ring4_Idx !== pkSlot7) ? sp.cb_ring4[ring4_Idx] : pkVal7;
     let _fma0: number;
     {
-      const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+      const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
       const _p = _a * _b;
       let _t = 134217729 * _a;
       const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -1195,37 +1135,7 @@ export class KstStream {
         : _w && _v2 !== (_th + _v2) - _th ? _th + _v
         : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
     }
-    let _fma1: number;
-    {
-      const _a: number = 3.0, _b: number = rcma3, _c: number = _fma0;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma1 = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    {
-      const _a: number = 4.0, _b: number = rcma4, _c: number = _fma1;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      kst = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
+    kst = _fma0 + 4.0 * rcma4;
     sigTotal += kst;
     sig = sigTotal / sp.optInSignalPeriod;
     pkSlot8 = sigRing_Idx;
@@ -1405,9 +1315,9 @@ function kstStepImpl(sp: KstStream, inReal: number): void {
     sp.ring4_Idx = 0;
   }
   sp.total4 -= sp.cb_ring4[sp.ring4_Idx];
-  let _fma3: number;
+  let _fma1: number;
   {
-    const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+    const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
     const _p = _a * _b;
     let _t = 134217729 * _a;
     const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -1417,41 +1327,11 @@ function kstStepImpl(sp: KstStream, inReal: number): void {
     const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
     const _v = _tl + _pl, _v2 = _v + _v;
     const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-    _fma3 = _w && (_pl === 0 || _v === 0) ? _th
+    _fma1 = _w && (_pl === 0 || _v === 0) ? _th
       : _w && _v2 !== (_th + _v2) - _th ? _th + _v
       : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
   }
-  let _fma4: number;
-  {
-    const _a: number = 3.0, _b: number = rcma3, _c: number = _fma3;
-    const _p = _a * _b;
-    let _t = 134217729 * _a;
-    const _ah = _t - (_t - _a), _al = _a - _ah;
-    _t = 134217729 * _b;
-    const _bh = _t - (_t - _b), _bl = _b - _bh;
-    const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-    const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-    const _v = _tl + _pl, _v2 = _v + _v;
-    const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-    _fma4 = _w && (_pl === 0 || _v === 0) ? _th
-      : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-      : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-  }
-  {
-    const _a: number = 4.0, _b: number = rcma4, _c: number = _fma4;
-    const _p = _a * _b;
-    let _t = 134217729 * _a;
-    const _ah = _t - (_t - _a), _al = _a - _ah;
-    _t = 134217729 * _b;
-    const _bh = _t - (_t - _b), _bl = _b - _bh;
-    const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-    const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-    const _v = _tl + _pl, _v2 = _v + _v;
-    const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-    kst = _w && (_pl === 0 || _v === 0) ? _th
-      : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-      : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-  }
+  kst = _fma1 + 4.0 * rcma4;
   sp.sigTotal += kst;
   sig = sp.sigTotal / sp.optInSignalPeriod;
   sp.cb_sigRing[sp.sigRing_Idx] = kst;
@@ -1750,9 +1630,9 @@ function kstOpenImpl(
       ring4_Idx = 0;
     }
     total4 -= ring4[ring4_Idx];
-    let _fma6: number;
+    let _fma2: number;
     {
-      const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+      const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
       const _p = _a * _b;
       let _t = 134217729 * _a;
       const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -1762,41 +1642,11 @@ function kstOpenImpl(
       const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
       const _v = _tl + _pl, _v2 = _v + _v;
       const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma6 = _w && (_pl === 0 || _v === 0) ? _th
+      _fma2 = _w && (_pl === 0 || _v === 0) ? _th
         : _w && _v2 !== (_th + _v2) - _th ? _th + _v
         : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
     }
-    let _fma7: number;
-    {
-      const _a: number = 3.0, _b: number = rcma3, _c: number = _fma6;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma7 = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    {
-      const _a: number = 4.0, _b: number = rcma4, _c: number = _fma7;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      kst = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
+    kst = _fma2 + 4.0 * rcma4;
     sigTotal += kst;
     sigRing[sigRing_Idx] = kst;
     sigRing_Idx++;
@@ -1851,9 +1701,9 @@ function kstOpenImpl(
       ring4_Idx = 0;
     }
     total4 -= ring4[ring4_Idx];
-    let _fma9: number;
+    let _fma3: number;
     {
-      const _a: number = 2.0, _b: number = rcma2, _c: number = rcma1;
+      const _a: number = 3.0, _b: number = rcma3, _c: number = rcma1 + 2.0 * rcma2;
       const _p = _a * _b;
       let _t = 134217729 * _a;
       const _ah = _t - (_t - _a), _al = _a - _ah;
@@ -1863,41 +1713,11 @@ function kstOpenImpl(
       const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
       const _v = _tl + _pl, _v2 = _v + _v;
       const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma9 = _w && (_pl === 0 || _v === 0) ? _th
+      _fma3 = _w && (_pl === 0 || _v === 0) ? _th
         : _w && _v2 !== (_th + _v2) - _th ? _th + _v
         : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
     }
-    let _fma10: number;
-    {
-      const _a: number = 3.0, _b: number = rcma3, _c: number = _fma9;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      _fma10 = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
-    {
-      const _a: number = 4.0, _b: number = rcma4, _c: number = _fma10;
-      const _p = _a * _b;
-      let _t = 134217729 * _a;
-      const _ah = _t - (_t - _a), _al = _a - _ah;
-      _t = 134217729 * _b;
-      const _bh = _t - (_t - _b), _bl = _b - _bh;
-      const _pl = ((_ah * _bh - _p) + _ah * _bl + _al * _bh) + _al * _bl;
-      const _th = _c + _p, _z = _th - _c, _tl = (_c - (_th - _z)) + (_p - _z);
-      const _v = _tl + _pl, _v2 = _v + _v;
-      const _w = _a * _a + _b * _b + _c * _c < 2 ** 1000 && _p * _p > 2 ** -1000;
-      kst = _w && (_pl === 0 || _v === 0) ? _th
-        : _w && _v2 !== (_th + _v2) - _th ? _th + _v
-        : _a === 0 || _b === 0 ? _p + _c : fmaSlow(_a, _b, _c, _th, _tl, _pl);
-    }
+    kst = _fma3 + 4.0 * rcma4;
     sigTotal += kst;
     sig = sigTotal / optInSignalPeriod;
     sigRing[sigRing_Idx] = kst;

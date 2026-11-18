@@ -1,19 +1,21 @@
 //! Shared fused-multiply-add (FMA) fusion detection — the single source of truth
-//! for WHICH `a*b + c` sites every backend fuses.
+//! for WHICH `a*b + c` sites a backend may fuse.
 //!
 //! TA-Lib adopted an explicit-FMA numerical contract (PR #96,
 //! `docs/studies/fma-readiness-audit.md`): each function faithfully implements
 //! its algorithm within a documented ~1e-9 relative tolerance, not bit-for-bit.
 //! Explicit `fma` / `f64::mul_add` / `Math.fma` / `Math.FusedMultiplyAdd` all
 //! compute the IEEE-754 correctly-rounded fused product-sum, identical on every
-//! platform — so fusing the SAME sites in C, Rust, Java and C# keeps the four
-//! backends bit-identical to one another.
+//! platform — so every backend rounding the SAME sites as C does keeps them
+//! bit-identical to one another.
 //!
 //! The regtest cross-language comparison only enforces a 1e-6 tolerance, so it
 //! would NOT catch two backends fusing slightly different site sets (they would
 //! silently drift ~1e-10). Routing all backends through this one detector makes
 //! identical fusion a structural guarantee rather than something a tolerance gate
-//! is trusted to police. Rust feeds its render context straight into a borrowing
+//! is trusted to police. A backend may leave an exact product plain
+//! ([`fuse_inexact_operands`]): that site returns the fused bits either way.
+//! Rust feeds its render context straight into a borrowing
 //! [`FmaCtx`]; C and Java rebuild the same name-sets from the same IR body via
 //! [`build_fma_var_sets`].
 
@@ -443,4 +445,27 @@ pub fn fuse_operands<'e>(
         }
     }
     None
+}
+
+/// [`fuse_operands`], declining a site whose product has an [`exact_factor`]:
+/// the plain multiply-add returns the fused bits. The site is declined, never
+/// re-asked without its exact product: that would fuse the other product of
+/// `a*b + c*d`, which C, whose detector stays [`fuse_operands`], leaves plain.
+pub fn fuse_inexact_operands<'e>(
+    left: &'e Expr,
+    op: &BinOp,
+    right: &'e Expr,
+    ctx: &FmaCtx,
+) -> Option<(&'e Expr, &'e Expr, &'e Expr)> {
+    fuse_operands(left, op, right, ctx).filter(|(a, b, _)| !exact_factor(a) && !exact_factor(b))
+}
+
+/// A literal `±2^k`, `k >= 1`: its product rounds nothing short of overflow.
+/// Not `2^-k`: that product rounds a subnormal.
+pub fn exact_factor(e: &Expr) -> bool {
+    match e {
+        Expr::Literal(v) => v.is_finite() && v.abs() >= 2.0 && v.abs().to_bits() & ((1u64 << 52) - 1) == 0,
+        Expr::Neg(x) => exact_factor(x),
+        _ => false,
+    }
 }

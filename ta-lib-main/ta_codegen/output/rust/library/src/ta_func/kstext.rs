@@ -661,7 +661,6 @@ struct KstextStreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    #[inline(always)]
     fn kstext_step_impl(sp: &mut KstextStreamState, inReal: f64, outKST: &mut f64, outKSTSignal: &mut f64) -> Result<(), RetCode> {
         let mut cur_kstBuffer: f64 = 0.0_f64;
         let mut cur_tempBuffer: f64 = 0.0_f64;
@@ -673,7 +672,7 @@ impl Core {
         cur_tempBuffer = sp.sub2.update(inReal)?;
         cur_tempBuffer = sp.sub3.update(cur_tempBuffer)?;
         // Combine map (batch tail, per bar).
-        cur_kstBuffer = fmadd!(2.0 as f64, cur_tempBuffer, cur_kstBuffer);
+        cur_kstBuffer = cur_kstBuffer + 2.0 * cur_tempBuffer;
         cur_tempBuffer = sp.sub4.update(inReal)?;
         cur_tempBuffer = sp.sub5.update(cur_tempBuffer)?;
         // Combine map (batch tail, per bar).
@@ -681,7 +680,7 @@ impl Core {
         cur_tempBuffer = sp.sub6.update(inReal)?;
         cur_tempBuffer = sp.sub7.update(cur_tempBuffer)?;
         // Combine map (batch tail, per bar).
-        cur_kstBuffer = fmadd!(4.0 as f64, cur_tempBuffer, cur_kstBuffer);
+        cur_kstBuffer = cur_kstBuffer + 4.0 * cur_tempBuffer;
         cur_outKSTSignal = sp.sub8.update(cur_kstBuffer)?;
         *outKST = cur_kstBuffer;
         *outKSTSignal = cur_outKSTSignal;
@@ -1116,20 +1115,6 @@ impl KstextStream {
     /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_KSTEXT_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<(f64, f64), RetCode> {
-        #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, update_fma, update_scalar, (inReal));
-        #[cfg(not(target_arch = "x86_64"))]
-        self.update_scalar(inReal)
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "fma")]
-    fn update_fma(&mut self, inReal: f64) -> Result<(f64, f64), RetCode> {
-        self.update_scalar(inReal)
-    }
-
-    #[inline(always)]
-    fn update_scalar(&mut self, inReal: f64) -> Result<(f64, f64), RetCode> {
         if self.out.beg_idx + self.out.count > Core::INDEX_MAX {
             return Err(RetCode::OutOfRangeEndIndex);
         }
@@ -1178,7 +1163,7 @@ impl KstextStream {
             cur_tempBuffer = sp.sub2.peek(inReal)?;
             cur_tempBuffer = sp.sub3.peek(cur_tempBuffer)?;
             // Combine map (batch tail, per bar).
-            cur_kstBuffer = fmadd!(2.0 as f64, cur_tempBuffer, cur_kstBuffer);
+            cur_kstBuffer = cur_kstBuffer + 2.0 * cur_tempBuffer;
             cur_tempBuffer = sp.sub4.peek(inReal)?;
             cur_tempBuffer = sp.sub5.peek(cur_tempBuffer)?;
             // Combine map (batch tail, per bar).
@@ -1186,7 +1171,7 @@ impl KstextStream {
             cur_tempBuffer = sp.sub6.peek(inReal)?;
             cur_tempBuffer = sp.sub7.peek(cur_tempBuffer)?;
             // Combine map (batch tail, per bar).
-            cur_kstBuffer = fmadd!(4.0 as f64, cur_tempBuffer, cur_kstBuffer);
+            cur_kstBuffer = cur_kstBuffer + 4.0 * cur_tempBuffer;
             cur_outKSTSignal = sp.sub8.peek(cur_kstBuffer)?;
             *outKST = cur_kstBuffer;
             *outKSTSignal = cur_outKSTSignal;

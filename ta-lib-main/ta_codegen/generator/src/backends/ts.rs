@@ -651,7 +651,7 @@ impl<'a> TsCtx<'a> {
         let take = |x: &Expr, sites: &mut Vec<FmaSite>| Box::new(self.take_sites(x, fs, sites));
         match e {
             Expr::BinOp(left, op, right) => {
-                if let Some(operands) = fma::fuse_operands(left, op, right, fs) {
+                if let Some(operands) = fma::fuse_inexact_operands(left, op, right, fs) {
                     let a = *take(operands.0, sites);
                     let b = *take(operands.1, sites);
                     let c = *take(operands.2, sites);
@@ -788,6 +788,9 @@ enum FmaInline {
 /// gets the fast path copied in, so none is left a call that boxes its
 /// operands and result. Fewer stay calls: the copy makes a step too big for
 /// `update` to inline, a call per bar where V8 would have inlined them all.
+/// An exact product counts as a site though it renders plain: a frame that
+/// switches between copies and calls moves its step and its peek time in
+/// opposite directions.
 const FMA_INLINE_MIN_SITES: usize = 3;
 
 struct FmaSite {
@@ -2130,7 +2133,7 @@ impl ExprEmitter for TsExpr<'_> {
         let c = self.c;
         if fma::EMIT_FMA {
             if let Some(fs) = c.fma_sets() {
-                if let Some((a, b, cc)) = fma::fuse_operands(left, op, right, &fs.view()) {
+                if let Some((a, b, cc)) = fma::fuse_inexact_operands(left, op, right, &fs.view()) {
                     return format!("fma({}, {}, {})", c.num(a), c.num(b), c.num(cc));
                 }
             }

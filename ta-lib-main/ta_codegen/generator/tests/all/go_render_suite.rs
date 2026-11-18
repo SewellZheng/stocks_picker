@@ -1,6 +1,7 @@
 //! The Go emitter's refusals and lowerings on bodies no shipped indicator has.
 
 use crate::common;
+use std::collections::BTreeSet;
 use ta_codegen_lib::backends;
 
 /// CDLHIGHWAVE's signature over a loop whose store reads `ta_uppershadow`, a
@@ -480,46 +481,20 @@ fn go_a_loop_on_an_arm_of_a_bar_loop_is_not_re_sliced() {
     assert!(common::sweep_filtered() || sites >= 55, "only {sites} loops on an arm of a loop keep their checks");
 }
 
-/// The factors of each `math.FMA(` call in `src`.
-fn fma_factors(src: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for (at, _) in src.match_indices("math.FMA(") {
-        let mut args = vec![String::new()];
-        let mut depth = 0i32;
-        for ch in src[at + "math.FMA(".len()..].chars() {
-            match ch {
-                '(' => depth += 1,
-                ')' if depth == 0 => break,
-                ')' => depth -= 1,
-                ',' if depth == 0 => {
-                    args.push(String::new());
-                    continue;
-                }
-                _ => {}
-            }
-            args.last_mut().expect("an argument").push(ch);
-        }
-        assert_eq!(args.len(), 3, "`math.FMA` takes three arguments: {args:?}");
-        out.push((args[0].trim().to_string(), args[1].trim().to_string()));
-    }
-    out
-}
-
 /// A product by `2^k`, `k >= 1`, is exact, so Go renders that site as the
 /// plain multiply-add C's fused one rounds to; every other site keeps C's
 /// fusing. HT_TRENDLINE's `4.0*a + 3.0*b + 2.0*c + d` loses its two exact
 /// sites in each of its four frames and fuses no other product in their
-/// place, which no value gate could see; C and Rust keep fusing WCLPRICE.
+/// place, which no value gate could see; C keeps fusing WCLPRICE.
 #[test]
 fn go_renders_an_exact_product_unfused() {
     let (registry, helpers) = (common::make_registry(), common::make_helpers());
-    let exact = |a: &str| a.trim_start_matches('-').parse::<f64>().is_ok_and(|v| v >= 2.0 && v.to_bits() & ((1u64 << 52) - 1) == 0);
     let mut sites = 0usize;
     for name in common::discover_indicators() {
         let (func, enums) = common::load_indicator(&name);
         let src = backends::go::generate(&func, &enums, registry, helpers);
-        for (a, b) in fma_factors(&src) {
-            assert!(!exact(&a) && !exact(&b), "{name}: `math.FMA({a}, {b}, ..)` fuses an exact product");
+        for (a, b) in common::fma_factors(&src, "math.FMA(") {
+            assert!(!common::exact_literal(&a) && !common::exact_literal(&b), "{name}: `math.FMA({a}, {b}, ..)` fuses an exact product");
             sites += 1;
         }
         match name.as_str() {
@@ -535,7 +510,6 @@ fn go_renders_an_exact_product_unfused() {
 
     let (func, enums) = common::load_indicator("wclprice");
     assert!(backends::c::generate(&func, &enums, registry, helpers).contains("fma(inClose[i], 2.0,"), "C stops fusing WCLPRICE");
-    assert!(backends::rust_lang::generate(&func, &enums, registry, helpers).contains("fmadd!(inClose, 2.0,"), "Rust stops fusing WCLPRICE");
 }
 
 /// A loop whose passes depend on no other runs a group of passes over cuts
@@ -797,9 +771,53 @@ fn go_stream_update_scans_take_their_own_back_edge() {
     }
     let mut rewritten = 0usize;
     for name in common::discover_indicators() {
-        rewritten += back_edge_scans(&source(&name)).len();
+        let scans = back_edge_scans(&source(&name));
+        for (_, label, block) in &scans {
+            assert!(!block.iter().any(|l| l.contains("sp.")), "{name}: {label} reads the handle:\n{}", block.join("\n"));
+        }
+        rewritten += scans.len();
     }
     assert!(rewritten >= 94, "only {rewritten} stream rescans take their own back edge");
+}
+
+/// A composed frame's rescan runs on locals as a plain frame's does: STOCH's
+/// Update renders its producer beside owned sub-streams, loads each field its
+/// scans name ahead of the label, and stores back right after the scan only
+/// the fields it writes.
+#[test]
+fn go_a_composed_update_rescans_on_locals() {
+    let (func, enums) = common::load_indicator("stoch");
+    let src = backends::go::generate(&func, &enums, common::make_registry(), common::make_helpers());
+    let body = go_body(&src, "func (sp *STOCHStream) Update(");
+    assert!(body.contains("sp.sub0.Update(") && body.contains("sp.sub1.Update("), "STOCH's Update is not composed:\n{body}");
+    let lines: Vec<&str> = body.lines().collect();
+    let scans = back_edge_scans(body);
+    assert_eq!(scans.len(), 2, "one label per rescan:\n{body}");
+    for ((_, label, block), (best, ring)) in scans.iter().zip([("lowest", "x_inLow"), ("highest", "x_inHigh")]) {
+        assert!(!block.iter().any(|l| l.contains("sp.")), "{label} reads the handle:\n{body}");
+        let at = lines.iter().position(|l| l.trim() == format!("{label}:")).expect("the label");
+        let loads: BTreeSet<String> = lines[..at].iter().rev().skip(1).map(|l| l.trim().to_string()).take_while(|l| l.split_once(" = sp.").is_some_and(|(a, b)| a == b)).collect();
+        let want: BTreeSet<String> = ["i", best, format!("{best}Idx").as_str(), "today", "xMask", ring].iter().map(|f| format!("{f} = sp.{f}")).collect();
+        assert_eq!(loads, want, "{label} does not load its fields ahead of it:\n{body}");
+        let after = at + block.len() + 1;
+        let stores: BTreeSet<String> = lines[after..].iter().map(|l| l.trim().to_string()).take_while(|l| l.strip_prefix("sp.").and_then(|r| r.split_once(" = ")).is_some_and(|(a, b)| a == b)).collect();
+        let want: BTreeSet<String> = ["i", best, format!("{best}Idx").as_str()].iter().map(|f| format!("sp.{f} = {f}")).collect();
+        assert_eq!(stores, want, "{label} does not store back exactly what it writes:\n{body}");
+    }
+}
+
+/// RSI's Update computes its gain select before it stores any handle field:
+/// a select after the stores reads each carried sum back from the handle, a
+/// reload per bar.
+#[test]
+fn go_rsi_update_selects_ahead_of_its_stores() {
+    let (func, enums) = common::load_indicator("rsi");
+    let src = backends::go::generate(&func, &enums, common::make_registry(), common::make_helpers());
+    let body = go_body(&src, "func (sp *RSIStream) Update(");
+    let lines: Vec<&str> = body.lines().collect();
+    let select = lines.iter().position(|l| l.contains("selF(")).unwrap_or_else(|| panic!("RSI's Update has no select:\n{body}"));
+    let store = lines.iter().position(|l| l.trim().starts_with("sp.prev")).unwrap_or_else(|| panic!("RSI's Update stores no carried field:\n{body}"));
+    assert!(select < store, "RSI's Update stores a carried field before its gain select:\n{body}");
 }
 
 /// An update scan whose comparison renders as a select keeps its step inside
@@ -875,4 +893,15 @@ fn go_binds_an_expression_two_neighbouring_statements_compute() {
         })
         .sum();
     assert!(common::sweep_filtered() || total >= 71, "the corpus binds {total} expressions");
+}
+
+/// CCI reads a ring element inside a call's argument, a value and not the
+/// buffer, so its ring is a stack array up to C's static size.
+#[test]
+fn go_a_ring_read_in_a_call_argument_lives_on_the_stack() {
+    let body = batch_body("cci");
+    assert!(body.contains("math.Abs(circBuffer["), "CCI no longer reads its ring in a call:\n{body}");
+    assert!(body.contains("\tvar local_circBuffer [30]float64\n"), "no stack array:\n{body}");
+    let pick = "\tif optInTimePeriod <= 30 {\n\t\tcircBuffer = local_circBuffer[:optInTimePeriod]\n\t} else {\n\t\tcircBuffer = make([]float64, optInTimePeriod)\n\t}\n";
+    assert!(body.contains(pick) && body.matches("circBuffer = make(").count() == 1, "the ring does not pick the stack array:\n{body}");
 }
