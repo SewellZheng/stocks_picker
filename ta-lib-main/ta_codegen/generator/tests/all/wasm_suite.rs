@@ -6,6 +6,7 @@ use crate::common::{
     all_indicators, discover_indicators, load_enums, load_indicator, make_helpers, make_registry,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use ta_codegen_lib::backends::ts_engine::{self, Route};
 use ta_codegen_lib::backends::{self, wasm};
 use ta_codegen_lib::ir::{FuncDef, Statement};
 
@@ -203,20 +204,91 @@ fn ts_engine_routes_a_tabled_function_from_its_bar_count() {
     let funcs = corpus();
     let enums = load_enums();
     let sma = funcs.iter().find(|f| f.name == "SMA").unwrap();
-    let text = backends::ts_engine::render_routed(sma, &enums, make_registry(), Some(37));
+    let text = backends::ts_engine::render_routed(sma, &funcs, &enums, make_registry(), Some(Route { from: 37, to: None }));
     assert!(text.contains("\nconst WASM_FROM_BARS = 37;\n"), "{text}");
-    let public = &text[text.find("export function sma(").unwrap()..text.find("function smaWasm(").unwrap()];
+    assert!(!text.contains("WASM_TO_BARS"), "an open entry has no upper bound:\n{text}");
+    let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("no `{needle}`:\n{text}"));
+    let public = &text[at("export function sma(")..at("function smaWasm(")];
     assert!(!public.contains("engineRoute.mode !== 0"), "a tabled function routes in table mode:\n{public}");
-    let body = &text[text.find("function smaWasm(").unwrap()..];
+    assert_eq!(text.matches("WASM_FROM_BARS").count(), 3, "{text}");
     let gate = "  if (engineRoute.mode === 0 && n < WASM_FROM_BARS) {\n    return null;\n  }\n";
-    let at = body.find(gate).unwrap_or_else(|| panic!("no threshold check:\n{body}"));
-    assert_eq!(body.matches("WASM_FROM_BARS").count(), 1, "{body}");
-    assert!(body.find("const n = seriesLength(").unwrap() < at);
-    assert!(at < body.find("wasmFrame(").unwrap(), "the threshold check is below wasmFrame:\n{body}");
-    assert_eq!(body[..at].matches("fellThrough(").count(), 1, "only an empty input counts above the threshold check:\n{body}");
-    assert!(body[..at].contains("if (n < 1) {\n    return fellThrough('input');"), "{body}");
+    // Each front checks the threshold before anything but the input's length,
+    // and before the frame: the options front takes its own, the copy into
+    // buffers takes one and checks no threshold.
+    for (front, next) in [("function smaWasm(", "function smaBuffered("), ("function smaPositionalWasm(", "function smaInto(")] {
+        let body = &text[at(front)..at(next)];
+        let gate_at = body.find(gate).unwrap_or_else(|| panic!("no threshold check:\n{body}"));
+        assert!(body.find("const n = seriesLength(").unwrap() < gate_at);
+        assert!(!body[..gate_at].contains("wasmFrame("), "{front} takes the frame before the threshold:\n{body}");
+        assert_eq!(body[..gate_at].matches("fellThrough(").count(), 1, "only an empty input counts above the threshold check:\n{body}");
+        assert!(body[..gate_at].contains("if (n < 1) {\n    return fellThrough('input');"), "{body}");
+    }
+    let into = &text[at("function smaInto(")..];
+    assert!(into.contains("wasmFrame(") && !into.contains("WASM_FROM_BARS"));
 
-    let untabled = backends::ts_engine::render_routed(sma, &enums, make_registry(), None);
+    let untabled = backends::ts_engine::render_routed(sma, &funcs, &enums, make_registry(), None);
     assert!(!untabled.contains("WASM_FROM_BARS"));
     assert!(untabled.contains("  if (engineRoute.mode !== 0) {\n"));
+}
+
+/// A ranged entry: the same check, closed above, so a call over the range
+/// stays in `./js` exactly as one under it does.
+#[test]
+fn ts_engine_routes_a_ranged_function_only_within_its_bar_counts() {
+    let (sma, _) = load_indicator("sma");
+    let enums = load_enums();
+    let text = ts_engine::render_routed(&sma, std::slice::from_ref(&sma), &enums, make_registry(), Some(Route { from: 37, to: Some(90) }));
+    assert!(text.contains("\nconst WASM_FROM_BARS = 37;\nconst WASM_TO_BARS = 90;\n"), "{text}");
+    assert_eq!(text.matches("WASM_TO_BARS").count(), 3, "{text}");
+    let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("no `{needle}`:\n{text}"));
+    let gate = "  if (engineRoute.mode === 0 && (n < WASM_FROM_BARS || n > WASM_TO_BARS)) {\n    return null;\n  }\n";
+    for (front, next) in [("function smaWasm(", "function smaBuffered("), ("function smaPositionalWasm(", "function smaInto(")] {
+        let body = &text[at(front)..at(next)];
+        let gate_at = body.find(gate).unwrap_or_else(|| panic!("no bounded check:\n{body}"));
+        assert_eq!(body.matches("WASM_TO_BARS").count(), 1, "{body}");
+        assert!(!body[..gate_at].contains("wasmFrame("), "{front} takes the frame before the range check:\n{body}");
+    }
+}
+
+#[test]
+fn ts_engine_routing_test_checks_both_ends_of_a_ranged_entry() {
+    let funcs: Vec<FuncDef> = ["sma", "ema", "wma"].iter().map(|n| load_indicator(n).0).collect();
+    let table = BTreeMap::from([
+        ("SMA".to_string(), Route { from: 5, to: Some(200_000) }),
+        ("EMA".to_string(), Route { from: 7, to: None }),
+    ]);
+    let text = ts_engine::render_routing_test(&funcs, &table);
+    let row = |name: &str| text.lines().find(|l| l.starts_with(&format!("  {{ name: '{name}', "))).unwrap_or_else(|| panic!("no {name} row:\n{text}"));
+    assert!(row("SMA").ends_with(" bars: 5, to: 200000 },"), "{text}");
+    assert!(row("EMA").ends_with(" bars: 7 },"), "{text}");
+    assert!(text.contains("\nconst MAX_BARS = 200001;\n"), "MAX_BARS must reach one bar over the range:\n{text}");
+    assert!(text.contains("const over = run(row, row.to + 1);"), "{text}");
+    assert!(text.contains("[['options', call], ['buffered', callBuffered], ['positional', callPositional]]"), "{text}");
+}
+
+fn load_table(tag: &str, yaml: &str) -> BTreeMap<String, Route> {
+    let path = std::env::temp_dir().join(format!("ta_wasm_routing_{}_{tag}.yaml", std::process::id()));
+    std::fs::write(&path, yaml).unwrap();
+    let funcs = vec![load_indicator("sma").0];
+    let table = std::panic::catch_unwind(|| ts_engine::load_routing(&path, &funcs));
+    let _ = std::fs::remove_file(&path);
+    table.unwrap_or_else(|e| std::panic::resume_unwind(e))
+}
+
+#[test]
+fn ts_engine_load_routing_reads_both_forms() {
+    assert_eq!(load_table("open", "batch:\n  SMA: 4\n")["SMA"], Route { from: 4, to: None });
+    assert_eq!(load_table("one", "batch:\n  SMA: [4, 4]\n")["SMA"], Route { from: 4, to: Some(4) });
+}
+
+#[test]
+#[should_panic(expected = "the range ends below its start")]
+fn ts_engine_load_routing_rejects_a_range_ending_below_its_start() {
+    let _ = load_table("inverted", "batch:\n  SMA: [10, 9]\n");
+}
+
+#[test]
+#[should_panic(expected = "the least is 1")]
+fn ts_engine_load_routing_rejects_a_range_from_zero() {
+    let _ = load_table("zero", "batch:\n  SMA: [0, 9]\n");
 }

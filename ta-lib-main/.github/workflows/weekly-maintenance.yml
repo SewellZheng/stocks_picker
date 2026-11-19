@@ -15,9 +15,8 @@ on:
         type: boolean
         default: true
 
-# Deleting release assets and pushing to dev require write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Garbage-collect the dist/ content-addressed asset pool.
@@ -34,6 +33,8 @@ jobs:
   # More info: scripts/utilities/dist_pool.py
   gc:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # deletes release assets
 
     steps:
       # fetch-depth: 0 fetches all branches, which this needs: the live reference
@@ -41,13 +42,13 @@ jobs:
       # checkout would leave one of them unreadable, and the script then aborts
       # rather than delete on partial information.
       - name: Checkout (all branches)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           filter: blob:none
 
       - name: Install Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.x"
 
@@ -65,18 +66,20 @@ jobs:
 
   star-history:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # pushes to dev
     if: github.repository == 'TA-Lib/ta-lib'
 
     steps:
       # A scheduled run checks out the default branch unless told otherwise,
       # and the figure is committed to dev.
       - name: Checkout dev
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: dev
 
       - name: Install Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.x"
 
