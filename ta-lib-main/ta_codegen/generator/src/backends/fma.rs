@@ -81,6 +81,7 @@ pub struct FmaCtx<'a> {
 
 /// Owned name-sets, for a renderer that does not otherwise track per-variable
 /// types. Built by [`build_fma_var_sets`].
+#[derive(Clone)]
 pub struct FmaVarSets {
     pub real_vars: HashSet<String>,
     pub index_vars: HashSet<String>,
@@ -91,9 +92,19 @@ pub struct FmaVarSets {
     pub recurrent_select_targets: HashSet<String>,
     /// Running extremes the body carries from one loop pass to the next.
     pub running_extreme_targets: HashSet<String>,
+    /// [`super::select_rule::ordered_step_targets`] of the same body.
+    pub ordered_step_targets: HashSet<String>,
 }
 
 impl FmaVarSets {
+    /// These sets with no ordered step admitted, for a Java or C# peek: a peek
+    /// carries no sum to the next bar, and there its select runs no faster than
+    /// the branch.
+    #[must_use]
+    pub fn for_peek(&self) -> Self {
+        Self { ordered_step_targets: HashSet::new(), ..self.clone() }
+    }
+
     #[must_use]
     pub fn view(&self) -> FmaCtx<'_> {
         FmaCtx {
@@ -150,6 +161,7 @@ pub fn build_fma_var_sets(
         sentinel_vars,
         recurrent_select_targets: super::select_chain::recurrent_select_targets(body),
         running_extreme_targets: super::select_chain::running_extreme_targets(body),
+        ordered_step_targets: super::select_rule::ordered_step_targets(body),
     }
 }
 

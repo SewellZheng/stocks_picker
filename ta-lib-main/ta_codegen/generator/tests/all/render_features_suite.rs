@@ -1210,6 +1210,39 @@ TA_RetCode max( int    startIdx,
     }
 }
 
+/// OBV adds or subtracts the volume on whether the close rose, a coin flip: C
+/// and Rust select the step in batch (C's two precisions), open, step and peek;
+/// Java and C# in both precisions, open and step, their peek keeping the branch.
+/// No other function's accumulation qualifies.
+#[test]
+fn an_ordered_step_is_picked_without_a_branch() {
+    let (registry, helpers) = (make_registry(), make_helpers());
+    let mut fired = Vec::new();
+    for name in common::all_indicators() {
+        let (func, _) = load_indicator(&name);
+        let targets = backends::select_rule::ordered_step_targets(&func.body);
+        if !targets.is_empty() {
+            fired.push(format!("{name}: {targets:?}"));
+        }
+    }
+    assert_eq!(fired, ["obv: {\"prevOBV\"}"]);
+    let (mut func, enums) = load_indicator("obv");
+    func.streaming = true;
+    let c = backends::c::generate(&func, &enums, registry, helpers);
+    let rust = backends::rust_lang::generate(&func, &enums, registry, helpers);
+    for (lang, src, pick, tiers) in [("C", &c, "TA_ORDER_STEP(", 5), ("Rust", &rust, "std::hint::select_unpredictable(", 8)] {
+        assert_eq!(src.matches(pick).count(), tiers, "{lang}:\n{src}");
+        assert!(!src.contains("tempReal > "), "{lang} keeps a branch:\n{src}");
+    }
+    let java = backends::java::generate(&func, &enums, registry, helpers);
+    let csharp = backends::csharp::generate(&func, &enums, registry, helpers);
+    for (lang, src, pick) in [("Java", &java, "? -1L : 0L)"), ("C#", &csharp, "Pick(MaskLt(")] {
+        let picked = src.lines().filter(|l| l.contains(pick) && l.contains("prevOBV")).count();
+        let branched = src.lines().filter(|l| l.trim_start().starts_with("if") && l.contains("tempReal > ")).count();
+        assert_eq!((picked, branched), (4, 1), "{lang}: four tiers pick, the peek alone branches:\n{src}");
+    }
+}
+
 /// A stream handle's step keeps a pick into its own state a ternary, and lowers
 /// one into a local.
 #[test]
@@ -1370,7 +1403,7 @@ TA_RetCode max( int    startIdx,
         "if( j - pos >= 16 ) { ShiftUp(sorted, j, pos); j = pos; } else { while( j > pos ) {",
         "double _ld1 = inReal[today]; double _ld2 = sorted[0]; double _ld3 = sorted[1];",
         "x = Math.FusedMultiplyAdd(Math.Floor(_ld2), Math.Ceiling(_ld3), Math.Sqrt(_ld1));",
-        "double _ld4 = outReal[i]; outReal[i] = Math.Sqrt(_ld4) + 1.0;",
+        "double _ld4 = _w0[_wk]; _w0[_wk] = Math.Sqrt(_ld4) + 1.0;",
         // Near misses. A reduction loop's select paces the loop.
         "if( tmp < low ) { lowIdx = i; low = tmp; }",
         "if( b < a ) { swap = a; a = b; }",
@@ -1427,12 +1460,169 @@ TA_RetCode max( int    startIdx,
     for needle in [
         "i = startIdx; outIdx = 0; int _sq0 = SqrtRun(inReal, i, endIdx + 1, outReal, outIdx); i += _sq0; outIdx += _sq0;",
         "i = 0; int _sq1 = SqrtRun(outReal, i, outIdx, outReal, i, k); i += _sq1;",
-        "for( i = 0; i < outIdx; i += 1 ) { double _ld2 = outReal[i]; outReal[i] = Math.Sqrt(_ld2) + k; }",
+        "var _w0 = outReal.Slice(i, _wn); int _wk = 0; for( ; _wk <= _w0.Length - 4; _wk += 4 ) { double _ld2 = _w0[_wk]; _w0[_wk] = Math.Sqrt(_ld2) + k; double _ld3 = _w0[_wk + 1];",
         "for( i = 0, j = 0; i < j + outIdx; i += 1, j += 1 ) {",
-        "for( i = 0; i < outIdx; i += 1 ) { double _ld4 = inReal[i + 1];",
+        "var _w0 = inReal.Slice(i + 1, _w1.Length); int _wk = 0; for( ; _wk <= _w1.Length - 4; _wk += 4 ) { double _ld8 = _w0[_wk];",
     ] {
         assert!(flat.contains(needle), "C# output missing `{needle}`:\n{cs}");
     }
+}
+
+/// A C# loop over windows: its body, the slices cut for it (name, array,
+/// start, length), the slice its test reads the length of, and its passes per
+/// trip: one for a rolled loop and for an unrolled loop's tail, which follows
+/// its group and runs over the group's slices.
+struct CsWindowed {
+    pass: Vec<String>,
+    cuts: Vec<(String, String, String, String)>,
+    tested: String,
+    width: usize,
+    tail: bool,
+}
+
+/// A pass's code lines, comments dropped and each hoisted load's number
+/// erased, since every copy of a pass numbers its own.
+fn cs_pass_code(pass: &[String]) -> Vec<String> {
+    let load = regex::Regex::new(r"_ld\d+").unwrap();
+    let mut in_comment = false;
+    let mut out = Vec::new();
+    for line in pass {
+        let s = line.trim();
+        if in_comment || s.starts_with("/*") {
+            in_comment = !s.contains("*/");
+        } else if !s.starts_with("//") {
+            out.push(load.replace_all(line, "_ldN").into_owned());
+        }
+    }
+    out
+}
+
+fn cs_windowed_loops(batch: &str) -> Vec<CsWindowed> {
+    let rolled = regex::Regex::new(r"^(\s*)for\( int _wk = 0; _wk < (_w\w+)\.Length; _wk\+\+ \) \{$").unwrap();
+    let group = regex::Regex::new(r"^(\s*)for\( ; _wk <= (_w\w+)\.Length - (\d+); _wk \+= (\d+) \) \{$").unwrap();
+    let tail = regex::Regex::new(r"^(\s*)for\( ; _wk < (_w\w+)\.Length; _wk\+\+ \) \{$").unwrap();
+    let cut = regex::Regex::new(r"^\s*var (_w\w+) = (\w+)\.Slice\((.+), (\S+)\);$").unwrap();
+    let lines: Vec<&str> = batch.lines().collect();
+    let cuts_above = |h: usize| {
+        let mut cuts: Vec<(String, String, String, String)> =
+            lines[..h].iter().rev().map_while(|l| cut.captures(l)).map(|r| (r[1].to_string(), r[2].to_string(), r[3].to_string(), r[4].to_string())).collect();
+        cuts.reverse();
+        cuts
+    };
+    let mut out: Vec<CsWindowed> = Vec::new();
+    for (h, line) in lines.iter().enumerate() {
+        let (c, width, is_tail, cuts) = if let Some(c) = rolled.captures(line) {
+            (c, 1, false, cuts_above(h))
+        } else if let Some(c) = group.captures(line) {
+            assert_eq!(c[3], c[4], "a group loop must test for room for the passes it runs:\n{line}");
+            assert_eq!(lines[h - 1], format!("{}int _wk = 0;", &c[1]), "a group loop must start its counter at zero:\n{batch}");
+            let w = c[3].parse().unwrap();
+            (c, w, false, cuts_above(h - 1))
+        } else if let Some(c) = tail.captures(line) {
+            let g = out.last().filter(|g| g.width > 1 && !g.tail).unwrap_or_else(|| panic!("a tail loop without its group:\n{batch}"));
+            assert_eq!(lines[h - 1], format!("{}}}", &c[1]), "the tail must follow its group at once:\n{batch}");
+            let cuts = g.cuts.clone();
+            (c, 1, true, cuts)
+        } else {
+            continue;
+        };
+        let end = h + lines[h..].iter().position(|l| *l == format!("{}}}", &c[1])).expect("the loop closes");
+        out.push(CsWindowed { pass: lines[h + 1..end].iter().map(|l| (*l).to_string()).collect(), cuts, tested: c[2].to_string(), width, tail: is_tail });
+    }
+    out
+}
+
+/// A C# lockstep loop runs `_wk` over slices all cut as long as the first and
+/// tested against that one's length: RyuJIT then drops every check, and with
+/// any other length it silently keeps them. An unrolled group reaches at most
+/// `_wk + width - 1` from `_wk <= len - width` and touches nothing but those
+/// slices; its tail runs the rest over the same ones. Each copy, and the tail,
+/// must be copy 0 moved by its offset: a dropped statement or an unfused FMA
+/// in one copy changes values only there, and only nightly runs C#. ADD's comma update,
+/// MOM's three steps in one statement and TRANGE's scalar selects reach that
+/// shape with no index read or stepped inside. A loop that carries a scalar
+/// from one pass to the next stays as written: EMA windows its copy loops, not
+/// its recurrence.
+#[test]
+fn csharp_lockstep_loops_run_over_equal_slices() {
+    let step = regex::Regex::new(r"^\s*\w+(\+\+|--| \+= 1| -= 1)").unwrap();
+    let access = regex::Regex::new(r"(\w+)\[([^\]]*)\]").unwrap();
+    let batch = |name: &str| {
+        let (func, enums) = common::load_indicator(name);
+        let cs = backends::csharp::generate(&func, &enums, make_registry(), make_helpers());
+        cs[..cs.find("/**** Streaming API").expect("a streaming section")].to_string()
+    };
+    if !common::sweep_filtered() {
+        for (name, arrays) in [("add", &["inReal0", "inReal1", "outReal"][..]), ("mom", &["inReal", "outReal"]), ("trange", &["inHigh", "inLow", "inClose", "outReal"])] {
+            let body = batch(name);
+            let loops = cs_windowed_loops(&body);
+            assert_eq!(loops.iter().filter(|l| l.width > 1).count(), 2, "{name}: one unrolled loop over windows per overload:\n{body}");
+            assert_eq!(loops.len(), 4, "{name}: each unrolled loop and its tail, per overload:\n{body}");
+            for l in &loops {
+                for a in arrays {
+                    assert!(l.cuts.iter().any(|(_, x, _, _)| x == a), "{name}: `{a}` is not sliced:\n{body}");
+                    assert!(!l.pass.iter().any(|x| x.contains(&format!("{a}["))), "{name}: `{a}` is indexed in the loop:\n{body}");
+                }
+                assert!(!l.pass.iter().any(|x| step.is_match(x)), "{name}: an index steps inside the loop:\n{body}");
+            }
+        }
+        let body = batch("ema");
+        let loops = cs_windowed_loops(&body);
+        assert_eq!(loops.len(), 4, "ema: one copy loop over windows per overload, unrolled with its tail:\n{body}");
+        assert!(loops.iter().all(|l| !l.pass.iter().any(|x| x.contains("prevMA"))), "ema: its recurrence runs over windows:\n{body}");
+    }
+    let (mut functions, mut unrolled) = (0usize, 0usize);
+    for name in common::discover_indicators() {
+        let body = batch(&name);
+        let loops = cs_windowed_loops(&body);
+        for (i, l) in loops.iter().enumerate() {
+            let (first, rest) = l.cuts.split_first().unwrap_or_else(|| panic!("{name}: a loop over no slice:\n{body}"));
+            assert!(first.3 == "_wn" && l.tested == first.0, "{name}: the loop must test the first slice, cut `_wn` long:\n{body}");
+            for c in rest {
+                assert_eq!(c.3, format!("{}.Length", first.0), "{name}: `{}` is not as long as `{}`:\n{body}", c.0, first.0);
+            }
+            if l.width == 1 && !l.tail {
+                continue;
+            }
+            let mut reached = vec![false; l.width];
+            for x in &l.pass {
+                for a in access.captures_iter(x) {
+                    assert!(l.cuts.iter().any(|c| c.0 == a[1]), "{name}: `{}` in an unrolled loop is not one of its slices:\n{body}", &a[0]);
+                    let e = match &a[2] {
+                        "_wk" => 0,
+                        i => i.strip_prefix("_wk + ").and_then(|e| e.parse().ok()).unwrap_or_else(|| panic!("{name}: `{}` is not at the counter:\n{body}", &a[0])),
+                    };
+                    assert!(e < l.width, "{name}: `{}` reaches past the {} passes the test leaves room for:\n{body}", &a[0], l.width);
+                    reached[e] = true;
+                }
+            }
+            assert!(reached.iter().all(|r| *r), "{name}: an unrolled loop that does not run each of its passes:\n{body}");
+            if l.tail {
+                continue;
+            }
+            let code = cs_pass_code(&l.pass);
+            assert_eq!(code.len() % l.width, 0, "{name}: an unrolled loop whose copies differ in length:\n{body}");
+            let copies: Vec<&[String]> = code.chunks(code.len() / l.width).collect();
+            for (e, copy) in copies.iter().enumerate() {
+                let at = if e == 0 { "_wk".to_string() } else { format!("_wk + {e}") };
+                for x in copy.iter() {
+                    for a in access.captures_iter(x) {
+                        assert_eq!(&a[2], at, "{name}: `{}` in copy {e} of an unrolled pass:\n{body}", &a[0]);
+                    }
+                }
+                let rebased: Vec<String> = copy.iter().map(|x| x.replace(&format!("[{at}]"), "[_wk]")).collect();
+                assert_eq!(rebased, copies[0], "{name}: copy {e} of an unrolled pass is not copy 0:\n{body}");
+            }
+            let tail = loops.get(i + 1).filter(|t| t.tail).unwrap_or_else(|| panic!("{name}: an unrolled loop without its tail:\n{body}"));
+            assert_eq!(cs_pass_code(&tail.pass), copies[0], "{name}: the tail of an unrolled loop is not its copy 0:\n{body}");
+        }
+        let groups = loops.iter().filter(|l| l.width > 1).count();
+        assert_eq!(groups, loops.iter().filter(|l| l.tail).count(), "{name}: an unrolled loop without its tail:\n{body}");
+        unrolled += groups;
+        functions += usize::from(!loops.is_empty());
+    }
+    assert!(common::sweep_filtered() || functions >= 41, "only {functions} C# batch bodies run a loop over windows");
+    assert!(common::sweep_filtered() || unrolled >= 60, "only {unrolled} C# loops over windows are unrolled");
 }
 
 /// A C# batch body rents its `malloc` scratch from the shared pool and returns
@@ -2631,4 +2821,36 @@ TA_RetCode sma( int startIdx, int endIdx,
         backends::csharp::generate(&func, &enums, make_registry(), &HelperRegistry::empty());
     assert!(rust.contains("c_max("), "Rust must keep the unhinted max:\n{rust}");
     assert!(csharp.contains("MaxGt("), "C# must keep the unhinted max:\n{csharp}");
+}
+
+/// `count` sites in one C body: `(adds, ifs)`, where an add is
+/// `count += (..) ? 1 : 0;` and an if is `if( .. )` / `{` / `count += 1;`.
+fn count_sites(body: &str) -> (usize, usize) {
+    let lines: Vec<&str> = body.lines().map(str::trim).collect();
+    let adds = lines.iter().filter(|l| l.starts_with("count += (") && l.ends_with(") ? 1 : 0;")).count();
+    let ifs = lines
+        .windows(3)
+        .filter(|w| w[0].starts_with("if(") && w[1] == "{" && w[2] == "count += 1;")
+        .count();
+    (adds, ifs)
+}
+
+/// Every PERCENTRANK output keeps its bits whichever form a frame takes, so only
+/// this sees a frame flip: the C step and peek count by adding (a branch there
+/// mispredicts on an unordered series), and batch and the Open replay keep the
+/// `if`, which gcc vectorises into the shorter loop: the add form is the slower
+/// vector loop there.
+#[test]
+fn c_percentrank_counts_by_adding_in_step_and_peek_only() {
+    let (func, enums) = load_indicator("percentrank");
+    let c = backends::c::generate(&func, &enums, make_registry(), make_helpers());
+    let body = |needle: &str| {
+        crate::peek_suite::body_of(&c, needle).unwrap_or_else(|| panic!("no `{needle}` in PERCENTRANK's C"))
+    };
+    for needle in ["TA_PERCENTRANK_StepImpl(", "TA_PERCENTRANK_Peek("] {
+        assert_eq!(count_sites(&body(needle)), (1, 0), "{needle} must count by adding:\n{}", body(needle));
+    }
+    for needle in ["TA_RetCode TA_PERCENTRANK(", "TA_RetCode TA_S_PERCENTRANK(", "TA_PERCENTRANK_OpenBody("] {
+        assert_eq!(count_sites(&body(needle)), (0, 1), "{needle} must keep the `if`:\n{}", body(needle));
+    }
 }
