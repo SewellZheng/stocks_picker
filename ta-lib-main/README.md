@@ -11,6 +11,8 @@ results against.
 [![main nightly tests](https://github.com/TA-Lib/ta-lib/actions/workflows/main-nightly-tests.yml/badge.svg)](https://github.com/TA-Lib/ta-lib/actions/workflows/main-nightly-tests.yml)
 [![dev nightly tests](https://github.com/TA-Lib/ta-lib/actions/workflows/dev-nightly-tests.yml/badge.svg)](https://github.com/TA-Lib/ta-lib/actions/workflows/dev-nightly-tests.yml)
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16945/badge)](https://www.bestpractices.dev/projects/16945)
+
 ## Features
 
 <table>

@@ -400,6 +400,7 @@ const RUNTIME_IMPORTS: &[(&str, &str)] = &[
     ("MInteger", "../runtime/mInteger.ts"),
     ("OutRange", "../runtime/outRange.ts"),
     ("fma", "../runtime/fma.ts"),
+    ("orderStepPick", "../runtime/bits.ts"),
     ("fmaSlow", "../runtime/fma.ts"),
     ("clampedStart", "../runtime/checks.ts"),
     ("failure", "../runtime/checks.ts"),
@@ -530,6 +531,9 @@ pub(crate) struct TsCtx<'a> {
     fma_ref: Option<&'a FmaVarSets>,
     fma_inline: Cell<FmaInline>,
     loop_depth: Cell<usize>,
+    /// Set for a batch body: its outermost loops may run one counter
+    /// ([`TsStmt::windowed`]).
+    windows: Cell<bool>,
     /// Set while a `for` header renders, where a block cannot go.
     in_for_header: Cell<bool>,
     matype_map: HashMap<String, String>,
@@ -563,6 +567,7 @@ impl<'a> TsCtx<'a> {
             fma_ref: None,
             fma_inline: Cell::new(fma_inline),
             loop_depth: Cell::new(0),
+            windows: Cell::new(false),
             in_for_header: Cell::new(false),
             matype_map: build_matype_map(svc.enums),
             ret: CType::Int32,
@@ -596,6 +601,7 @@ impl<'a> TsCtx<'a> {
             fma_ref: Some(fma),
             fma_inline: Cell::new(fma_inline_mode(body, fma, FmaInline::InLoops)),
             loop_depth: Cell::new(0),
+            windows: Cell::new(false),
             in_for_header: Cell::new(false),
             matype_map: build_matype_map(svc.enums),
             ret: CType::Int32,
@@ -608,6 +614,14 @@ impl<'a> TsCtx<'a> {
 
     fn fma_sets(&self) -> Option<&FmaVarSets> {
         self.fma_ref.or(self.fma.as_ref())
+    }
+
+    /// This context for a peek frame: [`FmaVarSets::for_peek`].
+    pub(crate) fn for_peek(mut self) -> Self {
+        if let Some(f) = self.fma_ref.take() {
+            self.fma = Some(f.for_peek());
+        }
+        self
     }
 
     /// For a frame that runs once per bar as a whole, `body` being all of it:
@@ -1308,6 +1322,7 @@ fn gen_impl(func: &FuncDef, private: bool, svc: &Services) -> String {
     let body: &[Statement] = &folded;
     let ctx = TsCtx::new(svc, body, &func.outputs, true);
     ctx.env.seed_signature(func);
+    ctx.windows.set(true);
 
     let mut out = String::new();
     let _ = writeln!(out, "\n/** @internal */\nexport function {name}(\n  {},\n): RetCode {{", impl_params(func, private).join(",\n  "));
@@ -1907,6 +1922,9 @@ impl StatementEmitter for TsStmt<'_> {
     }
 
     fn while_loop(&self, condition: &Expr, body: &[Statement], indent: usize) -> String {
+        if let Some(out) = self.windowed(None, condition, body, None, indent) {
+            return out;
+        }
         let pad = " ".repeat(indent);
         let (cond, hoisted) = self.c.hoist(condition);
         let mut out = render_hoisted_blocks(&hoisted, indent, self.c);
@@ -1947,6 +1965,18 @@ impl StatementEmitter for TsStmt<'_> {
         let c = self.c;
         if contains_alloc_err_return(then_body) {
             return String::new();
+        }
+        if cond_comments.is_empty() {
+            if let Some(step) = c.fma_sets().and_then(|s| super::select_rule::admitted_step(condition, then_body, else_body, s)) {
+                let target = Expr::Var(step.acc.to_string());
+                let arm = |(op, x): &(BinOp, &Expr)| c.num(&Expr::BinOp(Box::new(target.clone()), op.clone(), Box::new((*x).clone())));
+                let (acc, a, b) = (c.num(&target), c.num(step.a), c.num(step.b));
+                return format!(
+                    "{pad}orderStepPick[0] = {acc};\n{pad}orderStepPick[1] = {};\n{pad}orderStepPick[2] = {};\n{pad}{acc} = orderStepPick[+({a} < {b}) | (+({b} < {a}) << 1)];\n",
+                    arm(&step.below),
+                    arm(&step.above),
+                );
+            }
         }
         // V8 keeps a branch here, which mispredicts on every bar of an unordered
         // series; a boolean to number is a setcc. Integer only: a real counter
@@ -2039,6 +2069,9 @@ impl StatementEmitter for TsStmt<'_> {
     }
 
     fn for_c(&self, init: &Statement, condition: &Expr, update: &Statement, body: &[Statement], indent: usize) -> String {
+        if let Some(out) = self.windowed(Some(init), condition, body, Some(update), indent) {
+            return out;
+        }
         let pad = " ".repeat(indent);
         self.c.in_for_header.set(true);
         let init_str = render_forc_part(init, self.c);
@@ -3129,3 +3162,137 @@ fn max_min_as_sum(expr: &Expr) -> Expr {
     }
 }
 
+
+/// TypeScript's windows ([`super::window`]) are base offsets into the arrays,
+/// as a `subarray` allocates a view on every call.
+const TS_WINDOWS: super::window::Policy =
+    super::window::Policy { counter_reads_bounded: false, checked: false, scalar_branches: false };
+
+impl TsStmt<'_> {
+    /// An outermost batch loop that moves several cursors in lockstep, whose
+    /// passes are only assignments, none carrying a scalar to the next pass, as
+    /// one counter from zero with each window's start held in a constant: V8
+    /// runs several cursors slower than one. `None` renders the loop as written.
+    #[allow(clippy::too_many_lines)]
+    fn windowed(&self, init: Option<&Statement>, condition: &Expr, body: &[Statement], update: Option<&Statement>, indent: usize) -> Option<String> {
+        use super::lockstep::{as_step, carries_scalar, inline, Facts, Names};
+        use super::window::{marker_of, PASS, TRIP};
+        let c = self.c;
+        if !c.windows.get() || c.loop_depth.get() != 0 {
+            return None;
+        }
+        let mut pass = Vec::new();
+        let tail: Vec<&Statement> = match update {
+            Some(Statement::Block { body }) => body.iter().collect(),
+            Some(u) => vec![u],
+            None => vec![],
+        };
+        for s in body.iter().chain(tail) {
+            inline(s, &mut pass);
+        }
+        let index = |n: &str| c.ty(&Expr::Var(n.to_string())) == CType::Int32;
+        let usize_expr = |e: &Expr| c.ty(e) == CType::Int32;
+        let never = |_: &Expr| false;
+        let sliceable = |a: &str| c.ty(&Expr::Var(a.to_string())).is_pointer();
+        let same_len = |_: &str| false;
+        let ring_storage = |_: &str| None;
+        let names = Names { index: &index, usize_expr: &usize_expr, castable: &never, sliceable: &sliceable, same_len: &same_len, ring_storage: &ring_storage };
+        let plan = super::window::plan(condition, &pass, None, &names, &TS_WINDOWS)?;
+        if plan.reverse || plan.cond_step.is_some() || plan.checked || !plan.body.iter().all(|s| matches!(s, Statement::Assign { .. } | Statement::Comment(_))) {
+            return None;
+        }
+        let facts = Facts::of(&plan.body);
+        let steps = facts.induction();
+        if steps.keys().filter(|v| index(v)).count() < 2 || carries_scalar(&plan.body, &facts.other, &steps) {
+            return None;
+        }
+        let lane = |j: usize, d: i64| if d < 0 { format!("_w{j}m{}", -d) } else { format!("_w{j}_{d}") };
+        let mut lanes: Vec<(usize, i64)> = Vec::new();
+        for s in &plan.body {
+            crate::streaming::walk_stmt_exprs(s, &mut |top| {
+                crate::streaming::walk_expr(top, &mut |e| {
+                    if let Expr::ArrayAccess(_, i) = e {
+                        if let Some(m) = marker_of(i) {
+                            if !lanes.contains(&m) {
+                                lanes.push(m);
+                            }
+                        }
+                    }
+                });
+            });
+        }
+        if lanes.is_empty() {
+            return None;
+        }
+        let own_step = |s: &Statement, v: &str| as_step(s).is_some_and(|(x, _)| x == v);
+        let moved: Vec<(&String, i64)> = steps
+            .iter()
+            .filter(|(v, _)| index(v))
+            .filter(|(v, _)| {
+                let mut read = false;
+                for s in plan.body.iter().filter(|s| !own_step(s, v)) {
+                    crate::streaming::walk_stmt_exprs(s, &mut |top| {
+                        crate::streaming::walk_expr(top, &mut |e| read |= matches!(e, Expr::Var(n) if n == *v));
+                    });
+                }
+                !read
+            })
+            .map(|(v, d)| (v, *d))
+            .collect();
+        let subs: HashMap<String, Expr> = lanes
+            .iter()
+            .map(|&(j, d)| {
+                let Expr::Var(m) = super::window::marker(j, d) else { unreachable!() };
+                (m, Expr::BinOp(Box::new(Expr::Var(lane(j, d))), BinOp::Add, Box::new(Expr::Var(PASS.to_string()))))
+            })
+            .collect();
+        let pass: Vec<Statement> = plan
+            .body
+            .iter()
+            .filter(|s| !moved.iter().any(|(v, _)| own_step(s, v)))
+            .map(|s| match s {
+                Statement::Assign { target, value, compound } => Statement::Assign {
+                    target: crate::helper_registry::substitute_expr(target, &subs),
+                    value: crate::helper_registry::substitute_expr(value, &subs),
+                    compound: *compound,
+                },
+                other => other.clone(),
+            })
+            .collect();
+        for n in [TRIP, PASS] {
+            c.env.declare(n, CType::Int32);
+        }
+        for &(j, d) in &lanes {
+            c.env.declare(&lane(j, d), CType::Int32);
+        }
+
+        let pad = " ".repeat(indent);
+        let mut out: String = match init {
+            Some(Statement::Block { body }) => body.iter().map(|s| self.walk_stmt(s, indent)).collect(),
+            Some(one) => self.walk_stmt(one, indent),
+            None => String::new(),
+        };
+        let _ = writeln!(out, "{pad}if ({}) {{", c.cond(&plan.guard));
+        let _ = writeln!(out, "{pad}  const {TRIP} = {};", c.value_for(CType::Int32, &plan.trip));
+        for &(j, d) in &lanes {
+            let start = match d {
+                0 => plan.windows[j].start.clone(),
+                d => Expr::BinOp(Box::new(plan.windows[j].start.clone()), BinOp::Add, Box::new(Expr::IntLiteral(d))),
+            };
+            let _ = writeln!(out, "{pad}  const {} = {};", lane(j, d), c.value_for(CType::Int32, &start));
+        }
+        let _ = writeln!(out, "{pad}  for (let {PASS} = 0; {PASS} < {TRIP}; {PASS}++) {{");
+        c.in_loop(|| {
+            for s in &pass {
+                out.push_str(&self.walk_stmt(s, indent + 4));
+            }
+        });
+        let _ = writeln!(out, "{pad}  }}");
+        for (v, d) in &moved {
+            let op = if *d > 0 { "+=" } else { "-=" };
+            let _ = writeln!(out, "{pad}  {} {op} {TRIP};", c.num(&Expr::Var((*v).clone())));
+        }
+        let _ = writeln!(out, "{pad}}}");
+        Some(out)
+    }
+}
