@@ -511,6 +511,9 @@ final class Dispatch {
          case "MACDV":
             return core.macdv(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0), h.realOutput(1), h.realOutput(2));
+         case "MAENV":
+            return core.maenv(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3), h.realOutput(0), h.realOutput(1), h.realOutput(2));
          case "MAMA":
             return core.mama(
                startIdx, endIdx, h.realInput(0), h.realOpt(0), h.realOpt(1), h.realOutput(0), h.realOutput(1));
@@ -679,6 +682,9 @@ final class Dispatch {
          case "SQZMOM":
             return core.sqzmom(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), h.realOutput(0), h.intOutput(1));
+         case "SSF":
+            return core.ssf(
+               startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
          case "STC":
             return core.stc(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0));
@@ -1103,6 +1109,8 @@ final class Dispatch {
             return core.macdfixLookback(h.intOpt(0));
          case "MACDV":
             return core.macdvLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
+         case "MAENV":
+            return core.maenvLookback(h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3));
          case "MAMA":
             return core.mamaLookback(h.realOpt(0), h.realOpt(1));
          case "MARKETFI":
@@ -1215,6 +1223,8 @@ final class Dispatch {
             return core.sqrtLookback();
          case "SQZMOM":
             return core.sqzmomLookback(h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5));
+         case "SSF":
+            return core.ssfLookback(h.intOpt(0));
          case "STC":
             return core.stcLookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "STDDEV":
@@ -1599,6 +1609,8 @@ final class Dispatch {
             return core.macdfixDisplayShift(h.intOpt(0), outputIdx);
          case "MACDV":
             return core.macdvDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
+         case "MAENV":
+            return core.maenvDisplayShift(h.intOpt(0), h.realOpt(1), h.realOpt(2), h.maTypeOpt(3), outputIdx);
          case "MAMA":
             return core.mamaDisplayShift(h.realOpt(0), h.realOpt(1), outputIdx);
          case "MARKETFI":
@@ -1711,6 +1723,8 @@ final class Dispatch {
             return core.sqrtDisplayShift(outputIdx);
          case "SQZMOM":
             return core.sqzmomDisplayShift(h.intOpt(0), h.realOpt(1), h.intOpt(2), h.realOpt(3), h.realOpt(4), h.realOpt(5), outputIdx);
+         case "SSF":
+            return core.ssfDisplayShift(h.intOpt(0), outputIdx);
          case "STC":
             return core.stcDisplayShift(h.intOpt(0), h.intOpt(1), h.intOpt(2), outputIdx);
          case "STDDEV":
